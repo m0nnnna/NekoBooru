@@ -1,0 +1,27 @@
+[Unit]
+Description=NekoBooru - Local Booru-style Image/Video Gallery
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+Group=%i
+WorkingDirectory=/opt/nekobooru
+Environment="PATH=/opt/nekobooru/venv/bin:/usr/local/bin:/usr/bin:/bin"
+# Check for ffmpeg and regenerate thumbnails on startup (non-blocking)
+ExecStartPre=/bin/bash -c 'if command -v ffmpeg &> /dev/null; then /opt/nekobooru/venv/bin/python /opt/nekobooru/regenerate_video_thumbnails.py || true; fi'
+ExecStart=/opt/nekobooru/venv/bin/python /opt/nekobooru/backend/run.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/nekobooru/data
+
+[Install]
+WantedBy=multi-user.target
