@@ -15,6 +15,7 @@ class TokenType(Enum):
     NEGATED_TAG = "negated_tag"
     OR = "or"
     FILTER = "filter"
+    NEGATED_FILTER = "negated_filter"
 
 
 @dataclass
@@ -37,6 +38,24 @@ def tokenize(query: str) -> list[Token]:
         # Check for OR operator
         if part.upper() == "OR" and i > 0 and i < len(parts) - 1:
             tokens.append(Token(TokenType.OR, "OR"))
+        # Check for negated filter (e.g., -safety:unsafe)
+        elif part.startswith("-") and ":" in part[1:]:
+            negated_part = part[1:]
+            key, _, value = negated_part.partition(":")
+            op = "="
+            if value.startswith(">="):
+                op = ">="
+                value = value[2:]
+            elif value.startswith("<="):
+                op = "<="
+                value = value[2:]
+            elif value.startswith(">"):
+                op = ">"
+                value = value[1:]
+            elif value.startswith("<"):
+                op = "<"
+                value = value[1:]
+            tokens.append(Token(TokenType.NEGATED_FILTER, value, filter_key=key.lower(), filter_op=op))
         # Check for negated tag
         elif part.startswith("-"):
             tokens.append(Token(TokenType.NEGATED_TAG, part[1:]))
@@ -113,6 +132,11 @@ async def search_posts(
             condition = apply_filter(token)
             if condition is not None:
                 and_conditions.append(condition)
+
+        elif token.type == TokenType.NEGATED_FILTER:
+            condition = apply_filter(token)
+            if condition is not None:
+                and_conditions.append(not_(condition))
 
         # If we have an OR group and encounter something else, close it
         if current_or_group and token.type not in (TokenType.OR,) and token.type == TokenType.TAG:

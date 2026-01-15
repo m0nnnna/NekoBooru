@@ -1,5 +1,5 @@
 <template>
-  <div class="post-grid">
+  <div class="post-grid" :class="{ 'is-loading': loading && posts.length > 0 }">
     <PostCard
       v-for="post in posts"
       :key="post.id"
@@ -9,7 +9,7 @@
     <div v-if="posts.length === 0 && !loading" class="empty-state">
       No posts found
     </div>
-    <div v-if="loading" class="loading-state">
+    <div v-if="loading && posts.length === 0" class="loading-state">
       Loading...
     </div>
   </div>
@@ -37,6 +37,12 @@ defineEmits(['select'])
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 0.75rem;
+  transition: opacity 0.15s;
+}
+
+.post-grid.is-loading {
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 .empty-state,
