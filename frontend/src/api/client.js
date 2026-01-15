@@ -76,6 +76,13 @@ export const api = {
     })
   },
 
+  async uploadFromYtdlp(url) {
+    return request('/uploads/from-ytdlp', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    })
+  },
+
   async createPost(data) {
     return request('/posts', {
       method: 'POST',
