@@ -276,6 +276,7 @@ async function deleteAlias(id) {
 .tags-table {
   width: 100%;
   border-collapse: collapse;
+  color: var(--text-primary);
 }
 
 .tags-table th,
@@ -283,6 +284,7 @@ async function deleteAlias(id) {
   padding: 0.75rem;
   text-align: left;
   border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
 }
 
 .tags-table th {
@@ -349,6 +351,7 @@ async function deleteAlias(id) {
   padding: 0.5rem 0.75rem;
   background: var(--bg-secondary);
   border-radius: 0.25rem;
+  color: var(--text-primary);
 }
 
 .arrow {

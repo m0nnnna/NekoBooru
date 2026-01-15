@@ -165,7 +165,7 @@ function onFileSelect(e) {
 
 function addFiles(files) {
   for (const file of files) {
-    const upload = {
+    const upload = reactive({
       id: ++uploadIdCounter,
       file,
       tags: [],
@@ -174,7 +174,7 @@ function addFiles(files) {
       uploading: false,
       completed: false,
       error: null,
-    }
+    })
 
     // Generate preview for images
     if (file.type.startsWith('image/')) {

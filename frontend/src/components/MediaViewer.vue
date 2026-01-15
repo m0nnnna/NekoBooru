@@ -94,7 +94,7 @@ const isImage = computed(() => props.type === 'image' || props.type === 'gif')
 const isVideo = computed(() => props.type === 'video')
 
 const wrapperStyle = computed(() => ({
-  transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
+  transform: `translate(calc(-50% + ${translateX.value}px), calc(-50% + ${translateY.value}px)) scale(${scale.value})`,
   opacity: loading.value || error.value ? 0 : 1,
 }))
 
@@ -213,6 +213,8 @@ onUnmounted(() => {
   justify-content: center;
   cursor: grab;
   border-radius: 0.5rem;
+  min-height: 0;
+  min-width: 0;
 }
 
 .media-viewer:active {
@@ -220,13 +222,20 @@ onUnmounted(() => {
 }
 
 .media-wrapper {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   transform-origin: center center;
   transition: transform 0.1s ease-out, opacity 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .media-wrapper img,
 .media-wrapper video {
   max-width: none;
+  max-height: none;
   display: block;
   border-radius: 0.25rem;
 }

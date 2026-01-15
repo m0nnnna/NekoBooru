@@ -116,6 +116,13 @@ function toggleDarkMode() {
   --border-light: #2c3138;
   --shadow: rgba(0, 0, 0, 0.3);
   --shadow-lg: rgba(0, 0, 0, 0.5);
+
+  /* Tag colors - brighter for dark mode visibility */
+  --tag-general: #7fc4f7;
+  --tag-artist: #f7c97f;
+  --tag-character: #9ad9b8;
+  --tag-copyright: #d4a8d0;
+  --tag-meta: #f7a08a;
 }
 
 html {

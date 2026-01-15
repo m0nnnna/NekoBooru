@@ -202,13 +202,20 @@ function formatDate(dateStr) {
 <style scoped>
 .post-view {
   display: grid;
-  grid-template-columns: 1fr 360px;
+  grid-template-columns: minmax(0, 1fr) 360px;
   gap: 1.5rem;
   height: calc(100vh - 120px);
 }
 
+.post-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .media-container {
   height: 100%;
+  width: 100%;
   border-radius: 0.75rem;
   overflow: hidden;
   background: var(--bg-secondary);

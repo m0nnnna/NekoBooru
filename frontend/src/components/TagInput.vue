@@ -15,16 +15,20 @@
         type="text"
         v-model="inputValue"
         :placeholder="placeholder"
-        @keydown.enter.prevent="addCurrentTag"
+        @keydown.enter.prevent="onEnter"
         @keydown.backspace="onBackspace"
+        @keydown.down.prevent="onArrowDown"
+        @keydown.up.prevent="onArrowUp"
         @input="onInput"
-        @blur="addCurrentTag"
+        @blur="onBlur"
       />
       <ul v-if="suggestions.length > 0" class="suggestions">
         <li
-          v-for="tag in suggestions"
+          v-for="(tag, index) in suggestions"
           :key="tag.name"
           @mousedown.prevent="selectSuggestion(tag)"
+          @mouseenter="selectedIndex = index"
+          :class="{ selected: index === selectedIndex }"
           :style="{ borderLeftColor: tag.categoryColor }"
         >
           <span class="tag-name">{{ tag.name }}</span>
@@ -56,6 +60,7 @@ const tagsStore = useTagsStore()
 
 const inputValue = ref('')
 const suggestions = ref([])
+const selectedIndex = ref(-1)
 let debounceTimer = null
 
 function processTagString(str) {
@@ -109,8 +114,10 @@ function onInput() {
     const query = inputValue.value.trim()
     if (query.length >= 1) {
       suggestions.value = await tagsStore.autocomplete(query)
+      selectedIndex.value = -1
     } else {
       suggestions.value = []
+      selectedIndex.value = -1
     }
   }, 150)
 }
@@ -133,6 +140,38 @@ function selectSuggestion(tag) {
   }
   inputValue.value = ''
   suggestions.value = []
+  selectedIndex.value = -1
+}
+
+function onEnter() {
+  if (suggestions.value.length > 0 && selectedIndex.value >= 0) {
+    selectSuggestion(suggestions.value[selectedIndex.value])
+  } else {
+    addCurrentTag()
+  }
+}
+
+function onBlur() {
+  // Delay to allow click on suggestion to register
+  setTimeout(() => {
+    suggestions.value = []
+    selectedIndex.value = -1
+  }, 150)
+  addCurrentTag()
+}
+
+function onArrowDown() {
+  if (suggestions.value.length > 0) {
+    selectedIndex.value = (selectedIndex.value + 1) % suggestions.value.length
+  }
+}
+
+function onArrowUp() {
+  if (suggestions.value.length > 0) {
+    selectedIndex.value = selectedIndex.value <= 0
+      ? suggestions.value.length - 1
+      : selectedIndex.value - 1
+  }
 }
 </script>
 
@@ -223,9 +262,11 @@ function selectSuggestion(tag) {
   display: flex;
   justify-content: space-between;
   border-left: 3px solid transparent;
+  color: var(--text-primary);
 }
 
-.suggestions li:hover {
+.suggestions li:hover,
+.suggestions li.selected {
   background: var(--bg-tertiary);
 }
 

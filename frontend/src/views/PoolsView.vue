@@ -142,6 +142,9 @@ function formatDate(dateStr) {
   display: flex;
   justify-content: space-between;
   font-size: 0.75rem;
+}
+
+.pool-meta span {
   color: var(--text-secondary);
 }
 
