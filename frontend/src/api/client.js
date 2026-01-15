@@ -69,6 +69,13 @@ export const api = {
     })
   },
 
+  async uploadFromUrl(url) {
+    return request('/uploads/from-url', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    })
+  },
+
   async createPost(data) {
     return request('/posts', {
       method: 'POST',
@@ -233,7 +240,7 @@ export const api = {
 
   // Stats
   async getStats() {
-    return request('/stats')
+    return request('/settings/stats')
   },
 
   // Health check

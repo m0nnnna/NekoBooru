@@ -89,6 +89,46 @@
         </div>
       </div>
     </div>
+
+    <div class="settings-section">
+      <h2>Server Statistics</h2>
+      <div v-if="statsLoading" class="stats-loading">Loading statistics...</div>
+      <div v-else-if="statsError" class="stats-error">{{ statsError }}</div>
+      <div v-else class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value">{{ stats.total_files }}</div>
+          <div class="stat-label">Total Files</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">{{ stats.images }}</div>
+          <div class="stat-label">Images</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">{{ stats.gifs }}</div>
+          <div class="stat-label">GIFs</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">{{ stats.videos }}</div>
+          <div class="stat-label">Videos</div>
+        </div>
+        <div class="stat-card wide">
+          <div class="stat-value">{{ stats.total_size_formatted }}</div>
+          <div class="stat-label">Total Media Size</div>
+        </div>
+        <div class="stat-card wide">
+          <div class="stat-value">{{ stats.database_size_formatted }}</div>
+          <div class="stat-label">Database Size</div>
+        </div>
+        <div class="stat-card wide" v-if="stats.oldest_post">
+          <div class="stat-value">{{ formatDate(stats.oldest_post) }}</div>
+          <div class="stat-label">Oldest Post</div>
+        </div>
+        <div class="stat-card wide" v-if="stats.newest_post">
+          <div class="stat-value">{{ formatDate(stats.newest_post) }}</div>
+          <div class="stat-label">Newest Post</div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -100,6 +140,10 @@ const currentSettings = ref({})
 const dataDir = ref('')
 const saving = ref(false)
 const isWindows = ref(navigator.platform.toLowerCase().includes('win'))
+
+const stats = ref({})
+const statsLoading = ref(true)
+const statsError = ref(null)
 
 const migrationPrompt = ref({
   show: false,
@@ -115,8 +159,32 @@ const migrationStatus = ref({
 })
 
 onMounted(async () => {
-  await loadSettings()
+  await Promise.all([loadSettings(), loadStats()])
 })
+
+async function loadStats() {
+  statsLoading.value = true
+  statsError.value = null
+  try {
+    stats.value = await api.getStats()
+  } catch (e) {
+    statsError.value = 'Failed to load statistics: ' + e.message
+  } finally {
+    statsLoading.value = false
+  }
+}
+
+function formatDate(isoString) {
+  if (!isoString) return 'N/A'
+  const date = new Date(isoString)
+  return date.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
 
 async function loadSettings() {
   try {
@@ -373,5 +441,64 @@ function browseDirectory() {
   background: var(--bg-primary);
   padding: 0.5rem;
   border-radius: 0.25rem;
+}
+
+/* Stats Section */
+.stats-loading,
+.stats-error {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.stats-error {
+  color: var(--coral);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+.stat-card {
+  background: var(--bg-secondary);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  text-align: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.stat-card.wide {
+  grid-column: span 2;
+}
+
+.stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+
+.stat-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+@media (max-width: 768px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stat-card.wide {
+    grid-column: span 1;
+  }
 }
 </style>

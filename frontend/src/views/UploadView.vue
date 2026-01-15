@@ -4,7 +4,7 @@
 
     <div
       class="drop-zone"
-      :class="{ dragging: isDragging }"
+      :class="{ dragging: isDragging, fetching: fetchingUrl }"
       @dragover.prevent="isDragging = true"
       @dragleave="isDragging = false"
       @drop.prevent="onDrop"
@@ -19,8 +19,10 @@
         style="display: none"
       />
       <div class="drop-content">
-        <span class="drop-icon">+</span>
-        <p>Drop files here or click to browse</p>
+        <span v-if="fetchingUrl" class="drop-icon spinner-icon"></span>
+        <span v-else class="drop-icon">+</span>
+        <p v-if="fetchingUrl">Fetching image from URL...</p>
+        <p v-else>Drop files here, click to browse, or paste images/URLs</p>
         <p class="hint">Supported: JPG, PNG, GIF, WebP, WebM, MP4</p>
       </div>
     </div>
@@ -117,7 +119,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api/client'
 import TagInput from '../components/TagInput.vue'
@@ -129,7 +131,116 @@ const uploads = ref([])
 const uploading = ref(false)
 const showSuccessToast = ref(false)
 const successMessage = ref('')
+const fetchingUrl = ref(false)
 let uploadIdCounter = 0
+
+// Paste event handler
+onMounted(() => {
+  document.addEventListener('paste', handlePaste)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('paste', handlePaste)
+})
+
+async function handlePaste(e) {
+  // Don't intercept paste events in input fields
+  const activeElement = document.activeElement
+  if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+    return
+  }
+
+  const clipboardData = e.clipboardData
+  if (!clipboardData) return
+
+  // Check for pasted files/images
+  const files = Array.from(clipboardData.files)
+  if (files.length > 0) {
+    e.preventDefault()
+    addFiles(files)
+    return
+  }
+
+  // Check for image items (screenshots, copied images)
+  for (const item of clipboardData.items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault()
+      const blob = item.getAsFile()
+      if (blob) {
+        // Create a File with a generated name
+        const ext = item.type.split('/')[1] || 'png'
+        const filename = `pasted-image-${Date.now()}.${ext}`
+        const file = new File([blob], filename, { type: item.type })
+        addFiles([file])
+      }
+      return
+    }
+  }
+
+  // Check for pasted URL text
+  const text = clipboardData.getData('text/plain')?.trim()
+  if (text && isImageUrl(text)) {
+    e.preventDefault()
+    await fetchFromUrl(text)
+  }
+}
+
+function isImageUrl(text) {
+  // Check if text looks like a URL to an image/video
+  try {
+    const url = new URL(text)
+    if (!['http:', 'https:'].includes(url.protocol)) return false
+
+    // Check common image/video extensions
+    const ext = url.pathname.split('.').pop()?.toLowerCase()
+    const mediaExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'webm', 'mp4']
+    if (mediaExts.includes(ext)) return true
+
+    // Check common image hosting domains
+    const imageHosts = [
+      'i.imgur.com', 'imgur.com',
+      'i.redd.it', 'preview.redd.it',
+      'pbs.twimg.com', 'media.tumblr.com',
+      'cdn.discordapp.com', 'media.discordapp.net',
+      'i.pinimg.com', 'i.pximg.net',
+      'gelbooru.com', 'safebooru.org', 'danbooru.donmai.us',
+    ]
+    if (imageHosts.some(host => url.host.includes(host))) return true
+
+    return false
+  } catch {
+    return false
+  }
+}
+
+async function fetchFromUrl(url) {
+  fetchingUrl.value = true
+  showToast('Fetching image from URL...')
+
+  try {
+    const result = await api.uploadFromUrl(url)
+
+    // Create a pseudo-upload entry
+    const upload = reactive({
+      id: ++uploadIdCounter,
+      file: { name: result.filename, size: result.size, type: 'image/*' },
+      tags: [],
+      safety: 'safe',
+      preview: url, // Use URL as preview
+      uploading: false,
+      completed: false,
+      error: null,
+      token: result.token, // Pre-uploaded token
+    })
+
+    uploads.value.push(upload)
+    showToast('Image fetched successfully!')
+  } catch (e) {
+    showToast('Failed to fetch image: ' + e.message)
+  } finally {
+    fetchingUrl.value = false
+  }
+}
 
 const uploadProgress = reactive({
   current: 0,
@@ -223,8 +334,13 @@ async function uploadAll() {
     uploadProgress.current++
 
     try {
-      // Step 1: Upload file
-      const { token } = await api.uploadFile(upload.file)
+      let token = upload.token // May already have token from URL fetch
+
+      // Step 1: Upload file (skip if already has token from URL fetch)
+      if (!token) {
+        const result = await api.uploadFile(upload.file)
+        token = result.token
+      }
 
       // Step 2: Create post
       await api.createPost({
@@ -297,11 +413,27 @@ async function uploadAll() {
   transform: scale(1.01);
 }
 
+.drop-zone.fetching {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+
 .drop-icon {
   font-size: 3rem;
   color: var(--accent);
   display: block;
   margin-bottom: 1rem;
+}
+
+.drop-icon.spinner-icon {
+  display: inline-block;
+  width: 3rem;
+  height: 3rem;
+  border: 4px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
 .drop-content p {
