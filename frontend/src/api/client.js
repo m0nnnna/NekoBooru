@@ -274,10 +274,18 @@ export const api = {
     })
   },
 
-  async updateYtdlpCookies(cookiesPath) {
+  async uploadYtdlpCookies(file) {
+    const formData = new FormData()
+    formData.append('file', file)
     return request('/settings/ytdlp-cookies', {
-      method: 'PUT',
-      body: JSON.stringify({ cookies_path: cookiesPath }),
+      method: 'POST',
+      body: formData,
+    })
+  },
+
+  async deleteYtdlpCookies() {
+    return request('/settings/ytdlp-cookies', {
+      method: 'DELETE',
     })
   },
 }

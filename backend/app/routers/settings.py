@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,9 @@ from ..config import settings
 from ..database import get_db
 from ..models import Post
 from ..services.settings import SettingsManager, migrate_data_directory
+
+# Fixed path for cookies file in config directory
+COOKIES_FILENAME = "ytdlp_cookies.txt"
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -21,16 +24,12 @@ class SettingsResponse(BaseModel):
     posts_dir: str
     thumbs_dir: str
     uploads_dir: str
-    ytdlp_cookies_path: Optional[str] = None
+    ytdlp_cookies_configured: bool = False
 
 
 class UpdateDataDirRequest(BaseModel):
     data_dir: str
     migrate: bool = False
-
-
-class UpdateYtdlpCookiesRequest(BaseModel):
-    cookies_path: Optional[str] = None
 
 
 class MigrationResponse(BaseModel):
@@ -70,9 +69,9 @@ def format_size(size_bytes: int) -> str:
 @router.get("")
 async def get_settings():
     """Get current settings."""
-    settings_manager = SettingsManager(settings.config_file)
-    configured_dir = settings_manager.get_data_dir()
-    cookies_path = settings_manager.get_ytdlp_cookies_path()
+    # Check if cookies file exists in config directory
+    cookies_file = settings.config_dir / COOKIES_FILENAME
+    cookies_configured = cookies_file.exists() and cookies_file.is_file()
 
     return SettingsResponse(
         data_dir=str(settings.data_dir),
@@ -80,7 +79,7 @@ async def get_settings():
         posts_dir=str(settings.posts_dir),
         thumbs_dir=str(settings.thumbs_dir),
         uploads_dir=str(settings.uploads_dir),
-        ytdlp_cookies_path=cookies_path,
+        ytdlp_cookies_configured=cookies_configured,
     )
 
 
@@ -159,33 +158,67 @@ async def migrate_data(request: UpdateDataDirRequest):
     return MigrationResponse(**result)
 
 
-@router.put("/ytdlp-cookies")
-async def update_ytdlp_cookies(request: UpdateYtdlpCookiesRequest):
-    """Update yt-dlp cookies file path."""
-    settings_manager = SettingsManager(settings.config_file)
+@router.post("/ytdlp-cookies")
+async def upload_ytdlp_cookies(file: UploadFile = File(...)):
+    """Upload yt-dlp cookies file."""
+    # Validate file extension
+    if not file.filename.endswith('.txt'):
+        raise HTTPException(
+            status_code=400,
+            detail="Cookies file must be a .txt file"
+        )
 
-    cookies_path = request.cookies_path.strip() if request.cookies_path else None
+    # Read and validate content
+    content = await file.read()
 
-    # Validate the path exists if provided
-    if cookies_path:
-        path_obj = Path(cookies_path)
-        if not path_obj.exists():
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cookies file does not exist: {cookies_path}"
-            )
-        if not path_obj.is_file():
-            raise HTTPException(
-                status_code=400,
-                detail=f"Path is not a file: {cookies_path}"
-            )
+    # Basic validation - check if it looks like a Netscape cookies file
+    try:
+        text_content = content.decode('utf-8')
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file encoding. Cookies file must be UTF-8 encoded text."
+        )
 
-    settings_manager.set_ytdlp_cookies_path(cookies_path)
+    # Save to config directory
+    cookies_file = settings.config_dir / COOKIES_FILENAME
+    try:
+        with open(cookies_file, 'wb') as f:
+            f.write(content)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save cookies file: {str(e)}"
+        )
 
     return {
         "success": True,
-        "message": "Cookies path updated successfully" if cookies_path else "Cookies path cleared",
-        "cookies_path": cookies_path,
+        "message": "Cookies file uploaded successfully",
+    }
+
+
+@router.delete("/ytdlp-cookies")
+async def delete_ytdlp_cookies():
+    """Delete the uploaded yt-dlp cookies file."""
+    cookies_file = settings.config_dir / COOKIES_FILENAME
+
+    if not cookies_file.exists():
+        return {
+            "success": True,
+            "message": "No cookies file to delete",
+        }
+
+    try:
+        cookies_file.unlink()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete cookies file: {str(e)}"
+        )
+
+    return {
+        "success": True,
+        "message": "Cookies file deleted successfully",
     }
 
 
