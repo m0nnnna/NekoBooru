@@ -8,6 +8,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from pydantic import BaseModel
 
 from ..config import settings
+from ..services.settings import SettingsManager
 
 
 class UrlFetchRequest(BaseModel):
@@ -199,6 +200,12 @@ async def upload_from_ytdlp(request: UrlFetchRequest):
             'noplaylist': True,  # Only download single video, not playlists
             'merge_output_format': 'mp4',  # Prefer mp4 output
         }
+
+        # Check for cookies file configuration
+        settings_manager = SettingsManager(settings.config_file)
+        cookies_path = settings_manager.get_ytdlp_cookies_path()
+        if cookies_path and Path(cookies_path).exists():
+            ydl_opts['cookiefile'] = cookies_path
 
         # Run yt-dlp in thread pool to avoid blocking
         def download_video():

@@ -21,11 +21,16 @@ class SettingsResponse(BaseModel):
     posts_dir: str
     thumbs_dir: str
     uploads_dir: str
+    ytdlp_cookies_path: Optional[str] = None
 
 
 class UpdateDataDirRequest(BaseModel):
     data_dir: str
     migrate: bool = False
+
+
+class UpdateYtdlpCookiesRequest(BaseModel):
+    cookies_path: Optional[str] = None
 
 
 class MigrationResponse(BaseModel):
@@ -67,13 +72,15 @@ async def get_settings():
     """Get current settings."""
     settings_manager = SettingsManager(settings.config_file)
     configured_dir = settings_manager.get_data_dir()
-    
+    cookies_path = settings_manager.get_ytdlp_cookies_path()
+
     return SettingsResponse(
         data_dir=str(settings.data_dir),
         database_path=str(settings.database_path),
         posts_dir=str(settings.posts_dir),
         thumbs_dir=str(settings.thumbs_dir),
         uploads_dir=str(settings.uploads_dir),
+        ytdlp_cookies_path=cookies_path,
     )
 
 
@@ -150,6 +157,36 @@ async def migrate_data(request: UpdateDataDirRequest):
         settings_manager.set_data_dir(str(new_path_obj))
     
     return MigrationResponse(**result)
+
+
+@router.put("/ytdlp-cookies")
+async def update_ytdlp_cookies(request: UpdateYtdlpCookiesRequest):
+    """Update yt-dlp cookies file path."""
+    settings_manager = SettingsManager(settings.config_file)
+
+    cookies_path = request.cookies_path.strip() if request.cookies_path else None
+
+    # Validate the path exists if provided
+    if cookies_path:
+        path_obj = Path(cookies_path)
+        if not path_obj.exists():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cookies file does not exist: {cookies_path}"
+            )
+        if not path_obj.is_file():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Path is not a file: {cookies_path}"
+            )
+
+    settings_manager.set_ytdlp_cookies_path(cookies_path)
+
+    return {
+        "success": True,
+        "message": "Cookies path updated successfully" if cookies_path else "Cookies path cleared",
+        "cookies_path": cookies_path,
+    }
 
 
 @router.get("/stats")

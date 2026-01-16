@@ -45,6 +45,20 @@ class SettingsManager:
         settings = self.load_settings()
         settings['data_dir'] = data_dir
         self.save_settings(settings)
+
+    def get_ytdlp_cookies_path(self) -> Optional[str]:
+        """Get the configured yt-dlp cookies file path."""
+        settings = self.load_settings()
+        return settings.get('ytdlp_cookies_path')
+
+    def set_ytdlp_cookies_path(self, cookies_path: Optional[str]) -> None:
+        """Set the yt-dlp cookies file path."""
+        settings = self.load_settings()
+        if cookies_path:
+            settings['ytdlp_cookies_path'] = cookies_path
+        elif 'ytdlp_cookies_path' in settings:
+            del settings['ytdlp_cookies_path']
+        self.save_settings(settings)
     
     def normalize_path(self, path_str: str) -> str:
         """Normalize path for cross-platform compatibility."""

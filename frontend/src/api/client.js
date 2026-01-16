@@ -273,6 +273,13 @@ export const api = {
       body: JSON.stringify({ data_dir: dataDir, migrate: true }),
     })
   },
+
+  async updateYtdlpCookies(cookiesPath) {
+    return request('/settings/ytdlp-cookies', {
+      method: 'PUT',
+      body: JSON.stringify({ cookies_path: cookiesPath }),
+    })
+  },
 }
 
 export default api

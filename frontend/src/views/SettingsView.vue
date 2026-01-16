@@ -69,6 +69,46 @@
     </div>
 
     <div class="settings-section">
+      <h2>Video Downloads (yt-dlp)</h2>
+      <p class="section-description">
+        Configure cookies for downloading age-restricted or login-required videos from platforms like X/Twitter.
+        Export cookies from your browser using an extension like "Get cookies.txt LOCALLY" and place the file on the server.
+      </p>
+
+      <div class="form-group">
+        <label>Cookies File Path</label>
+        <div class="path-input-group">
+          <input
+            v-model="cookiesPath"
+            type="text"
+            placeholder="e.g., /path/to/cookies.txt"
+            class="path-input"
+          />
+        </div>
+        <p class="help-text">
+          Current: <code>{{ currentSettings.ytdlp_cookies_path || 'Not configured' }}</code>
+        </p>
+      </div>
+
+      <div v-if="cookiesStatus.show" class="cookies-status" :class="cookiesStatus.success ? 'success' : 'error'">
+        <p><strong>{{ cookiesStatus.success ? '✓' : '✗' }} {{ cookiesStatus.message }}</strong></p>
+      </div>
+
+      <div class="form-actions">
+        <button
+          class="btn"
+          @click="saveCookiesPath"
+          :disabled="savingCookies"
+        >
+          {{ savingCookies ? 'Saving...' : 'Save Cookies Path' }}
+        </button>
+        <button class="btn btn-secondary" @click="clearCookiesPath" :disabled="savingCookies">
+          Clear
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h2>Directory Information</h2>
       <div class="info-grid">
         <div class="info-item">
@@ -141,6 +181,14 @@ const dataDir = ref('')
 const saving = ref(false)
 const isWindows = ref(navigator.platform.toLowerCase().includes('win'))
 
+const cookiesPath = ref('')
+const savingCookies = ref(false)
+const cookiesStatus = ref({
+  show: false,
+  success: false,
+  message: '',
+})
+
 const stats = ref({})
 const statsLoading = ref(true)
 const statsError = ref(null)
@@ -190,6 +238,7 @@ async function loadSettings() {
   try {
     currentSettings.value = await api.getSettings()
     dataDir.value = currentSettings.value.data_dir || ''
+    cookiesPath.value = currentSettings.value.ytdlp_cookies_path || ''
   } catch (e) {
     alert('Failed to load settings: ' + e.message)
   }
@@ -277,6 +326,34 @@ function browseDirectory() {
   // Note: Browser security prevents direct file system access
   // This would need a native file picker or Electron integration
   alert('Directory browsing requires a native file picker. Please enter the path manually.')
+}
+
+async function saveCookiesPath() {
+  savingCookies.value = true
+  cookiesStatus.value.show = false
+
+  try {
+    const result = await api.updateYtdlpCookies(cookiesPath.value.trim() || null)
+    cookiesStatus.value = {
+      show: true,
+      success: true,
+      message: result.message,
+    }
+    await loadSettings()
+  } catch (e) {
+    cookiesStatus.value = {
+      show: true,
+      success: false,
+      message: e.message,
+    }
+  } finally {
+    savingCookies.value = false
+  }
+}
+
+async function clearCookiesPath() {
+  cookiesPath.value = ''
+  await saveCookiesPath()
 }
 </script>
 
@@ -395,9 +472,23 @@ function browseDirectory() {
   color: var(--text-primary);
 }
 
-.migration-status.error {
+.migration-status.error,
+.cookies-status.error {
   background: var(--coral-soft);
   border-color: var(--coral);
+  color: var(--text-primary);
+}
+
+.cookies-status {
+  margin: 1rem 0;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid;
+}
+
+.cookies-status.success {
+  background: var(--success-soft);
+  border-color: var(--success);
   color: var(--text-primary);
 }
 
