@@ -25,6 +25,27 @@
           <dd>{{ post.extension }}</dd>
           <dt>Uploaded</dt>
           <dd>{{ formatDate(post.createdAt) }}</dd>
+          <dt>Rating</dt>
+          <dd class="safety-buttons">
+            <button
+              class="safety-btn safe"
+              :class="{ active: post.safety === 'safe' }"
+              @click="setSafety('safe')"
+              title="Safe"
+            ></button>
+            <button
+              class="safety-btn sketchy"
+              :class="{ active: post.safety === 'sketchy' }"
+              @click="setSafety('sketchy')"
+              title="Sketchy"
+            ></button>
+            <button
+              class="safety-btn unsafe"
+              :class="{ active: post.safety === 'unsafe' }"
+              @click="setSafety('unsafe')"
+              title="Unsafe"
+            ></button>
+          </dd>
         </dl>
       </div>
 
@@ -162,6 +183,18 @@ async function saveTags() {
   }
 }
 
+async function setSafety(safety) {
+  if (post.value.safety === safety) return
+  const oldSafety = post.value.safety
+  post.value.safety = safety
+  try {
+    await api.updatePost(post.value.id, { safety })
+  } catch (e) {
+    alert('Failed to update safety: ' + e.message)
+    post.value.safety = oldSafety
+  }
+}
+
 async function addToPool() {
   if (!selectedPool.value) return
   try {
@@ -255,6 +288,42 @@ function formatDate(dateStr) {
 .info-list dd {
   color: var(--text-primary);
   font-weight: 500;
+}
+
+.safety-buttons {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.safety-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  opacity: 0.3;
+  transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.safety-btn:hover {
+  transform: scale(1.1);
+}
+
+.safety-btn.active {
+  opacity: 1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.safety-btn.safe {
+  background: #4ade80;
+}
+
+.safety-btn.sketchy {
+  background: #facc15;
+}
+
+.safety-btn.unsafe {
+  background: #f87171;
 }
 
 .edit-tags-btn {

@@ -76,6 +76,13 @@ export const api = {
     })
   },
 
+  async uploadFromYtdlp(url) {
+    return request('/uploads/from-ytdlp', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    })
+  },
+
   async createPost(data) {
     return request('/posts', {
       method: 'POST',
@@ -264,6 +271,21 @@ export const api = {
     return request('/settings/migrate', {
       method: 'POST',
       body: JSON.stringify({ data_dir: dataDir, migrate: true }),
+    })
+  },
+
+  async uploadYtdlpCookies(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request('/settings/ytdlp-cookies', {
+      method: 'POST',
+      body: formData,
+    })
+  },
+
+  async deleteYtdlpCookies() {
+    return request('/settings/ytdlp-cookies', {
+      method: 'DELETE',
     })
   },
 }

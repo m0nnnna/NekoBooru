@@ -4,7 +4,7 @@
 
     <div
       class="drop-zone"
-      :class="{ dragging: isDragging, fetching: fetchingUrl }"
+      :class="{ dragging: isDragging, fetching: fetchingUrl || fetchingVideo }"
       @dragover.prevent="isDragging = true"
       @dragleave="isDragging = false"
       @drop.prevent="onDrop"
@@ -19,11 +19,12 @@
         style="display: none"
       />
       <div class="drop-content">
-        <span v-if="fetchingUrl" class="drop-icon spinner-icon"></span>
+        <span v-if="fetchingUrl || fetchingVideo" class="drop-icon spinner-icon"></span>
         <span v-else class="drop-icon">+</span>
-        <p v-if="fetchingUrl">Fetching image from URL...</p>
+        <p v-if="fetchingVideo">Downloading video... (this may take a moment)</p>
+        <p v-else-if="fetchingUrl">Fetching image from URL...</p>
         <p v-else>Drop files here, click to browse, or paste images/URLs</p>
-        <p class="hint">Supported: JPG, PNG, GIF, WebP, WebM, MP4</p>
+        <p class="hint">Supported: JPG, PNG, GIF, WebP, WebM, MP4 + video links (X, YouTube, TikTok, etc.)</p>
       </div>
     </div>
 
@@ -132,6 +133,7 @@ const uploading = ref(false)
 const showSuccessToast = ref(false)
 const successMessage = ref('')
 const fetchingUrl = ref(false)
+const fetchingVideo = ref(false)
 let uploadIdCounter = 0
 
 // Paste event handler
@@ -179,24 +181,68 @@ async function handlePaste(e) {
 
   // Check for pasted URL text
   const text = clipboardData.getData('text/plain')?.trim()
-  if (text && isImageUrl(text)) {
-    e.preventDefault()
-    await fetchFromUrl(text)
+  if (text) {
+    if (isVideoUrl(text)) {
+      e.preventDefault()
+      await fetchFromYtdlp(text)
+    } else if (isImageUrl(text)) {
+      e.preventDefault()
+      await fetchFromUrl(text)
+    }
   }
 }
 
-function isImageUrl(text) {
-  // Check if text looks like a URL to an image/video
+function isVideoUrl(text) {
+  // Check if text looks like a URL to a video platform (for yt-dlp)
   try {
     const url = new URL(text)
     if (!['http:', 'https:'].includes(url.protocol)) return false
 
-    // Check common image/video extensions
+    // Video platform domains that yt-dlp handles well
+    const videoPlatforms = [
+      'twitter.com', 'x.com',
+      'youtube.com', 'youtu.be', 'www.youtube.com',
+      'tiktok.com', 'www.tiktok.com',
+      'instagram.com', 'www.instagram.com',
+      'reddit.com', 'www.reddit.com', 'old.reddit.com',
+      'vimeo.com',
+      'twitch.tv', 'clips.twitch.tv',
+      'dailymotion.com',
+      'streamable.com',
+      'v.redd.it',
+    ]
+
+    // Check if it's a video platform URL
+    if (videoPlatforms.some(domain => url.host === domain || url.host.endsWith('.' + domain))) {
+      // For instagram, only match reels and posts with video
+      if (url.host.includes('instagram.com')) {
+        return url.pathname.includes('/reel/') || url.pathname.includes('/p/')
+      }
+      // For reddit, match video posts
+      if (url.host.includes('reddit.com') || url.host === 'v.redd.it') {
+        return true
+      }
+      return true
+    }
+
+    return false
+  } catch {
+    return false
+  }
+}
+
+function isImageUrl(text) {
+  // Check if text looks like a URL to an image/video file (direct links)
+  try {
+    const url = new URL(text)
+    if (!['http:', 'https:'].includes(url.protocol)) return false
+
+    // Check common image/video extensions (direct file links)
     const ext = url.pathname.split('.').pop()?.toLowerCase()
     const mediaExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'webm', 'mp4']
     if (mediaExts.includes(ext)) return true
 
-    // Check common image hosting domains
+    // Check common image hosting domains (direct image links)
     const imageHosts = [
       'i.imgur.com', 'imgur.com',
       'i.redd.it', 'preview.redd.it',
@@ -239,6 +285,43 @@ async function fetchFromUrl(url) {
     showToast('Failed to fetch image: ' + e.message)
   } finally {
     fetchingUrl.value = false
+  }
+}
+
+async function fetchFromYtdlp(url) {
+  fetchingVideo.value = true
+  showToast('Downloading video...')
+
+  try {
+    const result = await api.uploadFromYtdlp(url)
+
+    // Create a pseudo-upload entry with video info
+    const upload = reactive({
+      id: ++uploadIdCounter,
+      file: { name: result.filename, size: 0, type: 'video/mp4' },
+      tags: [],
+      safety: 'safe',
+      preview: result.thumbnail || null, // Use yt-dlp thumbnail
+      uploading: false,
+      completed: false,
+      error: null,
+      token: result.token, // Pre-uploaded token
+      videoInfo: {
+        title: result.title,
+        duration: result.duration,
+        uploader: result.uploader,
+      },
+    })
+
+    uploads.value.push(upload)
+
+    // Show success with video title
+    const title = result.title?.length > 50 ? result.title.slice(0, 50) + '...' : result.title
+    showToast(`Video downloaded: ${title}`)
+  } catch (e) {
+    showToast('Failed to download video: ' + e.message)
+  } finally {
+    fetchingVideo.value = false
   }
 }
 

@@ -4,14 +4,18 @@
       type="text"
       v-model="searchQuery"
       placeholder="Search tags..."
-      @keydown.enter="search"
+      @keydown.enter.prevent="onEnter"
+      @keydown.down.prevent="onArrowDown"
+      @keydown.up.prevent="onArrowUp"
       @input="onInput"
     />
     <ul v-if="suggestions.length > 0" class="suggestions">
       <li
-        v-for="tag in suggestions"
+        v-for="(tag, index) in suggestions"
         :key="tag.name"
         @click="selectTag(tag)"
+        @mouseenter="selectedIndex = index"
+        :class="{ selected: index === selectedIndex }"
         :style="{ borderLeftColor: tag.categoryColor }"
       >
         <span class="tag-name">{{ tag.name }}</span>
@@ -31,6 +35,7 @@ const tagsStore = useTagsStore()
 
 const searchQuery = ref('')
 const suggestions = ref([])
+const selectedIndex = ref(-1)
 let debounceTimer = null
 
 function onInput() {
@@ -40,8 +45,10 @@ function onInput() {
     const lastWord = words[words.length - 1]
     if (lastWord && lastWord.length >= 1) {
       suggestions.value = await tagsStore.autocomplete(lastWord.replace('-', ''))
+      selectedIndex.value = -1
     } else {
       suggestions.value = []
+      selectedIndex.value = -1
     }
   }, 150)
 }
@@ -51,6 +58,29 @@ function selectTag(tag) {
   words[words.length - 1] = tag.name
   searchQuery.value = words.join(' ') + ' '
   suggestions.value = []
+  selectedIndex.value = -1
+}
+
+function onArrowDown() {
+  if (suggestions.value.length > 0) {
+    selectedIndex.value = (selectedIndex.value + 1) % suggestions.value.length
+  }
+}
+
+function onArrowUp() {
+  if (suggestions.value.length > 0) {
+    selectedIndex.value = selectedIndex.value <= 0
+      ? suggestions.value.length - 1
+      : selectedIndex.value - 1
+  }
+}
+
+function onEnter() {
+  if (suggestions.value.length > 0 && selectedIndex.value >= 0) {
+    selectTag(suggestions.value[selectedIndex.value])
+  } else {
+    search()
+  }
 }
 
 function search() {
@@ -107,9 +137,11 @@ watch(
   display: flex;
   justify-content: space-between;
   border-left: 3px solid transparent;
+  color: var(--text-primary);
 }
 
-.suggestions li:hover {
+.suggestions li:hover,
+.suggestions li.selected {
   background: var(--bg-tertiary);
 }
 

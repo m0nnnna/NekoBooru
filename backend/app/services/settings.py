@@ -45,7 +45,7 @@ class SettingsManager:
         settings = self.load_settings()
         settings['data_dir'] = data_dir
         self.save_settings(settings)
-    
+
     def normalize_path(self, path_str: str) -> str:
         """Normalize path for cross-platform compatibility."""
         # Convert to Path object to handle both Windows and Unix paths

@@ -1,13 +1,16 @@
 import uuid
+import asyncio
 import aiofiles
 import httpx
-import mimetypes
 from pathlib import Path
 from urllib.parse import urlparse
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from pydantic import BaseModel
 
 from ..config import settings
+
+# Fixed path for cookies file in config directory (matches settings.py)
+COOKIES_FILENAME = "ytdlp_cookies.txt"
 
 
 class UrlFetchRequest(BaseModel):
@@ -162,3 +165,127 @@ async def upload_from_url(request: UrlFetchRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process URL: {str(e)}")
+
+
+@router.post("/from-ytdlp")
+async def upload_from_ytdlp(request: UrlFetchRequest):
+    """
+    Download a video using yt-dlp and get a token for creating a post.
+    Supports Twitter/X, YouTube, TikTok, Instagram, Reddit, and 1000+ other sites.
+    """
+    url = request.url.strip()
+
+    # Basic URL validation
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            raise ValueError("Invalid scheme")
+        if not parsed.netloc:
+            raise ValueError("Invalid URL")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid URL")
+
+    # Generate unique token
+    token = str(uuid.uuid4())
+
+    try:
+        # Import yt-dlp here to avoid startup issues if not installed
+        import yt_dlp
+
+        # Configure yt-dlp options
+        ydl_opts = {
+            'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best[ext=mp4]/best',
+            'outtmpl': str(settings.uploads_dir / f'{token}.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'noplaylist': True,  # Only download single video, not playlists
+            'merge_output_format': 'mp4',  # Prefer mp4 output
+        }
+
+        # Check for cookies file in config directory
+        cookies_file = settings.config_dir / COOKIES_FILENAME
+        if cookies_file.exists():
+            ydl_opts['cookiefile'] = str(cookies_file)
+
+        # Run yt-dlp in thread pool to avoid blocking
+        def download_video():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # First extract info without downloading
+                info = ydl.extract_info(url, download=False)
+                if info is None:
+                    raise ValueError("Could not extract video info")
+
+                # Download the video
+                ydl.download([url])
+
+                return {
+                    'title': info.get('title', 'video'),
+                    'thumbnail': info.get('thumbnail'),
+                    'duration': info.get('duration'),
+                    'ext': info.get('ext', 'mp4'),
+                    'uploader': info.get('uploader'),
+                }
+
+        loop = asyncio.get_event_loop()
+        info = await loop.run_in_executor(None, download_video)
+
+        # Find the downloaded file (extension may vary)
+        downloaded_file = None
+        for ext in ['mp4', 'webm', 'mkv', 'mov', 'avi']:
+            potential_path = settings.uploads_dir / f"{token}.{ext}"
+            if potential_path.exists():
+                downloaded_file = potential_path
+                break
+
+        if not downloaded_file:
+            raise HTTPException(status_code=500, detail="Download completed but file not found")
+
+        # Rename to correct extension if needed
+        actual_ext = downloaded_file.suffix.lower()
+        if actual_ext not in settings.allowed_extensions:
+            # Try to find a compatible extension or convert
+            raise HTTPException(
+                status_code=400,
+                detail=f"Downloaded format {actual_ext} not supported. Allowed: {settings.allowed_extensions}"
+            )
+
+        # Store token mapping
+        upload_tokens[token] = downloaded_file
+
+        # Generate filename from title
+        safe_title = "".join(c for c in info['title'] if c.isalnum() or c in ' -_').strip()[:100]
+        filename = f"{safe_title}{actual_ext}" if safe_title else f"video{actual_ext}"
+
+        return {
+            "token": token,
+            "filename": filename,
+            "title": info['title'],
+            "thumbnail": info.get('thumbnail'),
+            "duration": info.get('duration'),
+            "uploader": info.get('uploader'),
+        }
+
+    except HTTPException:
+        raise
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="yt-dlp is not installed. Run: pip install yt-dlp"
+        )
+    except Exception as e:
+        # Clean up any partial download
+        for ext in ['mp4', 'webm', 'mkv', 'mov', 'avi', 'part', 'ytdl']:
+            potential_path = settings.uploads_dir / f"{token}.{ext}"
+            if potential_path.exists():
+                potential_path.unlink()
+
+        error_msg = str(e)
+        if "Unsupported URL" in error_msg:
+            raise HTTPException(status_code=400, detail="This URL is not supported by yt-dlp")
+        elif "Private video" in error_msg or "Video unavailable" in error_msg:
+            raise HTTPException(status_code=400, detail="Video is private or unavailable")
+        elif "Sign in" in error_msg or "login" in error_msg.lower():
+            raise HTTPException(status_code=400, detail="This video requires login to access")
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to download video: {error_msg}")
