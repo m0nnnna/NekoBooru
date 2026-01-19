@@ -7,6 +7,9 @@
     @mousemove="onMouseMove"
     @mouseup="onMouseUp"
     @mouseleave="onMouseUp"
+    @touchstart="onTouchStart"
+    @touchmove.prevent="onTouchMove"
+    @touchend="onTouchEnd"
   >
     <div class="media-wrapper" :style="wrapperStyle">
       <img
@@ -90,6 +93,16 @@ const mediaSize = ref({ width: 0, height: 0 })
 const loading = ref(true)
 const error = ref(false)
 
+// Touch handling state
+const touchState = ref({
+  initialDistance: 0,
+  initialScale: 1,
+  isPinching: false,
+  lastTouchX: 0,
+  lastTouchY: 0,
+  isTouchDragging: false,
+})
+
 const isImage = computed(() => props.type === 'image' || props.type === 'gif')
 const isVideo = computed(() => props.type === 'video')
 
@@ -149,6 +162,64 @@ function onMouseMove(e) {
 
 function onMouseUp() {
   isDragging.value = false
+}
+
+// Touch event handlers
+function getTouchDistance(touches) {
+  const dx = touches[0].clientX - touches[1].clientX
+  const dy = touches[0].clientY - touches[1].clientY
+  return Math.sqrt(dx * dx + dy * dy)
+}
+
+function onTouchStart(e) {
+  if (error.value) return
+
+  if (e.touches.length === 2) {
+    // Pinch gesture start
+    touchState.value.isPinching = true
+    touchState.value.isTouchDragging = false
+    touchState.value.initialDistance = getTouchDistance(e.touches)
+    touchState.value.initialScale = scale.value
+  } else if (e.touches.length === 1) {
+    // Single finger drag start
+    touchState.value.isTouchDragging = true
+    touchState.value.isPinching = false
+    touchState.value.lastTouchX = e.touches[0].clientX
+    touchState.value.lastTouchY = e.touches[0].clientY
+  }
+}
+
+function onTouchMove(e) {
+  if (error.value) return
+
+  if (touchState.value.isPinching && e.touches.length === 2) {
+    // Pinch to zoom
+    const currentDistance = getTouchDistance(e.touches)
+    const scaleRatio = currentDistance / touchState.value.initialDistance
+    const newScale = touchState.value.initialScale * scaleRatio
+    scale.value = Math.max(0.1, Math.min(10, newScale))
+  } else if (touchState.value.isTouchDragging && e.touches.length === 1) {
+    // Single finger pan
+    const deltaX = e.touches[0].clientX - touchState.value.lastTouchX
+    const deltaY = e.touches[0].clientY - touchState.value.lastTouchY
+    translateX.value += deltaX
+    translateY.value += deltaY
+    touchState.value.lastTouchX = e.touches[0].clientX
+    touchState.value.lastTouchY = e.touches[0].clientY
+  }
+}
+
+function onTouchEnd(e) {
+  if (e.touches.length === 0) {
+    touchState.value.isPinching = false
+    touchState.value.isTouchDragging = false
+  } else if (e.touches.length === 1) {
+    // Switched from pinch to single finger
+    touchState.value.isPinching = false
+    touchState.value.isTouchDragging = true
+    touchState.value.lastTouchX = e.touches[0].clientX
+    touchState.value.lastTouchY = e.touches[0].clientY
+  }
 }
 
 function zoomIn() {
@@ -350,5 +421,66 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   margin-top: -2px;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .controls {
+    bottom: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    gap: 0.35rem;
+  }
+
+  .controls button {
+    padding: 0.5rem 0.75rem;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 1rem;
+  }
+
+  .zoom-level {
+    min-width: 3.5rem;
+    font-size: 0.8rem;
+  }
+
+  .close-button {
+    width: 44px;
+    height: 44px;
+    top: 0.75rem;
+    right: 0.75rem;
+  }
+
+  .error-url {
+    max-width: 250px;
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .controls {
+    left: 0.5rem;
+    right: 0.5rem;
+    transform: none;
+    justify-content: center;
+    border-radius: 0.75rem;
+  }
+
+  .controls button {
+    flex: 1;
+    max-width: 60px;
+  }
+
+  .close-button {
+    top: 0.5rem;
+    right: 0.5rem;
+  }
+}
+
+/* Prevent text selection on touch */
+.media-viewer {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
 }
 </style>

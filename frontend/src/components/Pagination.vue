@@ -47,4 +47,20 @@ defineEmits(['update:modelValue'])
 .page-info {
   color: var(--text-secondary);
 }
+
+@media (max-width: 480px) {
+  .pagination {
+    gap: 0.5rem;
+    padding: 0.75rem;
+  }
+
+  .pagination .btn {
+    padding: 0.6rem 1rem;
+    min-height: 44px;
+  }
+
+  .page-info {
+    font-size: 0.875rem;
+  }
+}
 </style>

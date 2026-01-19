@@ -5,7 +5,7 @@
         <router-link to="/" class="logo">
           <span class="logo-neko">Neko</span><span class="logo-booru">Booru</span>
         </router-link>
-        <nav class="main-nav">
+        <nav class="main-nav desktop-nav">
           <router-link to="/">Posts</router-link>
           <router-link to="/tags">Tags</router-link>
           <router-link to="/pools">Pools</router-link>
@@ -15,11 +15,31 @@
       </div>
       <div class="header-right">
         <SearchBar />
-        <button class="theme-toggle" @click="toggleDarkMode" :title="isDarkMode ? 'Light mode' : 'Dark mode'">
+        <button class="theme-toggle desktop-theme-toggle" @click="toggleDarkMode" :title="isDarkMode ? 'Light mode' : 'Dark mode'">
           {{ isDarkMode ? '&#9788;' : '&#9789;' }}
+        </button>
+        <button class="hamburger-btn" @click="toggleMobileMenu" :class="{ active: mobileMenuOpen }">
+          <span></span>
+          <span></span>
+          <span></span>
         </button>
       </div>
     </header>
+
+    <!-- Mobile Menu Overlay -->
+    <div class="mobile-menu-overlay" :class="{ open: mobileMenuOpen }" @click="closeMobileMenu">
+      <nav class="mobile-menu" @click.stop>
+        <router-link to="/" @click="closeMobileMenu">Posts</router-link>
+        <router-link to="/tags" @click="closeMobileMenu">Tags</router-link>
+        <router-link to="/pools" @click="closeMobileMenu">Pools</router-link>
+        <router-link to="/upload" @click="closeMobileMenu">Upload</router-link>
+        <router-link to="/settings" @click="closeMobileMenu">Settings</router-link>
+        <button class="mobile-theme-toggle" @click="toggleDarkMode">
+          {{ isDarkMode ? '&#9788; Light Mode' : '&#9789; Dark Mode' }}
+        </button>
+      </nav>
+    </div>
+
     <BackendStatus />
     <main class="app-main">
       <router-view />
@@ -28,11 +48,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import SearchBar from './components/SearchBar.vue'
 import BackendStatus from './components/BackendStatus.vue'
 
 const isDarkMode = ref(true)
+const mobileMenuOpen = ref(false)
+const route = useRoute()
 
 onMounted(() => {
   const saved = localStorage.getItem('darkMode')
@@ -40,9 +63,22 @@ onMounted(() => {
   isDarkMode.value = saved === null ? true : saved === 'true'
 })
 
+// Close mobile menu on route change
+watch(() => route.path, () => {
+  mobileMenuOpen.value = false
+})
+
 function toggleDarkMode() {
   isDarkMode.value = !isDarkMode.value
   localStorage.setItem('darkMode', isDarkMode.value)
+}
+
+function toggleMobileMenu() {
+  mobileMenuOpen.value = !mobileMenuOpen.value
+}
+
+function closeMobileMenu() {
+  mobileMenuOpen.value = false
 }
 </script>
 
@@ -373,4 +409,171 @@ h1, h2, h3 {
 h1 { font-size: 1.75rem; }
 h2 { font-size: 1.35rem; }
 h3 { font-size: 1.1rem; }
+
+/* Hamburger Button */
+.hamburger-btn {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  width: 44px;
+  height: 44px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  padding: 10px;
+}
+
+.hamburger-btn span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: var(--text-secondary);
+  border-radius: 1px;
+  transition: all 0.3s;
+}
+
+.hamburger-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.hamburger-btn:hover span {
+  background: var(--accent);
+}
+
+.hamburger-btn.active span:nth-child(1) {
+  transform: rotate(45deg) translate(5px, 5px);
+}
+
+.hamburger-btn.active span:nth-child(2) {
+  opacity: 0;
+}
+
+.hamburger-btn.active span:nth-child(3) {
+  transform: rotate(-45deg) translate(5px, -5px);
+}
+
+/* Mobile Menu Overlay */
+.mobile-menu-overlay {
+  display: none;
+  position: fixed;
+  top: 60px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s, visibility 0.3s;
+}
+
+.mobile-menu-overlay.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.mobile-menu {
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.mobile-menu a {
+  display: block;
+  padding: 0.875rem 1rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+}
+
+.mobile-menu a:hover,
+.mobile-menu a.router-link-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.mobile-theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem;
+  margin-top: 0.5rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 500;
+  width: 100%;
+  justify-content: center;
+}
+
+.mobile-theme-toggle:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Responsive Styles */
+@media (max-width: 768px) {
+  .hamburger-btn {
+    display: flex;
+  }
+
+  .mobile-menu-overlay {
+    display: block;
+  }
+
+  .desktop-nav {
+    display: none;
+  }
+
+  .desktop-theme-toggle {
+    display: none;
+  }
+
+  .app-header {
+    padding: 0 1rem;
+  }
+
+  .header-left {
+    gap: 1rem;
+  }
+
+  .app-main {
+    padding: 1rem;
+  }
+
+  .logo {
+    font-size: 1.2rem;
+  }
+
+  h1 { font-size: 1.5rem; }
+  h2 { font-size: 1.2rem; }
+  h3 { font-size: 1rem; }
+}
+
+@media (max-width: 480px) {
+  .app-header {
+    padding: 0 0.75rem;
+  }
+
+  .app-main {
+    padding: 0.75rem;
+  }
+
+  .logo {
+    font-size: 1.1rem;
+  }
+
+  h1 { font-size: 1.35rem; }
+}
 </style>

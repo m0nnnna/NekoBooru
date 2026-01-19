@@ -104,6 +104,8 @@ watch(
 .search-bar {
   position: relative;
   width: 300px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .search-bar input {
@@ -113,6 +115,7 @@ watch(
   border-radius: 2rem;
   background: var(--bg-primary);
   color: var(--text-primary);
+  font-size: 0.9rem;
 }
 
 .suggestions {
@@ -148,5 +151,37 @@ watch(
 .tag-count {
   color: var(--text-secondary);
   font-size: 0.875rem;
+}
+
+@media (max-width: 768px) {
+  .search-bar {
+    width: auto;
+    flex: 1;
+    max-width: 200px;
+  }
+
+  .search-bar input {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+  }
+
+  .suggestions {
+    position: fixed;
+    left: 0.5rem;
+    right: 0.5rem;
+    width: auto;
+    max-height: 50vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .search-bar {
+    max-width: 150px;
+  }
+
+  .search-bar input {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+  }
 }
 </style>

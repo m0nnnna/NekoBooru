@@ -211,14 +211,14 @@ async function deletePost() {
   if (!confirm('Are you sure you want to delete this post?')) return
   try {
     await api.deletePost(post.value.id)
-    router.push('/')
+    router.back()
   } catch (e) {
     alert('Failed to delete post: ' + e.message)
   }
 }
 
 function handleClose() {
-  router.push('/')
+  router.back()
 }
 
 function formatFileSize(bytes) {
@@ -388,5 +388,95 @@ function formatDate(dateStr) {
   flex-direction: column;
   align-items: center;
   gap: 1rem;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .post-view {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(300px, 60vh) auto;
+    height: auto;
+    gap: 1rem;
+  }
+
+  .post-content {
+    min-height: 300px;
+  }
+
+  .media-container {
+    border-radius: 0.5rem;
+  }
+
+  .post-sidebar {
+    padding: 1rem;
+    gap: 1rem;
+    border-radius: 0.5rem;
+  }
+
+  .sidebar-section h3 {
+    font-size: 0.7rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .info-list {
+    font-size: 0.8rem;
+    gap: 0.35rem 0.75rem;
+  }
+
+  .safety-btn {
+    width: 28px;
+    height: 28px;
+  }
+
+  .actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .actions .btn {
+    flex: 1;
+    min-width: 100px;
+  }
+
+  .modal {
+    padding: 1.25rem;
+    margin: 1rem;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .modal h2 {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+  }
+
+  .modal-actions {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .modal-actions .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .post-view {
+    grid-template-rows: minmax(250px, 50vh) auto;
+    gap: 0.75rem;
+  }
+
+  .post-sidebar {
+    padding: 0.875rem;
+  }
+
+  .actions .btn {
+    font-size: 0.8rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .edit-tags-btn {
+    font-size: 0.85rem;
+  }
 }
 </style>

@@ -52,4 +52,35 @@ defineEmits(['select'])
   padding: 3rem;
   color: var(--text-secondary);
 }
+
+@media (max-width: 768px) {
+  .post-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.5rem;
+  }
+
+  .empty-state,
+  .loading-state {
+    padding: 2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .post-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.35rem;
+  }
+
+  .empty-state,
+  .loading-state {
+    padding: 1.5rem;
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .post-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 </style>

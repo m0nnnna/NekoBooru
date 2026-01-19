@@ -243,4 +243,72 @@ function onPageChange(newPage) {
 .sort-controls select {
   padding: 0.5rem;
 }
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .toolbar {
+    gap: 0.75rem;
+  }
+
+  .toolbar-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .result-count {
+    font-size: 0.875rem;
+    min-width: auto;
+  }
+
+  .safety-checkbox {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+  }
+
+  .sort-controls select {
+    padding: 0.4rem;
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .home-view {
+    gap: 0.75rem;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .result-count {
+    text-align: center;
+    font-size: 0.8rem;
+  }
+
+  .toolbar-controls {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .safety-filter {
+    justify-content: center;
+    gap: 0.5rem;
+  }
+
+  .safety-checkbox {
+    width: 36px;
+    height: 36px;
+  }
+
+  .sort-controls {
+    width: 100%;
+  }
+
+  .sort-controls select {
+    flex: 1;
+  }
+}
 </style>
