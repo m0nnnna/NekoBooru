@@ -3,7 +3,7 @@
     <div class="status-banner">
       <span class="status-icon">⚠️</span>
       <div class="status-content">
-        <strong>Backend server is not running</strong>
+        <strong>(=;&#x2D8;;=) Backend server is not running</strong>
         <p>Please start the backend server on port 8000 to use this application.</p>
         <div class="status-actions">
           <button class="btn btn-sm" @click="checkConnection">Retry Connection</button>

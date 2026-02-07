@@ -44,7 +44,7 @@ function onImageError(e) {
 }
 
 .post-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-4px) rotate(-0.5deg);
   box-shadow: 0 8px 24px var(--shadow);
   border-color: var(--accent);
 }

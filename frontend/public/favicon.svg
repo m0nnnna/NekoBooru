@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Cat paw pad -->
+  <ellipse cx="32" cy="38" rx="14" ry="12" fill="#e07a5f"/>
+  <!-- Toe beans -->
+  <ellipse cx="20" cy="24" rx="6" ry="7" fill="#e07a5f"/>
+  <ellipse cx="32" cy="20" rx="6" ry="7" fill="#e07a5f"/>
+  <ellipse cx="44" cy="24" rx="6" ry="7" fill="#e07a5f"/>
+  <!-- Inner paw pad (lighter) -->
+  <ellipse cx="32" cy="39" rx="9" ry="7.5" fill="#eb8b72"/>
+  <!-- Inner toe beans (lighter) -->
+  <ellipse cx="20.5" cy="24.5" rx="3.5" ry="4.5" fill="#eb8b72"/>
+  <ellipse cx="32" cy="20.5" rx="3.5" ry="4.5" fill="#eb8b72"/>
+  <ellipse cx="43.5" cy="24.5" rx="3.5" ry="4.5" fill="#eb8b72"/>
+</svg>

@@ -3,6 +3,7 @@
     <header class="app-header">
       <div class="header-left">
         <router-link to="/" class="logo">
+          <span class="logo-ears" aria-hidden="true"></span>
           <span class="logo-neko">Neko</span><span class="logo-booru">Booru</span>
         </router-link>
         <nav class="main-nav desktop-nav">
@@ -44,6 +45,9 @@
     <main class="app-main">
       <router-view />
     </main>
+    <footer class="neko-footer">
+      <span class="paw-trail">&#x1F43E; &#x1F43E; &#x1F43E;</span>
+    </footer>
   </div>
 </template>
 
@@ -237,6 +241,38 @@ button {
   color: var(--text-primary);
 }
 
+/* Cat ears on logo */
+.logo-ears {
+  position: relative;
+  display: inline-block;
+  width: 22px;
+  height: 14px;
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+
+.logo-ears::before,
+.logo-ears::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: 10px;
+  height: 14px;
+  background: var(--coral);
+  border-radius: 2px 2px 0 0;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+}
+
+.logo-ears::before {
+  left: 0;
+  transform: rotate(-8deg);
+}
+
+.logo-ears::after {
+  right: 0;
+  transform: rotate(8deg);
+}
+
 .main-nav {
   display: flex;
   gap: 0.25rem;
@@ -385,13 +421,14 @@ input:focus, textarea:focus, select:focus {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--coral);
   border-radius: 5px;
   border: 2px solid var(--bg-secondary);
+  opacity: 0.7;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+  background: var(--coral-hover);
 }
 
 /* Selection */
@@ -522,6 +559,49 @@ h3 { font-size: 1.1rem; }
   color: var(--accent);
 }
 
+/* Neko footer */
+.neko-footer {
+  text-align: center;
+  padding: 1.5rem;
+  color: var(--text-muted);
+  opacity: 0.4;
+  user-select: none;
+}
+
+.paw-trail {
+  font-size: 1rem;
+  letter-spacing: 0.5rem;
+}
+
+/* Neko paw loading animation */
+@keyframes nekoBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes nekoPaw {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.neko-loading {
+  display: inline-flex;
+  gap: 0.3rem;
+  font-size: 1.4rem;
+}
+
+.neko-loading span {
+  animation: nekoBounce 0.6s ease-in-out infinite;
+}
+
+.neko-loading span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.neko-loading span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
 /* Responsive Styles */
 @media (max-width: 768px) {
   .hamburger-btn {
@@ -556,6 +636,17 @@ h3 { font-size: 1.1rem; }
     font-size: 1.2rem;
   }
 
+  .logo-ears {
+    width: 18px;
+    height: 12px;
+  }
+
+  .logo-ears::before,
+  .logo-ears::after {
+    width: 8px;
+    height: 12px;
+  }
+
   h1 { font-size: 1.5rem; }
   h2 { font-size: 1.2rem; }
   h3 { font-size: 1rem; }
@@ -572,6 +663,17 @@ h3 { font-size: 1.1rem; }
 
   .logo {
     font-size: 1.1rem;
+  }
+
+  .logo-ears {
+    width: 16px;
+    height: 10px;
+  }
+
+  .logo-ears::before,
+  .logo-ears::after {
+    width: 7px;
+    height: 10px;
   }
 
   h1 { font-size: 1.35rem; }

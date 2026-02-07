@@ -22,6 +22,7 @@
     </div>
 
     <div v-if="pools.length === 0 && !loading" class="empty-state">
+      <div class="neko-face">(=^&#xB7;&#x2D8;&#xB7;^=)&#x270B;</div>
       No pools yet. Create one to organize your posts!
     </div>
 
@@ -152,6 +153,13 @@ function formatDate(dateStr) {
   text-align: center;
   padding: 3rem;
   color: var(--text-secondary);
+}
+
+.neko-face {
+  font-size: 2rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+  user-select: none;
 }
 
 .modal-overlay {

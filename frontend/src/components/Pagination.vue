@@ -5,17 +5,17 @@
       :disabled="modelValue <= 1"
       @click="$emit('update:modelValue', modelValue - 1)"
     >
-      Prev
+      &#x276E; Prev
     </button>
     <div class="page-info">
-      Page {{ modelValue }} of {{ pages }}
+      &#x1F43E; Page {{ modelValue }} of {{ pages }} &#x1F43E;
     </div>
     <button
       class="btn btn-secondary"
       :disabled="modelValue >= pages"
       @click="$emit('update:modelValue', modelValue + 1)"
     >
-      Next
+      Next &#x276F;
     </button>
   </div>
 </template>

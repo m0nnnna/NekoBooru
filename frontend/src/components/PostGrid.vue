@@ -7,10 +7,14 @@
       @click="$emit('select', post)"
     />
     <div v-if="posts.length === 0 && !loading" class="empty-state">
-      No posts found
+      <div class="neko-face">(=^&#xB7;&#x2D8;&#xB7;^=)</div>
+      <div>No posts found, nyaa~</div>
     </div>
     <div v-if="loading && posts.length === 0" class="loading-state">
-      Loading...
+      <div class="neko-loading">
+        <span>&#x1F43E;</span><span>&#x1F43E;</span><span>&#x1F43E;</span>
+      </div>
+      <div>Fetching posts...</div>
     </div>
   </div>
 </template>
@@ -51,6 +55,39 @@ defineEmits(['select'])
   text-align: center;
   padding: 3rem;
   color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.neko-face {
+  font-size: 2rem;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.neko-loading {
+  display: inline-flex;
+  gap: 0.3rem;
+  font-size: 1.4rem;
+}
+
+.neko-loading span {
+  animation: nekoBounce 0.6s ease-in-out infinite;
+}
+
+.neko-loading span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.neko-loading span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes nekoBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
 }
 
 @media (max-width: 768px) {

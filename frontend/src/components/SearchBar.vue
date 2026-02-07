@@ -3,7 +3,7 @@
     <input
       type="text"
       v-model="searchQuery"
-      placeholder="Search tags..."
+      placeholder="Search tags~ nyaa"
       @keydown.enter.prevent="onEnter"
       @keydown.down.prevent="onArrowDown"
       @keydown.up.prevent="onArrowUp"

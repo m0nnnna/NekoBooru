@@ -5,7 +5,7 @@
       <input
         type="text"
         v-model="searchQuery"
-        placeholder="Search tags..."
+        placeholder="Search tags~ nyaa"
         @input="debouncedSearch"
       />
     </div>

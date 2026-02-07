@@ -63,7 +63,7 @@
           :class="{ 'btn-danger': post.isFavorited }"
           @click="toggleFavorite"
         >
-          {{ post.isFavorited ? 'Unfavorite' : 'Favorite' }}
+          {{ post.isFavorited ? '&#x1F494; Unfavorite' : '&#x1F43E; Favorite' }}
         </button>
         <button class="btn btn-secondary" @click="showPoolModal = true">
           Add to Pool

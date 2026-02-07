@@ -20,8 +20,8 @@
       />
       <div class="drop-content">
         <span v-if="fetchingUrl || fetchingVideo" class="drop-icon spinner-icon"></span>
-        <span v-else class="drop-icon">+</span>
-        <p v-if="fetchingVideo">Downloading video... (this may take a moment)</p>
+        <span v-else class="drop-icon">&#x1F43E;</span>
+        <p v-if="fetchingVideo">Fetching video... hold on, nyaa~</p>
         <p v-else-if="fetchingUrl">Fetching image from URL...</p>
         <p v-else>Drop files here, click to browse, or paste images/URLs</p>
         <p class="hint">Supported: JPG, PNG, GIF, WebP, WebM, MP4 + video links (X, YouTube, TikTok, etc.)</p>
@@ -34,8 +34,8 @@
         <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
       </div>
       <div class="progress-text">
-        <span v-if="uploadProgress.done">All uploads complete!</span>
-        <span v-else>Uploading {{ uploadProgress.current }} of {{ uploadProgress.total }}...</span>
+        <span v-if="uploadProgress.done">All uploads complete! Nyaa~</span>
+        <span v-else>&#x1F43E; Uploading {{ uploadProgress.current }} of {{ uploadProgress.total }}...</span>
       </div>
     </div>
 
