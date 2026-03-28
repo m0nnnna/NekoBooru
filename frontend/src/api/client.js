@@ -83,6 +83,13 @@ export const api = {
     })
   },
 
+  async uploadFromFediverse(url) {
+    return request('/uploads/from-fediverse', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    })
+  },
+
   async createPost(data) {
     return request('/posts', {
       method: 'POST',

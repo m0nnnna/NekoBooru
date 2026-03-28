@@ -4,7 +4,7 @@
 
     <div
       class="drop-zone"
-      :class="{ dragging: isDragging, fetching: fetchingUrl || fetchingVideo }"
+      :class="{ dragging: isDragging, fetching: fetchingUrl || fetchingVideo || fetchingFediverse }"
       @dragover.prevent="isDragging = true"
       @dragleave="isDragging = false"
       @drop.prevent="onDrop"
@@ -19,12 +19,13 @@
         style="display: none"
       />
       <div class="drop-content">
-        <span v-if="fetchingUrl || fetchingVideo" class="drop-icon spinner-icon"></span>
+        <span v-if="fetchingUrl || fetchingVideo || fetchingFediverse" class="drop-icon spinner-icon"></span>
         <span v-else class="drop-icon">&#x1F43E;</span>
         <p v-if="fetchingVideo">Fetching video... hold on, nyaa~</p>
+        <p v-else-if="fetchingFediverse">Fetching from fediverse post...</p>
         <p v-else-if="fetchingUrl">Fetching image from URL...</p>
         <p v-else>Drop files here, click to browse, or paste images/URLs</p>
-        <p class="hint">Supported: JPG, PNG, GIF, WebP, WebM, MP4 + video links (X, YouTube, TikTok, etc.)</p>
+        <p class="hint">Supported: JPG, PNG, GIF, WebP, WebM, MP4 + video links (X, YouTube, TikTok, etc.) + Pleroma/Misskey posts</p>
       </div>
     </div>
 
@@ -134,6 +135,7 @@ const showSuccessToast = ref(false)
 const successMessage = ref('')
 const fetchingUrl = ref(false)
 const fetchingVideo = ref(false)
+const fetchingFediverse = ref(false)
 let uploadIdCounter = 0
 
 // Paste event handler
@@ -185,6 +187,9 @@ async function handlePaste(e) {
     if (isVideoUrl(text)) {
       e.preventDefault()
       await fetchFromYtdlp(text)
+    } else if (isFediverseUrl(text)) {
+      e.preventDefault()
+      await fetchFromFediverse(text)
     } else if (isImageUrl(text)) {
       e.preventDefault()
       await fetchFromUrl(text)
@@ -225,6 +230,23 @@ function isVideoUrl(text) {
       return true
     }
 
+    return false
+  } catch {
+    return false
+  }
+}
+
+function isFediverseUrl(text) {
+  try {
+    const url = new URL(text)
+    if (!['http:', 'https:'].includes(url.protocol)) return false
+    const p = url.pathname
+    // Misskey-style: /notes/{id}
+    if (/\/notes\/[a-zA-Z0-9]+/.test(p)) return true
+    // Pleroma-style: /notice/{id}
+    if (/\/notice\/[a-zA-Z0-9]+/.test(p)) return true
+    // Mastodon/Pleroma-style: /@username/{numeric_id}
+    if (/\/@[^/]+\/\d+/.test(p)) return true
     return false
   } catch {
     return false
@@ -322,6 +344,38 @@ async function fetchFromYtdlp(url) {
     showToast('Failed to download video: ' + e.message)
   } finally {
     fetchingVideo.value = false
+  }
+}
+
+async function fetchFromFediverse(url) {
+  fetchingFediverse.value = true
+  showToast('Fetching from fediverse post...')
+
+  try {
+    const result = await api.uploadFromFediverse(url)
+
+    for (const att of result.uploads) {
+      const upload = reactive({
+        id: ++uploadIdCounter,
+        file: { name: att.filename, size: att.size, type: 'image/*' },
+        tags: [...(result.tags || [])],
+        safety: 'safe',
+        preview: null,
+        uploading: false,
+        completed: false,
+        error: null,
+        token: att.token,
+        source: result.source,
+      })
+      uploads.value.push(upload)
+    }
+
+    const count = result.uploads.length
+    showToast(`Fetched ${count} attachment${count !== 1 ? 's' : ''} from ${result.platform} post!`)
+  } catch (e) {
+    showToast('Failed to fetch fediverse post: ' + e.message)
+  } finally {
+    fetchingFediverse.value = false
   }
 }
 
@@ -430,6 +484,7 @@ async function uploadAll() {
         contentToken: token,
         tags: upload.tags,
         safety: upload.safety,
+        source: upload.source || null,
       })
 
       upload.completed = true

@@ -19,6 +19,8 @@ echo
 echo "Cleaning previous build..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
+mkdir -p "$BUILD_FRONTEND"
+mkdir -p "$BUILD_BACKEND"
 
 echo
 echo "[1/5] Building frontend..."
