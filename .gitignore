@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# PyInstaller build intermediates (root)
+/build/
+
+# Compiled binaries / release artifacts (root)
+/dist/
+
+# Runtime data: database, uploads, thumbnails, posts
+/data/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
