@@ -1,17 +1,33 @@
+import sys
 from pathlib import Path
 from pydantic_settings import BaseSettings
 from .services.settings import SettingsManager
+
+
+def get_base_dir() -> Path:
+    """Get the base directory, handling both normal and PyInstaller frozen modes."""
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller bundle - use executable's directory
+        return Path(sys.executable).parent
+    return Path(__file__).parent.parent.parent
+
+
+def get_bundle_dir() -> Path:
+    """Get the bundle directory where internal resources are stored."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).parent.parent.parent
 
 
 class Settings(BaseSettings):
     app_name: str = "NekoBooru"
     debug: bool = True
 
-    # Paths
-    base_dir: Path = Path(__file__).parent.parent.parent
+    # Paths - base_dir is where data/config live (next to exe when frozen)
+    base_dir: Path = get_base_dir()
     config_dir: Path = base_dir / "config"
     config_file: Path = config_dir / "settings.json"
-    
+
     # Default data directory (can be overridden by settings file)
     _default_data_dir: Path = base_dir / "data"
 

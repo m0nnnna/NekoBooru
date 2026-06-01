@@ -29,6 +29,18 @@
       </div>
     </div>
 
+    <div class="paste-row">
+      <button
+        type="button"
+        class="btn btn-secondary paste-btn"
+        @click="pasteFromClipboard"
+        :disabled="fetchingUrl || fetchingVideo || fetchingFediverse"
+      >
+        &#x1F4CB; Paste link or image
+      </button>
+      <span class="paste-hint">Tap to paste a copied video link or image (handy on mobile)</span>
+    </div>
+
     <!-- Upload Progress Banner -->
     <div v-if="uploadProgress.total > 0" class="progress-banner" :class="{ done: uploadProgress.done }">
       <div class="progress-bar">
@@ -183,17 +195,66 @@ async function handlePaste(e) {
 
   // Check for pasted URL text
   const text = clipboardData.getData('text/plain')?.trim()
-  if (text) {
-    if (isVideoUrl(text)) {
-      e.preventDefault()
-      await fetchFromYtdlp(text)
-    } else if (isFediverseUrl(text)) {
-      e.preventDefault()
-      await fetchFromFediverse(text)
-    } else if (isImageUrl(text)) {
-      e.preventDefault()
-      await fetchFromUrl(text)
+  if (text && (isVideoUrl(text) || isFediverseUrl(text) || isImageUrl(text))) {
+    e.preventDefault()
+    await processPastedText(text)
+  }
+}
+
+// Route a pasted/clipboard string to the right fetcher. Returns true if handled.
+async function processPastedText(text) {
+  if (isVideoUrl(text)) {
+    await fetchFromYtdlp(text)
+    return true
+  } else if (isFediverseUrl(text)) {
+    await fetchFromFediverse(text)
+    return true
+  } else if (isImageUrl(text)) {
+    await fetchFromUrl(text)
+    return true
+  }
+  return false
+}
+
+// Read the clipboard on demand (button press). Needed on mobile where the
+// document 'paste' event never fires, so video links can't otherwise be added.
+async function pasteFromClipboard() {
+  if (!navigator.clipboard) {
+    showToast('Clipboard access not available in this browser, nyaa~')
+    return
+  }
+
+  try {
+    // Try reading image data first (screenshots, copied images)
+    if (navigator.clipboard.read) {
+      try {
+        const items = await navigator.clipboard.read()
+        for (const item of items) {
+          const imageType = item.types.find(t => t.startsWith('image/'))
+          if (imageType) {
+            const blob = await item.getType(imageType)
+            const ext = imageType.split('/')[1] || 'png'
+            const file = new File([blob], `pasted-image-${Date.now()}.${ext}`, { type: imageType })
+            addFiles([file])
+            return
+          }
+        }
+      } catch {
+        // Image read not permitted/available — fall through to text
+      }
     }
+
+    const text = (await navigator.clipboard.readText())?.trim()
+    if (!text) {
+      showToast('Clipboard is empty, nyaa~')
+      return
+    }
+    const handled = await processPastedText(text)
+    if (!handled) {
+      showToast("That doesn't look like a supported link, nyaa~")
+    }
+  } catch (e) {
+    showToast('Could not read clipboard: ' + e.message)
   }
 }
 
@@ -581,6 +642,26 @@ async function uploadAll() {
 .hint {
   font-size: 0.875rem;
   margin-top: 0.5rem;
+}
+
+/* Paste row */
+.paste-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.paste-hint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 480px) {
+  .paste-btn {
+    width: 100%;
+  }
 }
 
 /* Progress Banner */

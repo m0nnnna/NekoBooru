@@ -90,7 +90,7 @@ async def search_posts(
     session: AsyncSession,
     query: str = "",
     page: int = 1,
-    per_page: int = 40,
+    per_page: int = 42,
     sort: str = "date",
     sort_order: str = "desc",
 ) -> tuple[list[Post], int]:

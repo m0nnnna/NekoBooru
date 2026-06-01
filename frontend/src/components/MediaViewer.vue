@@ -54,6 +54,7 @@
       <button @click="zoomIn" title="Zoom in">+</button>
       <button @click="resetZoom" title="Reset">1:1</button>
       <button @click="fitToScreen" title="Fit to screen">Fit</button>
+      <button @click="downloadMedia" title="Download">&#8681;</button>
     </div>
   </div>
 </template>
@@ -236,6 +237,37 @@ function resetZoom() {
   translateY.value = 0
 }
 
+function filenameFromSrc() {
+  try {
+    const path = new URL(props.src, window.location.origin).pathname
+    return decodeURIComponent(path.split('/').pop()) || 'download'
+  } catch {
+    return 'download'
+  }
+}
+
+async function downloadMedia() {
+  // Fetch the media and trigger a real download. iOS Safari blocks the native
+  // long-press save in this viewer (touch-callout/user-select are disabled for
+  // pan/zoom), so this button gives a reliable way to save the file.
+  try {
+    const response = await fetch(props.src)
+    if (!response.ok) throw new Error('fetch failed')
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filenameFromSrc()
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch {
+    // Fallback: open the media directly so the user can save it manually
+    window.open(props.src, '_blank')
+  }
+}
+
 function fitToScreen() {
   if (!containerRef.value || !mediaSize.value.width) return
 
@@ -309,6 +341,14 @@ onUnmounted(() => {
   max-height: none;
   display: block;
   border-radius: 0.25rem;
+}
+
+/* Re-enable the iOS long-press "Save Image" menu on the media itself
+   (the container disables it for pan/zoom). */
+.media-wrapper img {
+  -webkit-touch-callout: default;
+  -webkit-user-select: auto;
+  user-select: auto;
 }
 
 .controls {

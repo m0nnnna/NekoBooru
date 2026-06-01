@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NekoBooru Extension Settings</title>
+  <link rel="stylesheet" href="upload.css" />
+  <style>
+    .content { max-width: 480px; margin: 0 auto; }
+    .help { font-size: 0.85rem; color: var(--text-secondary); margin: 0.25rem 0 1rem; }
+    .row { display: flex; gap: 0.5rem; }
+    .row .btn { white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <span class="logo-ears" aria-hidden="true"></span>
+    <span class="logo"><span class="logo-neko">Neko</span><span class="logo-booru">Booru</span></span>
+  </header>
+
+  <main class="content">
+    <label class="field-label" for="instance">NekoBooru instance URL</label>
+    <input id="instance" type="text" placeholder="http://localhost:8000" />
+    <p class="help">
+      The base URL of your NekoBooru server — where you open the gallery in your
+      browser. Include the port if needed (e.g. <code>http://192.168.1.50:8000</code>).
+    </p>
+
+    <div class="row">
+      <button id="save" class="btn">Save</button>
+      <button id="test" class="btn" style="background: var(--bg-tertiary); color: var(--text-primary);">Test connection</button>
+    </div>
+
+    <div id="status" class="status hidden"></div>
+  </main>
+
+  <script src="options.js"></script>
+</body>
+</html>

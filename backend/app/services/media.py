@@ -81,11 +81,20 @@ def create_gif_thumbnail(source: Path, dest: Path) -> bool:
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
         with Image.open(source) as img:
-            # Get first frame
             img.seek(0)
-            frame = img.convert("RGB")
-            frame.thumbnail((settings.thumb_size, settings.thumb_size), Image.Resampling.LANCZOS)
-            frame.save(dest, "JPEG", quality=settings.thumb_quality)
+            # Copy the frame before any conversion so we own the pixel data
+            frame = img.copy()
+            # Composite onto white background to handle palette + transparency
+            bg = Image.new("RGB", frame.size, (255, 255, 255))
+            if frame.mode in ("RGBA", "LA"):
+                bg.paste(frame, mask=frame.split()[-1])
+            elif frame.mode == "P":
+                rgba = frame.convert("RGBA")
+                bg.paste(rgba, mask=rgba.split()[-1])
+            else:
+                bg.paste(frame.convert("RGB"))
+            bg.thumbnail((settings.thumb_size, settings.thumb_size), Image.Resampling.LANCZOS)
+            bg.save(dest, "JPEG", quality=settings.thumb_quality)
         return True
     except Exception:
         return False
@@ -102,30 +111,36 @@ def create_video_thumbnail(source: Path, dest: Path) -> bool:
         )
         return False
     
+    def _run_ffmpeg(seek: str | None) -> bool:
+        # -ss must come BEFORE -i (input seeking) so the demuxer seeks the
+        # container rather than making the decoder walk every frame.  Output
+        # seeking (-ss after -i) leaves some H.264 files with "No filtered
+        # frames" because the keyframe structure isn't aligned with the seek
+        # point.  When seek is None we omit -ss entirely to guarantee frame 0.
+        cmd = ["ffmpeg", "-y"]
+        if seek is not None:
+            cmd += ["-ss", seek]
+        cmd += [
+            "-i", str(source),
+            "-vframes", "1",
+            "-vf", (
+                f"scale={settings.thumb_size}:{settings.thumb_size}"
+                f":force_original_aspect_ratio=decrease"
+                f",format=yuvj420p"
+            ),
+            "-strict", "unofficial",
+            "-f", "image2",
+            str(dest),
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+        return result.returncode == 0 and dest.exists()
+
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        # Extract frame at 1 second (or start if shorter)
-        result = subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-i", str(source),
-                "-ss", "1",
-                "-vframes", "1",
-                "-vf", f"scale={settings.thumb_size}:{settings.thumb_size}:force_original_aspect_ratio=decrease",
-                "-f", "image2",
-                str(dest),
-            ],
-            capture_output=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            logger.error(f"ffmpeg failed with return code {result.returncode} for {source}")
-            stderr_output = result.stderr.decode('utf-8', errors='ignore') if result.stderr else "No error output"
-            logger.error(f"ffmpeg stderr: {stderr_output}")
-            return False
-        if not dest.exists():
-            logger.error(f"Thumbnail file was not created at {dest}")
+        # Try input-seek to 1 s first; for short clips (<1 s) fall back to
+        # no seek at all so we always land on a real decoded frame.
+        if not _run_ffmpeg("1") and not _run_ffmpeg(None):
+            logger.error(f"ffmpeg could not extract a frame from {source}")
             return False
         logger.info(f"Successfully created video thumbnail: {dest}")
         return True

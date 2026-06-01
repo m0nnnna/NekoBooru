@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Upload to NekoBooru</title>
+  <link rel="stylesheet" href="upload.css" />
+</head>
+<body>
+  <header class="app-header">
+    <span class="logo-ears" aria-hidden="true"></span>
+    <span class="logo"><span class="logo-neko">Neko</span><span class="logo-booru">Booru</span></span>
+  </header>
+
+  <main class="content">
+    <!-- Shown when no instance URL is configured -->
+    <div id="needs-setup" class="card hidden">
+      <p>No NekoBooru instance is configured yet.</p>
+      <button id="open-options" class="btn">Open settings</button>
+    </div>
+
+    <!-- Main upload form -->
+    <div id="form-wrap" class="hidden">
+      <div class="preview" id="preview"></div>
+
+      <label class="field-label" for="tags">Tags</label>
+      <div class="tag-input-wrap">
+        <input id="tags" type="text" placeholder="Add tags (space separated)..." autocomplete="off" />
+        <ul id="suggestions" class="suggestions hidden"></ul>
+      </div>
+
+      <label class="field-label" for="safety">Rating</label>
+      <select id="safety">
+        <option value="safe">Safe</option>
+        <option value="sketchy">Sketchy</option>
+        <option value="unsafe">Unsafe</option>
+      </select>
+
+      <div class="source-row">
+        <label><input type="checkbox" id="include-source" checked /> Save source page URL</label>
+      </div>
+
+      <button id="submit" class="btn btn-block">Upload to NekoBooru</button>
+
+      <div id="status" class="status hidden"></div>
+    </div>
+  </main>
+
+  <script src="upload.js"></script>
+</body>
+</html>

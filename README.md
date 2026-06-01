@@ -9,6 +9,7 @@ Organize your personal media collection with tags, pools, favorites, and more.
 - Upload images (JPG, PNG, GIF, WebP) and videos (WebM, MP4)
 - Drag-and-drop and copy-paste uploading
 - Upload from URL
+- **Browser extension**: right-click any image/video on the web and "Download to NekoBooru" (see [`browser-extension/`](browser-extension/README.md))
 - Automatic thumbnail generation
 - Duplicate detection via SHA256 hashing
 - File size limit: 100MB

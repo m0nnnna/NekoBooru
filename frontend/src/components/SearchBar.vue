@@ -59,6 +59,8 @@ function selectTag(tag) {
   searchQuery.value = words.join(' ') + ' '
   suggestions.value = []
   selectedIndex.value = -1
+  // Auto-search once a suggestion is chosen (click or arrow+enter)
+  search()
 }
 
 function onArrowDown() {
@@ -167,6 +169,7 @@ watch(
 
   .suggestions {
     position: fixed;
+    top: 60px; /* below the sticky 60px header instead of 100% of the viewport */
     left: 0.5rem;
     right: 0.5rem;
     width: auto;

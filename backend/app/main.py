@@ -1,3 +1,4 @@
+import sys
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -6,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from .config import settings
+from .config import settings, get_bundle_dir
 from .database import init_db
 from .routers import uploads, posts, tags, pools, notes, comments, settings as settings_router
 
@@ -90,29 +91,14 @@ async def get_stats():
 @app.get("/api/debug/paths")
 async def debug_paths():
     """Debug endpoint to check frontend path resolution."""
-    possible_paths = [
-        Path(__file__).parent.parent.parent / "frontend" / "dist",
-        Path(__file__).parent.parent.parent / "frontend",
-        Path(__file__).parent.parent / "frontend",
-        Path(__file__).parent.parent / "frontend" / "dist",
-    ]
-    
-    results = []
-    for path in possible_paths:
-        resolved = path.resolve()
-        exists = resolved.exists()
-        has_index = (resolved / "index.html").exists() if exists else False
-        results.append({
-            "path": str(resolved),
-            "exists": exists,
-            "has_index": has_index,
-        })
-    
+    frozen = getattr(sys, 'frozen', False)
+    bundle_dir = get_bundle_dir()
+
     return {
-        "current_file": str(Path(__file__).resolve()),
-        "backend_dir": str(Path(__file__).parent.parent.resolve()),
-        "base_dir": str(Path(__file__).parent.parent.parent.resolve()),
-        "frontend_paths": results,
+        "frozen": frozen,
+        "bundle_dir": str(bundle_dir.resolve()),
+        "base_dir": str(settings.base_dir.resolve()),
+        "data_dir": str(settings.data_dir),
         "frontend_found": frontend_dist is not None,
         "frontend_path": str(frontend_dist.resolve()) if frontend_dist else None,
     }
@@ -123,19 +109,22 @@ async def debug_paths():
 # Try multiple paths to find frontend build
 def find_frontend_path():
     """Find the frontend build directory."""
+    bundle_dir = get_bundle_dir()
+
     possible_paths = [
-        Path(__file__).parent.parent.parent / "frontend" / "dist",  # Development: backend/../frontend/dist
+        bundle_dir / "frontend",                                     # PyInstaller bundle or build distribution
+        Path(__file__).parent.parent.parent / "frontend" / "dist",   # Development: backend/../frontend/dist
         Path(__file__).parent.parent.parent / "frontend",            # Build: nekobooru-windows/frontend
         Path(__file__).parent.parent / "frontend",                   # Alternative build path
         Path(__file__).parent.parent / "frontend" / "dist",          # Alternative dev path
     ]
-    
+
     for path in possible_paths:
         path = path.resolve()
         if path.exists() and (path / "index.html").exists():
             logger.info(f"Found frontend build at: {path}")
             return path
-    
+
     logger.warning("Frontend build not found. API-only mode. Tried paths:")
     for path in possible_paths:
         logger.warning(f"  - {path.resolve()}")
@@ -160,6 +149,12 @@ if frontend_dist:
         if full_path.startswith("api/") or full_path.startswith("media/"):
             from fastapi import HTTPException
             raise HTTPException(status_code=404)
+        # Check if the requested path is an actual static file in frontend dist
+        if full_path:
+            static_file = frontend_dist / full_path
+            if static_file.is_file():
+                return FileResponse(str(static_file))
+        # Fall back to index.html for SPA routing
         index_path = frontend_dist / "index.html"
         if index_path.exists():
             return FileResponse(str(index_path))
