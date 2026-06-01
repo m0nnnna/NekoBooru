@@ -12,7 +12,7 @@ from ..config import settings
 from ..models import Post, Tag, TagCategory, TagAlias, TagImplication, Favorite
 from ..models.post import PostTag
 from ..utils.hashing import calculate_sha256
-from ..services.media import get_media_info, create_thumbnail, move_to_storage
+from ..services.media import get_media_info, create_thumbnail, move_to_storage, convert_video_to_gif
 from ..services.search import search_posts
 from .uploads import get_upload_path, remove_upload_token
 
@@ -312,14 +312,32 @@ async def toggle_favorite(post_id: int, db: AsyncSession = Depends(get_db)):
 
 # Media serving routes
 @router.get("/media/posts/{subdir}/{filename}")
-async def serve_post_media(subdir: str, filename: str):
-    """Serve original post media files."""
+async def serve_post_media(subdir: str, filename: str, format: Optional[str] = None):
+    """Serve original post media files.
+
+    Pass ``?format=gif`` on a video (mp4/webm) to download an animated GIF
+    transcoded from the video. The conversion is cached so repeat requests are
+    cheap. The stored file is never modified.
+    """
     file_path = settings.posts_dir / subdir / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Determine media type
     ext = Path(filename).suffix.lower()
+
+    # On-demand video -> GIF conversion (cached by sha/filename).
+    if format == "gif" and ext in (".mp4", ".webm"):
+        gif_path = settings.cache_dir / subdir / f"{Path(filename).stem}.gif"
+        if not gif_path.exists():
+            if not convert_video_to_gif(file_path, gif_path):
+                raise HTTPException(status_code=500, detail="Failed to convert video to GIF")
+        return FileResponse(
+            gif_path,
+            media_type="image/gif",
+            filename=f"{Path(filename).stem}.gif",
+        )
+
+    # Determine media type
     media_types = {
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",

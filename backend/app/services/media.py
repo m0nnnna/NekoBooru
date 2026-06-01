@@ -155,6 +155,48 @@ def create_video_thumbnail(source: Path, dest: Path) -> bool:
         return False
 
 
+def convert_video_to_gif(source: Path, dest: Path, fps: int = 15, max_width: int = 480) -> bool:
+    """Transcode a video (mp4/webm) into an animated GIF using ffmpeg.
+
+    Uses a single-pass palettegen/paletteuse filter graph for good colour
+    quality. Output is capped at ``max_width`` px wide and ``fps`` frames per
+    second to keep the resulting GIF a sane size.
+    """
+    if not check_ffmpeg_available():
+        logger.error(
+            "ffmpeg is not installed or not in PATH. "
+            "Please install ffmpeg to convert videos to GIF. "
+            "Download from: https://ffmpeg.org/download.html"
+        )
+        return False
+
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        vf = (
+            f"fps={fps},scale={max_width}:-1:flags=lanczos,"
+            f"split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse"
+        )
+        cmd = ["ffmpeg", "-y", "-i", str(source), "-vf", vf, "-loop", "0", str(dest)]
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
+        if result.returncode != 0 or not dest.exists():
+            logger.error(f"ffmpeg could not convert {source} to GIF")
+            dest.unlink(missing_ok=True)
+            return False
+        logger.info(f"Successfully converted video to GIF: {dest}")
+        return True
+    except subprocess.TimeoutExpired:
+        logger.error(f"ffmpeg timed out while converting {source} to GIF")
+        dest.unlink(missing_ok=True)
+        return False
+    except FileNotFoundError:
+        logger.error("ffmpeg not found. Please install ffmpeg and ensure it's in your PATH.")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error converting video to GIF: {e}")
+        dest.unlink(missing_ok=True)
+        return False
+
+
 def create_thumbnail(source: Path, dest: Path, extension: str) -> bool:
     """Create appropriate thumbnail based on file type."""
     ext = extension.lower()

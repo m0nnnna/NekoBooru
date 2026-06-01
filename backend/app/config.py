@@ -75,6 +75,11 @@ class Settings(BaseSettings):
         """Get uploads directory."""
         return self.data_dir / "uploads"
 
+    @property
+    def cache_dir(self) -> Path:
+        """Get cache directory (e.g. on-demand video->gif conversions)."""
+        return self.data_dir / "cache"
+
 
 settings = Settings()
 
@@ -83,4 +88,5 @@ settings.data_dir.mkdir(parents=True, exist_ok=True)
 settings.posts_dir.mkdir(parents=True, exist_ok=True)
 settings.thumbs_dir.mkdir(parents=True, exist_ok=True)
 settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+settings.cache_dir.mkdir(parents=True, exist_ok=True)
 settings.config_dir.mkdir(parents=True, exist_ok=True)

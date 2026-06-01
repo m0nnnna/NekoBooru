@@ -55,6 +55,9 @@
       <button @click="resetZoom" title="Reset">1:1</button>
       <button @click="fitToScreen" title="Fit to screen">Fit</button>
       <button @click="downloadMedia" title="Download">&#8681;</button>
+      <button v-if="isVideo" @click="downloadAsGif" :disabled="convertingGif" title="Download as GIF">
+        {{ convertingGif ? '…' : 'GIF' }}
+      </button>
     </div>
   </div>
 </template>
@@ -93,6 +96,7 @@ const dragStart = ref({ x: 0, y: 0 })
 const mediaSize = ref({ width: 0, height: 0 })
 const loading = ref(true)
 const error = ref(false)
+const convertingGif = ref(false)
 
 // Touch handling state
 const touchState = ref({
@@ -265,6 +269,31 @@ async function downloadMedia() {
   } catch {
     // Fallback: open the media directly so the user can save it manually
     window.open(props.src, '_blank')
+  }
+}
+
+async function downloadAsGif() {
+  // Ask the server to transcode the video to an animated GIF and download it.
+  if (convertingGif.value) return
+  convertingGif.value = true
+  try {
+    const gifUrl = props.src + (props.src.includes('?') ? '&' : '?') + 'format=gif'
+    const response = await fetch(gifUrl)
+    if (!response.ok) throw new Error('conversion failed')
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filenameFromSrc().replace(/\.[^.]+$/, '') + '.gif'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch {
+    // Fallback: open the converted media directly so the user can save it
+    window.open(props.src + (props.src.includes('?') ? '&' : '?') + 'format=gif', '_blank')
+  } finally {
+    convertingGif.value = false
   }
 }
 
