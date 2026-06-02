@@ -24,7 +24,7 @@ if not exist "node_modules" (
 call npm run build
 if errorlevel 1 (
     echo ERROR: Frontend build failed
-    pause
+    if not "%CI%"=="true" pause
     exit /b 1
 )
 cd ..
@@ -102,4 +102,4 @@ echo.
 echo To create a ZIP archive:
 echo   powershell Compress-Archive -Path "%BUILD_DIR%" -DestinationPath "dist\nekobooru-windows.zip" -Force
 echo.
-pause
+if not "%CI%"=="true" pause

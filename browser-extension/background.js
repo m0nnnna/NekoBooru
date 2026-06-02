@@ -1,7 +1,9 @@
-// Background service worker: registers the right-click menu and opens the
-// upload popup when the user picks "Download to NekoBooru".
+// Background service worker: registers the right-click menus and opens the
+// matching popup — "Download to NekoBooru" (upload web media in) and "Insert
+// media from NekoBooru" (browse your instance and copy a piece out).
 
 const MENU_ID = 'nekobooru-upload'
+const INSERT_MENU_ID = 'nekobooru-insert'
 const POPUP_WIDTH = 500
 const POPUP_HEIGHT = 680
 
@@ -23,6 +25,13 @@ function createMenu() {
       title: 'Download to NekoBooru',
       contexts: ['image', 'video'],
     })
+    // Available anywhere (e.g. while composing a post on another site): browse
+    // your NekoBooru instance and copy a piece of media to paste/attach here.
+    chrome.contextMenus.create({
+      id: INSERT_MENU_ID,
+      title: 'Insert media from NekoBooru…',
+      contexts: ['page', 'frame', 'selection', 'link', 'editable', 'image', 'video'],
+    })
   })
 }
 
@@ -30,6 +39,11 @@ chrome.runtime.onInstalled.addListener(createMenu)
 chrome.runtime.onStartup.addListener(createMenu)
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === INSERT_MENU_ID) {
+    openPopup('picker.html', new URLSearchParams(), tab)
+    return
+  }
+
   if (info.menuItemId !== MENU_ID) return
 
   const srcUrl = info.srcUrl
@@ -41,12 +55,12 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     type: info.mediaType || 'image',
   })
 
-  openPopup(params, tab)
+  openPopup('upload.html', params, tab)
 })
 
-async function openPopup(params, tab) {
+async function openPopup(page, params, tab) {
   const opts = {
-    url: chrome.runtime.getURL('upload.html') + '?' + params.toString(),
+    url: chrome.runtime.getURL(page) + '?' + params.toString(),
     type: 'popup',
     width: POPUP_WIDTH,
     height: POPUP_HEIGHT,

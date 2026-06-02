@@ -11,6 +11,7 @@ const els = {
   formWrap: document.getElementById('form-wrap'),
   openOptions: document.getElementById('open-options'),
   preview: document.getElementById('preview'),
+  tagPills: document.getElementById('tag-pills'),
   tags: document.getElementById('tags'),
   suggestions: document.getElementById('suggestions'),
   safety: document.getElementById('safety'),
@@ -63,30 +64,87 @@ function renderPreview() {
 }
 
 // ---------------------------------------------------------------------------
-// Tag autocomplete (queries the instance, mirrors the web UI behaviour)
+// Tags: confirmed tags become solid pills (mirrors the web UI's TagInput), the
+// text input only ever holds the tag currently being typed. Autocomplete
+// queries that single in-progress word.
 // ---------------------------------------------------------------------------
 
 let debounceTimer = null
 let selectedIndex = -1
 let currentSuggestions = []
+let tags = []
 
 function setupTagAutocomplete() {
   els.tags.addEventListener('input', onTagInput)
   els.tags.addEventListener('keydown', onTagKeydown)
   els.tags.addEventListener('blur', () => {
     // Delay so a click on a suggestion still registers
-    setTimeout(hideSuggestions, 150)
+    setTimeout(() => {
+      hideSuggestions()
+      commitInput()
+    }, 150)
   })
 }
 
-function lastWord() {
-  const words = els.tags.value.split(/\s+/)
-  return words[words.length - 1] || ''
+// Normalise a raw tag the way the web UI does: lowercase, spaces -> underscores.
+function normalizeTag(raw) {
+  return raw.trim().toLowerCase().replace(/\s+/g, '_')
+}
+
+function addTags(raw) {
+  let added = false
+  for (const part of raw.split(',')) {
+    const tag = normalizeTag(part)
+    if (tag && !tags.includes(tag)) {
+      tags.push(tag)
+      added = true
+    }
+  }
+  if (added) renderPills()
+}
+
+// Turn whatever is currently in the input into pill(s).
+function commitInput() {
+  if (!els.tags.value.trim()) return
+  addTags(els.tags.value)
+  els.tags.value = ''
+  hideSuggestions()
+}
+
+function renderPills() {
+  els.tagPills.innerHTML = ''
+  tags.forEach((tag) => {
+    const pill = document.createElement('span')
+    pill.className = 'tag'
+    pill.textContent = tag
+    const remove = document.createElement('button')
+    remove.className = 'remove-tag'
+    remove.type = 'button'
+    remove.innerHTML = '&times;'
+    remove.setAttribute('aria-label', `Remove ${tag}`)
+    remove.addEventListener('click', () => removeTag(tag))
+    pill.appendChild(remove)
+    els.tagPills.appendChild(pill)
+  })
+}
+
+function removeTag(tag) {
+  tags = tags.filter((t) => t !== tag)
+  renderPills()
+  els.tags.focus()
 }
 
 function onTagInput() {
+  // A comma finalises every tag before it, keeping only the trailing fragment.
+  if (els.tags.value.includes(',')) {
+    const parts = els.tags.value.split(',')
+    const remainder = parts.pop()
+    addTags(parts.join(','))
+    els.tags.value = remainder
+  }
+
   clearTimeout(debounceTimer)
-  const word = lastWord()
+  const word = els.tags.value.trim()
   if (!word) {
     hideSuggestions()
     return
@@ -133,9 +191,12 @@ function renderSuggestions() {
 }
 
 function pickSuggestion(tag) {
-  const words = els.tags.value.split(/\s+/)
-  words[words.length - 1] = tag.name
-  els.tags.value = words.join(' ') + ' '
+  // Suggestion names come from the server already normalised.
+  if (!tags.includes(tag.name)) {
+    tags.push(tag.name)
+    renderPills()
+  }
+  els.tags.value = ''
   hideSuggestions()
   els.tags.focus()
 }
@@ -147,9 +208,28 @@ function hideSuggestions() {
 }
 
 function onTagKeydown(e) {
-  if (els.suggestions.classList.contains('hidden') || !currentSuggestions.length) {
+  // Backspace on an empty input removes the last pill.
+  if (e.key === 'Backspace' && !els.tags.value && tags.length) {
+    e.preventDefault()
+    removeTag(tags[tags.length - 1])
     return
   }
+
+  const hasSuggestions =
+    !els.suggestions.classList.contains('hidden') && currentSuggestions.length
+
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    if (hasSuggestions && selectedIndex >= 0) {
+      pickSuggestion(currentSuggestions[selectedIndex])
+    } else {
+      commitInput()
+    }
+    return
+  }
+
+  if (!hasSuggestions) return
+
   if (e.key === 'ArrowDown') {
     e.preventDefault()
     selectedIndex = (selectedIndex + 1) % currentSuggestions.length
@@ -158,11 +238,6 @@ function onTagKeydown(e) {
     e.preventDefault()
     selectedIndex = selectedIndex <= 0 ? currentSuggestions.length - 1 : selectedIndex - 1
     renderSuggestions()
-  } else if (e.key === 'Enter') {
-    if (selectedIndex >= 0) {
-      e.preventDefault()
-      pickSuggestion(currentSuggestions[selectedIndex])
-    }
   } else if (e.key === 'Escape') {
     hideSuggestions()
   }
@@ -173,10 +248,9 @@ function onTagKeydown(e) {
 // ---------------------------------------------------------------------------
 
 function parseTags() {
-  return els.tags.value
-    .split(/[\s,]+/)
-    .map((t) => t.trim())
-    .filter(Boolean)
+  // Fold any half-typed tag still sitting in the input into the pill list.
+  commitInput()
+  return [...tags]
 }
 
 function setStatus(message, kind) {

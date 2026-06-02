@@ -24,10 +24,14 @@
       <div class="preview" id="preview"></div>
 
       <label class="field-label" for="tags">Tags</label>
-      <div class="tag-input-wrap">
-        <input id="tags" type="text" placeholder="Add tags (space separated)..." autocomplete="off" />
-        <ul id="suggestions" class="suggestions hidden"></ul>
+      <div class="tag-input">
+        <div id="tag-pills" class="tags-display"></div>
+        <div class="input-wrapper">
+          <input id="tags" type="text" placeholder="Add tags (comma or Enter)..." autocomplete="off" />
+          <ul id="suggestions" class="suggestions hidden"></ul>
+        </div>
       </div>
+      <div class="tag-hint">Separate tags with commas or press Enter</div>
 
       <label class="field-label" for="safety">Rating</label>
       <select id="safety">

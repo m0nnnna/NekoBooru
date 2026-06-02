@@ -1,0 +1,337 @@
+// "Insert media from NekoBooru" popup: browse/search your own instance by tags,
+// rating and type, then pull a piece of media out — images go to the clipboard
+// (ready to paste into whatever you're composing), GIFs/videos download so you
+// can attach them.
+
+const els = {
+  needsSetup: document.getElementById('needs-setup'),
+  openOptions: document.getElementById('open-options'),
+  browser: document.getElementById('browser'),
+  search: document.getElementById('search'),
+  suggestions: document.getElementById('suggestions'),
+  rating: document.getElementById('rating'),
+  type: document.getElementById('type'),
+  status: document.getElementById('status'),
+  grid: document.getElementById('picker-grid'),
+  empty: document.getElementById('picker-empty'),
+  loadMore: document.getElementById('load-more'),
+}
+
+const PAGE_SIZE = 30
+
+let instanceUrl = ''
+let page = 1
+let totalPages = 0
+let searchToken = 0 // guards against out-of-order responses
+
+init()
+
+async function init() {
+  const stored = await chrome.storage.sync.get(['instanceUrl'])
+  instanceUrl = (stored.instanceUrl || '').replace(/\/+$/, '')
+
+  if (!instanceUrl) {
+    els.needsSetup.classList.remove('hidden')
+    els.openOptions.addEventListener('click', () => chrome.runtime.openOptionsPage())
+    return
+  }
+
+  els.browser.classList.remove('hidden')
+
+  els.search.addEventListener('input', onSearchInput)
+  els.search.addEventListener('keydown', onSearchKeydown)
+  els.search.addEventListener('blur', () => setTimeout(hideSuggestions, 150))
+  els.rating.addEventListener('change', runSearch)
+  els.type.addEventListener('change', runSearch)
+  els.loadMore.addEventListener('click', () => loadPage(page + 1))
+
+  runSearch()
+}
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+function buildQuery() {
+  const parts = []
+  const tags = els.search.value.trim()
+  if (tags) parts.push(tags)
+  if (els.rating.value) parts.push(`rating:${els.rating.value}`)
+  if (els.type.value) parts.push(`type:${els.type.value}`)
+  return parts.join(' ')
+}
+
+function runSearch() {
+  els.grid.innerHTML = ''
+  els.empty.classList.add('hidden')
+  loadPage(1)
+}
+
+async function loadPage(which) {
+  const token = ++searchToken
+  const q = buildQuery()
+  els.loadMore.disabled = true
+
+  try {
+    const url = `${instanceUrl}/api/posts?q=${encodeURIComponent(q)}&page=${which}&limit=${PAGE_SIZE}`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    if (token !== searchToken) return // a newer search superseded this one
+
+    page = data.page || which
+    totalPages = data.pages || 0
+    ;(data.results || []).forEach(renderCell)
+
+    const isEmpty = !els.grid.children.length
+    els.empty.classList.toggle('hidden', !isEmpty)
+    els.loadMore.classList.toggle('hidden', page >= totalPages)
+  } catch (e) {
+    if (token === searchToken) setStatus('Search failed: ' + e.message, 'error')
+  } finally {
+    if (token === searchToken) els.loadMore.disabled = false
+  }
+}
+
+function mediaUrl(relative) {
+  return instanceUrl + relative
+}
+
+function kindOf(post) {
+  const ext = (post.extension || '').toLowerCase()
+  if (ext === '.mp4' || ext === '.webm') return 'video'
+  if (ext === '.gif') return 'gif'
+  return 'image'
+}
+
+function renderCell(post) {
+  const cell = document.createElement('button')
+  cell.className = 'picker-cell'
+  cell.type = 'button'
+  cell.title = post.tags && post.tags.length ? post.tags.join(' ') : `post #${post.id}`
+
+  const img = document.createElement('img')
+  img.src = mediaUrl(post.thumbUrl)
+  img.alt = ''
+  img.loading = 'lazy'
+  cell.appendChild(img)
+
+  const kind = kindOf(post)
+  if (kind !== 'image') {
+    const badge = document.createElement('span')
+    badge.className = 'picker-badge'
+    badge.textContent = kind === 'gif' ? 'GIF' : '▶'
+    cell.appendChild(badge)
+  }
+
+  cell.addEventListener('click', () => selectPost(post, kind))
+  els.grid.appendChild(cell)
+}
+
+// ---------------------------------------------------------------------------
+// Selecting a post: copy images, download GIFs/videos
+// ---------------------------------------------------------------------------
+
+async function selectPost(post, kind) {
+  const url = mediaUrl(post.contentUrl)
+  try {
+    if (kind === 'image') {
+      setStatus('Copying image…', 'working')
+      await copyImageToClipboard(url)
+      setStatus('Copied! Paste it into your post. Nyaa~', 'success')
+    } else {
+      setStatus('Downloading…', 'working')
+      await startDownload(url, `nekobooru-${post.id}${post.extension || ''}`)
+      setStatus('Downloading — drag it from your downloads into your post.', 'success')
+    }
+    // Auto-close so the picker gets out of the way. The clipboard contents and
+    // the browser download both live on independently of this popup.
+    closeSoon()
+  } catch (e) {
+    setStatus('Failed: ' + e.message, 'error')
+  }
+}
+
+function closeSoon() {
+  setTimeout(() => window.close(), 1000)
+}
+
+async function copyImageToClipboard(url) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`could not fetch image (HTTP ${res.status})`)
+  const blob = await res.blob()
+  // The Clipboard API only reliably accepts PNG, so normalise everything else.
+  const png = blob.type === 'image/png' ? blob : await toPng(blob)
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
+}
+
+function toPng(blob) {
+  return new Promise((resolve, reject) => {
+    const objUrl = URL.createObjectURL(blob)
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      canvas.getContext('2d').drawImage(img, 0, 0)
+      canvas.toBlob((out) => {
+        URL.revokeObjectURL(objUrl)
+        out ? resolve(out) : reject(new Error('could not encode image'))
+      }, 'image/png')
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(objUrl)
+      reject(new Error('could not decode image'))
+    }
+    img.src = objUrl
+  })
+}
+
+// Prefer the downloads API so the browser owns the download — that way it keeps
+// going (and stays in the download shelf) after we auto-close the popup. Fall
+// back to an in-page blob download if the API is unavailable.
+function startDownload(url, filename) {
+  return new Promise((resolve, reject) => {
+    if (chrome.downloads && chrome.downloads.download) {
+      chrome.downloads.download({ url, filename }, (id) => {
+        if (chrome.runtime.lastError || id == null) {
+          downloadMedia(url, filename).then(resolve, reject)
+        } else {
+          resolve()
+        }
+      })
+    } else {
+      downloadMedia(url, filename).then(resolve, reject)
+    }
+  })
+}
+
+async function downloadMedia(url, filename) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`could not fetch media (HTTP ${res.status})`)
+  const blob = await res.blob()
+  const objUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(objUrl), 10000)
+}
+
+function setStatus(message, kind) {
+  els.status.textContent = message
+  els.status.className = `status ${kind || ''}`
+  els.status.classList.remove('hidden')
+}
+
+// ---------------------------------------------------------------------------
+// Tag autocomplete on the search box (only completes the word being typed)
+// ---------------------------------------------------------------------------
+
+let debounceTimer = null
+let selectedIndex = -1
+let currentSuggestions = []
+
+function lastWord() {
+  const words = els.search.value.split(/\s+/)
+  return words[words.length - 1] || ''
+}
+
+function onSearchInput() {
+  clearTimeout(debounceTimer)
+  // Re-run the search as the query changes (debounced).
+  debounceTimer = setTimeout(runSearch, 300)
+
+  const word = lastWord()
+  if (!word) {
+    hideSuggestions()
+    return
+  }
+  setTimeout(async () => {
+    try {
+      const res = await fetch(
+        `${instanceUrl}/api/tags/autocomplete?q=${encodeURIComponent(word)}`
+      )
+      if (!res.ok) return
+      currentSuggestions = await res.json()
+      selectedIndex = -1
+      renderSuggestions()
+    } catch {
+      hideSuggestions()
+    }
+  }, 0)
+}
+
+function renderSuggestions() {
+  els.suggestions.innerHTML = ''
+  if (!currentSuggestions.length) {
+    hideSuggestions()
+    return
+  }
+  currentSuggestions.forEach((tag, index) => {
+    const li = document.createElement('li')
+    li.className = index === selectedIndex ? 'selected' : ''
+    if (tag.categoryColor) li.style.borderLeftColor = tag.categoryColor
+    const name = document.createElement('span')
+    name.className = 'tag-name'
+    name.textContent = tag.name
+    const count = document.createElement('span')
+    count.className = 'tag-count'
+    count.textContent = tag.usageCount ?? ''
+    li.append(name, count)
+    li.addEventListener('mousedown', (e) => {
+      e.preventDefault()
+      pickSuggestion(tag)
+    })
+    els.suggestions.appendChild(li)
+  })
+  els.suggestions.classList.remove('hidden')
+}
+
+function pickSuggestion(tag) {
+  const words = els.search.value.split(/\s+/)
+  words[words.length - 1] = tag.name
+  els.search.value = words.join(' ') + ' '
+  hideSuggestions()
+  els.search.focus()
+  runSearch()
+}
+
+function hideSuggestions() {
+  currentSuggestions = []
+  selectedIndex = -1
+  els.suggestions.classList.add('hidden')
+}
+
+function onSearchKeydown(e) {
+  if (els.suggestions.classList.contains('hidden') || !currentSuggestions.length) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      clearTimeout(debounceTimer)
+      runSearch()
+    }
+    return
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    selectedIndex = (selectedIndex + 1) % currentSuggestions.length
+    renderSuggestions()
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    selectedIndex = selectedIndex <= 0 ? currentSuggestions.length - 1 : selectedIndex - 1
+    renderSuggestions()
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    if (selectedIndex >= 0) {
+      pickSuggestion(currentSuggestions[selectedIndex])
+    } else {
+      clearTimeout(debounceTimer)
+      hideSuggestions()
+      runSearch()
+    }
+  } else if (e.key === 'Escape') {
+    hideSuggestions()
+  }
+}

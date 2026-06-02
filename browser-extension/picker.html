@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Insert from NekoBooru</title>
+  <link rel="stylesheet" href="upload.css" />
+</head>
+<body>
+  <header class="app-header">
+    <span class="logo-ears" aria-hidden="true"></span>
+    <span class="logo"><span class="logo-neko">Neko</span><span class="logo-booru">Booru</span></span>
+  </header>
+
+  <main class="content">
+    <!-- Shown when no instance URL is configured -->
+    <div id="needs-setup" class="card hidden">
+      <p>No NekoBooru instance is configured yet.</p>
+      <button id="open-options" class="btn">Open settings</button>
+    </div>
+
+    <div id="browser" class="hidden">
+      <div class="picker-controls">
+        <div class="tag-input-wrap">
+          <input id="search" type="text" placeholder="Search tags (space separated)…" autocomplete="off" />
+          <ul id="suggestions" class="suggestions hidden"></ul>
+        </div>
+        <div class="picker-filters">
+          <select id="rating" aria-label="Rating">
+            <option value="">Any rating</option>
+            <option value="safe">Safe</option>
+            <option value="sketchy">Sketchy</option>
+            <option value="unsafe">Unsafe</option>
+          </select>
+          <select id="type" aria-label="Type">
+            <option value="">Any type</option>
+            <option value="image">Images</option>
+            <option value="gif">GIFs</option>
+            <option value="video">Videos</option>
+          </select>
+        </div>
+      </div>
+
+      <p class="picker-intro">
+        Click an image to copy it — then paste into your post. GIFs and videos
+        download instead so you can attach them.
+      </p>
+
+      <div id="status" class="status hidden"></div>
+
+      <div id="picker-grid" class="picker-grid"></div>
+
+      <div id="picker-empty" class="picker-note hidden">No posts matched.</div>
+      <button id="load-more" class="btn btn-block hidden">Load more</button>
+    </div>
+  </main>
+
+  <script src="picker.js"></script>
+</body>
+</html>
