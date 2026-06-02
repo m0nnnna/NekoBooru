@@ -6,19 +6,38 @@ Brave, and other Chromium browsers (and Firefox, see notes below).
 
 ## How it works
 
+The extension adds two right-click menu items:
+
+### Download to NekoBooru (web → your instance)
+
 1. You right-click an image/video and choose **Download to NekoBooru**.
 2. A small popup opens with a preview, a tag box (with live autocomplete from
-   your instance), and a rating selector.
+   your instance, where confirmed tags become pills), and a rating selector.
 3. On upload the extension asks your instance to fetch the media
    (`POST /api/uploads/from-url`) and then creates the post
    (`POST /api/posts`). If the server can't fetch the URL directly (hotlink
    protection, login-gated images, etc.) it falls back to downloading the bytes
    in your browser and uploading them.
 
+### Insert media from NekoBooru (your instance → wherever you're posting)
+
+1. While composing a post anywhere (e.g. X), right-click and choose **Insert
+   media from NekoBooru…**.
+2. A popup opens that browses your instance — search by tags (with
+   autocomplete), filter by rating and type (`GET /api/posts`).
+3. Click a result to pull it out: **images are copied to your clipboard** so you
+   can paste them straight into the composer; **GIFs and videos download**
+   instead (the clipboard can't hold them) so you can attach the file.
+
 No login/token is required — it talks to the same open API the web UI uses, so
 point it at an instance only you can reach (localhost or your LAN/VPN).
 
 ## Install (Chrome / Edge / Brave)
+
+If you grabbed a packaged zip from the GitHub releases page, unzip it first and
+use the extracted `nekobooru-extension` folder in step 3 below. (To build that
+zip yourself, run `build-extension.bat` / `build-extension.sh` from the repo
+root — see `README-BUILD.md`.)
 
 1. Go to `chrome://extensions` (or `edge://extensions`).
 2. Turn on **Developer mode** (top-right).
@@ -48,9 +67,13 @@ the extension needs to be signed/packaged.
 
 ## Permissions
 
-- `contextMenus` — adds the right-click menu item.
+- `contextMenus` — adds the right-click menu items.
 - `storage` — remembers your instance URL and last rating.
 - `notifications` — shows a success/failure toast after uploading.
+- `clipboardWrite` — copies an image to your clipboard when you insert media
+  from your instance.
+- `downloads` — saves a GIF/video to your download shelf (so it keeps going
+  after the picker auto-closes) when you insert one.
 - `host_permissions: *://*/*` — needed so the popup can talk to your instance
   (whatever URL you set) and, as a fallback, download media bytes from the page
   you're on.
@@ -67,7 +90,8 @@ the extension needs to be signed/packaged.
 | File | Purpose |
 | --- | --- |
 | `manifest.json` | Extension manifest (MV3). |
-| `background.js` | Registers the context menu, opens the upload popup. |
-| `upload.html` / `upload.js` / `upload.css` | The upload popup UI + logic. |
+| `background.js` | Registers the context menus and opens the popups. |
+| `upload.html` / `upload.js` / `upload.css` | The upload popup UI + logic (CSS shared with the picker). |
+| `picker.html` / `picker.js` | The "insert from NekoBooru" browse/search popup. |
 | `options.html` / `options.js` | Settings page (instance URL). |
 | `icons/` | Toolbar / store icons. |

@@ -84,6 +84,60 @@ chmod +x build-all.sh
 ./build-all.sh [version]
 ```
 
+### Browser Extension
+
+The browser extension is plain JS/HTML/CSS — there's no compile step, just
+packaging it into a zip for a GitHub release. The version is read from
+`browser-extension/manifest.json` (override by passing one).
+
+**Windows:**
+```batch
+build-extension.bat [version]
+```
+
+**Linux/macOS:**
+```bash
+chmod +x build-extension.sh
+./build-extension.sh [version]
+```
+
+This creates `dist/nekobooru-extension-<version>.zip` (containing a
+`nekobooru-extension/` folder). Attach that zip to a GitHub release.
+
+To install from the release, users:
+1. Download and unzip it.
+2. Go to `chrome://extensions` (or `edge://extensions`), enable **Developer
+   mode**, click **Load unpacked**, and select the unzipped
+   `nekobooru-extension` folder.
+3. (Firefox) Go to `about:debugging#/runtime/this-firefox` → **Load Temporary
+   Add-on** and pick `manifest.json`, or sign the zip via AMO for a permanent
+   install.
+
+> Chrome intentionally blocks installing a raw `.crx` from outside the Web
+> Store, so "Load unpacked" from the zip is the supported path for
+> off-store distribution.
+
+## Automated releases (GitHub Actions)
+
+`.github/workflows/release.yml` builds everything in CI and publishes a GitHub
+release with the artifacts attached. To cut a release:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+The tag push triggers a build that produces and attaches:
+- `nekobooru-extension-<manifest-version>.zip` — browser extension
+- `nekobooru-windows-1.2.0.zip` — Windows package
+- `nekobooru-ubuntu-1.2.0.tar.gz` — Linux package
+- `nekobooru_1.2.0_all.deb` — Debian package
+
+The version for the app artifacts comes from the tag (the leading `v` is
+stripped); the extension uses its own `manifest.json` version. You can also run
+the workflow manually from the **Actions** tab (optionally passing a version) to
+build the artifacts without publishing a release.
+
 ## Distribution Package Contents
 
 ### Windows Package
