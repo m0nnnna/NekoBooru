@@ -210,7 +210,7 @@ async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
     )
     post = result.scalars().first()
 
-    if not post:
+    if not post or post.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Post not found")
 
     return post.to_dict()
@@ -246,6 +246,11 @@ async def update_post(post_id: int, request: UpdatePostRequest, db: AsyncSession
         # Process new tags
         await process_tags_for_post(db, post_id, request.tags)
 
+    # Touch updated_at so the change is recorded even when only tags changed
+    # (tag associations are written via Core inserts that don't fire ORM events).
+    from datetime import datetime
+    post.updated_at = datetime.utcnow()
+
     await db.commit()
 
     # Reload for response
@@ -260,28 +265,23 @@ async def update_post(post_id: int, request: UpdatePostRequest, db: AsyncSession
 
 @router.delete("/posts/{post_id}")
 async def delete_post(post_id: int, db: AsyncSession = Depends(get_db)):
-    """Delete a post and its files."""
+    """Soft-delete a post.
+
+    The row and its files are kept (marked with ``deleted_at``) so the deletion
+    can propagate as a tombstone through the sync change log. A separate purge
+    step can reclaim disk space later. Soft-deleted posts are hidden from search.
+    """
+    from datetime import datetime
+
     result = await db.execute(
-        select(Post).options(selectinload(Post.tags)).where(Post.id == post_id)
+        select(Post).where(Post.id == post_id)
     )
     post = result.scalars().first()
 
-    if not post:
+    if not post or post.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    # Delete files
-    content_path = settings.posts_dir / post.sha256[:2] / f"{post.sha256}{post.extension}"
-    thumb_path = settings.thumbs_dir / post.sha256[:2] / f"{post.sha256}.jpg"
-
-    content_path.unlink(missing_ok=True)
-    thumb_path.unlink(missing_ok=True)
-
-    # Decrement tag counts
-    for tag in post.tags:
-        tag.usage_count = max(0, tag.usage_count - 1)
-
-    # Delete post
-    await db.delete(post)
+    post.deleted_at = datetime.utcnow()
     await db.commit()
 
     return {"success": True}

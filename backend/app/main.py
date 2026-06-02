@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 
 from .config import settings, get_bundle_dir
 from .database import init_db
-from .routers import uploads, posts, tags, pools, notes, comments, settings as settings_router
+from .routers import uploads, posts, tags, pools, notes, comments, sync, settings as settings_router
 
 # Configure logging
 logging.basicConfig(
@@ -51,6 +51,7 @@ app.include_router(tags.router)
 app.include_router(pools.router)
 app.include_router(notes.router)
 app.include_router(comments.router)
+app.include_router(sync.router)
 app.include_router(settings_router.router)
 
 

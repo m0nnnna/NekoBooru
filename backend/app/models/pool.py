@@ -1,3 +1,4 @@
+import uuid as uuid_lib
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
@@ -5,10 +6,16 @@ from sqlalchemy.orm import relationship
 from ..database import Base
 
 
+def _new_uuid() -> str:
+    return str(uuid_lib.uuid4())
+
+
 class Pool(Base):
     __tablename__ = "pools"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # Stable cross-device identity for sync (server id is local-only).
+    uuid = Column(String(36), unique=True, nullable=False, index=True, default=_new_uuid)
     name = Column(String(255), nullable=False)
     description = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -26,6 +33,7 @@ class Pool(Base):
         
         return {
             "id": self.id,
+            "uuid": self.uuid,
             "name": self.name,
             "description": self.description,
             "postCount": post_count,

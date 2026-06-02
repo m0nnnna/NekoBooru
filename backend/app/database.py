@@ -36,11 +36,53 @@ async def get_db():
             raise
 
 
+def _column_exists(conn, table: str, column: str) -> bool:
+    rows = conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+    return any(row[1] == column for row in rows)
+
+
+def _migrate(conn):
+    """Lightweight, idempotent schema migrations for existing databases.
+
+    ``create_all`` only creates missing *tables*, never new columns on existing
+    ones, so adding sync columns to a live DB needs explicit ALTERs.
+    """
+    import uuid as uuid_lib
+
+    # Soft-delete marker on posts.
+    if not _column_exists(conn, "posts", "deleted_at"):
+        conn.exec_driver_sql("ALTER TABLE posts ADD COLUMN deleted_at DATETIME")
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_posts_deleted_at ON posts(deleted_at)"
+        )
+
+    # Stable cross-device uuids on pools/notes/comments (+ backfill existing rows).
+    for table in ("pools", "notes", "comments"):
+        if not _column_exists(conn, table, "uuid"):
+            conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN uuid VARCHAR(36)")
+        missing = conn.exec_driver_sql(
+            f"SELECT id FROM {table} WHERE uuid IS NULL OR uuid = ''"
+        ).fetchall()
+        for (row_id,) in missing:
+            conn.exec_driver_sql(
+                f"UPDATE {table} SET uuid = '{uuid_lib.uuid4()}' WHERE id = {row_id}"
+            )
+        conn.exec_driver_sql(
+            f"CREATE UNIQUE INDEX IF NOT EXISTS ix_{table}_uuid ON {table}(uuid)"
+        )
+
+
 async def init_db():
     """Initialize database tables."""
     from . import models  # noqa: F401
+    from .services.sync import register_sync_listeners
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_migrate)
+
+    # Capture all subsequent writes (web UI + API) into the sync change log.
+    register_sync_listeners()
 
     # Seed default tag categories
     async with async_session() as session:

@@ -103,8 +103,8 @@ async def search_posts(
         selectinload(Post.favorite),
     )
 
-    # Track conditions
-    and_conditions = []
+    # Track conditions. Always exclude soft-deleted posts.
+    and_conditions = [Post.deleted_at.is_(None)]
     or_groups = []
     current_or_group = []
 

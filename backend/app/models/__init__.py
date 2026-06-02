@@ -4,3 +4,4 @@ from .pool import Pool, PoolPost
 from .note import Note
 from .comment import Comment
 from .favorite import Favorite
+from .sync import SyncLog

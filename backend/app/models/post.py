@@ -29,6 +29,8 @@ class Post(Base):
     source = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Soft-delete marker so deletions can propagate through sync (tombstone).
+    deleted_at = Column(DateTime, nullable=True, index=True)
 
     # Relationships
     tags = relationship("Tag", secondary=PostTag, back_populates="posts")
@@ -62,6 +64,7 @@ class Post(Base):
             "source": self.source,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
+            "deletedAt": self.deleted_at.isoformat() if self.deleted_at else None,
             "tags": [tag.name for tag in self.tags] if self.tags else [],
             "isFavorited": self.favorite is not None,
             "contentUrl": f"/api/media/posts/{self.content_path}",
