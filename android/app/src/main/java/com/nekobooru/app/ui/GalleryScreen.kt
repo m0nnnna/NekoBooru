@@ -1,5 +1,6 @@
 package com.nekobooru.app.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,7 +43,7 @@ import com.nekobooru.app.data.db.PostEntity
 import java.io.File
 
 @Composable
-fun GalleryScreen(vm: GalleryViewModel, onAdd: () -> Unit) {
+fun GalleryScreen(vm: GalleryViewModel, onAdd: () -> Unit, onPostClick: (String) -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
 
     Scaffold(
@@ -90,14 +91,14 @@ fun GalleryScreen(vm: GalleryViewModel, onAdd: () -> Unit) {
                 state.posts.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Text("No posts cached. Set your server URL and tap Sync, or add media with +.")
                 }
-                else -> PostGrid(state.posts, state.serverUrl)
+                else -> PostGrid(state.posts, state.serverUrl, onPostClick)
             }
         }
     }
 }
 
 @Composable
-private fun PostGrid(posts: List<PostEntity>, serverUrl: String) {
+private fun PostGrid(posts: List<PostEntity>, serverUrl: String, onPostClick: (String) -> Unit) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 110.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 12.dp),
@@ -105,13 +106,13 @@ private fun PostGrid(posts: List<PostEntity>, serverUrl: String) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(posts, key = { it.sha256 }) { post ->
-            PostThumb(post, serverUrl)
+            PostThumb(post, serverUrl, onClick = { onPostClick(post.sha256) })
         }
     }
 }
 
 @Composable
-private fun PostThumb(post: PostEntity, serverUrl: String) {
+private fun PostThumb(post: PostEntity, serverUrl: String, onClick: () -> Unit) {
     val context = LocalContext.current
     // Prefer the locally stored file (newly added / not yet synced); otherwise
     // load the server thumbnail.
@@ -120,7 +121,8 @@ private fun PostThumb(post: PostEntity, serverUrl: String) {
     Box(
         modifier = Modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(8.dp)),
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick),
     ) {
         AsyncImage(
             model = ImageRequest.Builder(context)

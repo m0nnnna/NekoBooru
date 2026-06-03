@@ -12,6 +12,12 @@ interface PostDao {
     @Query("SELECT * FROM posts WHERE deleted = 0 AND deletedAt IS NULL ORDER BY createdAt DESC")
     fun observeVisible(): Flow<List<PostEntity>>
 
+    @Query("SELECT * FROM posts WHERE sha256 = :sha")
+    fun observeBySha(sha: String): Flow<PostEntity?>
+
+    @Query("UPDATE posts SET tags = :tags, safety = :safety, dirty = 1 WHERE sha256 = :sha")
+    suspend fun updateMeta(sha: String, tags: String, safety: String)
+
     @Upsert
     suspend fun upsert(posts: List<PostEntity>)
 

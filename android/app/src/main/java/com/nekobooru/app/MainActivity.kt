@@ -11,11 +11,17 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nekobooru.app.ui.AddScreen
 import com.nekobooru.app.ui.AddViewModel
+import com.nekobooru.app.ui.DetailScreen
+import com.nekobooru.app.ui.DetailViewModel
 import com.nekobooru.app.ui.GalleryScreen
 import com.nekobooru.app.ui.GalleryViewModel
 import com.nekobooru.app.ui.NekoBooruTheme
 
-private enum class Screen { Gallery, Add }
+private sealed interface Screen {
+    data object Gallery : Screen
+    data object Add : Screen
+    data class Detail(val sha: String) : Screen
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -23,15 +29,23 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             NekoBooruTheme {
-                var screen by remember { mutableStateOf(Screen.Gallery) }
-                when (screen) {
+                var screen by remember { mutableStateOf<Screen>(Screen.Gallery) }
+                when (val s = screen) {
                     Screen.Gallery -> {
                         val vm: GalleryViewModel = viewModel()
-                        GalleryScreen(vm, onAdd = { screen = Screen.Add })
+                        GalleryScreen(
+                            vm,
+                            onAdd = { screen = Screen.Add },
+                            onPostClick = { sha -> screen = Screen.Detail(sha) },
+                        )
                     }
                     Screen.Add -> {
                         val vm: AddViewModel = viewModel()
                         AddScreen(vm, onDone = { screen = Screen.Gallery })
+                    }
+                    is Screen.Detail -> {
+                        val vm: DetailViewModel = viewModel()
+                        DetailScreen(vm, sha = s.sha, onBack = { screen = Screen.Gallery })
                     }
                 }
             }

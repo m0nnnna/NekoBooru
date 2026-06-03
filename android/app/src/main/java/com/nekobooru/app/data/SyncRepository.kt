@@ -10,6 +10,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.time.Instant
+import java.util.UUID
 
 /**
  * Drives the client side of sync. This increment implements the **pull** half:
@@ -70,6 +71,40 @@ class SyncRepository(private val db: NekoDatabase) {
         )
     }
 
+    /** Edit tags/safety of an existing (synced) post; applies locally + queues. */
+    suspend fun enqueueEdit(sha: String, tags: List<String>, safety: String) {
+        val tagStr = tags.joinToString(" ")
+        postDao.updateMeta(sha, tagStr, safety)
+        outboxDao.insert(
+            PendingChangeEntity(
+                type = "post", op = "upsert", clientId = UUID.randomUUID().toString(),
+                sha256 = sha, tags = tagStr, safety = safety,
+            )
+        )
+    }
+
+    /** Soft-delete a post locally + queue the deletion to propagate as a tombstone. */
+    suspend fun enqueueDelete(sha: String) {
+        postDao.markDeleted(sha)
+        outboxDao.insert(
+            PendingChangeEntity(
+                type = "post", op = "delete", clientId = UUID.randomUUID().toString(),
+                sha256 = sha,
+            )
+        )
+    }
+
+    /** Toggle favorite locally + queue. */
+    suspend fun enqueueFavorite(sha: String, favorited: Boolean) {
+        postDao.setFavorite(sha, favorited)
+        outboxDao.insert(
+            PendingChangeEntity(
+                type = "favorite", op = if (favorited) "upsert" else "delete",
+                clientId = UUID.randomUUID().toString(), sha256 = sha,
+            )
+        )
+    }
+
     /**
      * Push queued offline changes home. New posts upload their file via
      * /api/uploads, then POST /api/sync/push (server dedups by hash). On
@@ -80,39 +115,59 @@ class SyncRepository(private val db: NekoDatabase) {
         val api = ApiFactory.create(serverUrl)
         var pushed = 0
         for (c in outboxDao.all()) {
-            if (c.type == "post" && c.op == "upsert" && c.localMediaPath != null) {
-                val file = File(c.localMediaPath)
-                if (!file.exists()) {
-                    outboxDao.delete(c.id)
-                    continue
-                }
-                val token = uploadFile(api, file)
-                val resp = api.push(
-                    PushRequestDto(
-                        listOf(
-                            PushChangeDto(
-                                type = "post",
-                                op = "upsert",
-                                clientId = c.clientId,
-                                contentToken = token,
-                                tags = c.tagList,
-                                safety = c.safety,
-                                source = c.source,
-                            )
+            val ok = when {
+                // New post: upload the file, then create on the server (dedup by hash).
+                c.type == "post" && c.op == "upsert" && c.localMediaPath != null -> {
+                    val file = File(c.localMediaPath)
+                    if (!file.exists()) {
+                        outboxDao.delete(c.id); continue
+                    }
+                    val token = uploadFile(api, file)
+                    val status = pushOne(
+                        api, PushChangeDto(
+                            type = "post", op = "upsert", clientId = c.clientId,
+                            contentToken = token, tags = c.tagList,
+                            safety = c.safety, source = c.source,
                         )
                     )
-                )
-                val result = resp.results.firstOrNull()
-                if (result != null && (result.status == "created" || result.status == "deduped")) {
-                    postDao.deleteBySha("pending-${c.clientId}")
-                    outboxDao.delete(c.id)
-                    file.delete()
-                    pushed++
+                    if (status == "created" || status == "deduped") {
+                        postDao.deleteBySha("pending-${c.clientId}")
+                        file.delete()
+                        true
+                    } else false
                 }
+                // Metadata edit of an existing post (no updatedAt -> client change wins).
+                c.type == "post" && c.op == "upsert" && c.sha256 != null -> {
+                    val status = pushOne(
+                        api, PushChangeDto(
+                            type = "post", op = "upsert", sha256 = c.sha256,
+                            tags = c.tagList, safety = c.safety,
+                        )
+                    )
+                    status != null && status != "error"
+                }
+                // Delete (soft-delete on the server, propagates as a tombstone).
+                c.type == "post" && c.op == "delete" && c.sha256 != null -> {
+                    val status = pushOne(api, PushChangeDto(type = "post", op = "delete", sha256 = c.sha256))
+                    status != null && status != "error"
+                }
+                // Favorite toggle.
+                c.type == "favorite" && c.sha256 != null -> {
+                    val status = pushOne(api, PushChangeDto(type = "favorite", op = c.op, sha256 = c.sha256))
+                    status != null && status != "error"
+                }
+                else -> true // unknown/empty entry: drop it
+            }
+            if (ok) {
+                outboxDao.delete(c.id)
+                pushed++
             }
         }
         return pushed
     }
+
+    private suspend fun pushOne(api: NekoBooruApi, change: PushChangeDto): String? =
+        api.push(PushRequestDto(listOf(change))).results.firstOrNull()?.status
 
     private suspend fun uploadFile(api: NekoBooruApi, file: File): String {
         val mime = when (file.extension.lowercase()) {
