@@ -19,11 +19,17 @@ interface NekoBooruApi {
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 42,
     ): PostListResponse
+
+    @GET("api/sync/changes")
+    suspend fun getChanges(
+        @Query("since") since: Long = 0,
+        @Query("limit") limit: Int = 500,
+    ): SyncChangesResponse
 }
 
 /** Builds a [NekoBooruApi] bound to a given server base URL (e.g. http://10.0.2.2:8000/). */
 object ApiFactory {
-    private val json = Json {
+    val json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
     }

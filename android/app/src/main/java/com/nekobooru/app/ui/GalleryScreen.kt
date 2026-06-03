@@ -35,7 +35,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import com.nekobooru.app.data.ApiFactory
-import com.nekobooru.app.data.PostDto
+import com.nekobooru.app.data.db.PostEntity
 
 @Composable
 fun GalleryScreen(vm: GalleryViewModel) {
@@ -78,7 +78,7 @@ fun GalleryScreen(vm: GalleryViewModel) {
                     )
                 }
                 state.posts.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Text("No posts. Enter your server URL and tap Load.")
+                    Text("No posts cached. Enter your server URL and tap Load to sync.")
                 }
                 else -> PostGrid(state.posts, state.serverUrl)
             }
@@ -87,7 +87,7 @@ fun GalleryScreen(vm: GalleryViewModel) {
 }
 
 @Composable
-private fun PostGrid(posts: List<PostDto>, serverUrl: String) {
+private fun PostGrid(posts: List<PostEntity>, serverUrl: String) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 110.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 12.dp),
@@ -101,7 +101,7 @@ private fun PostGrid(posts: List<PostDto>, serverUrl: String) {
 }
 
 @Composable
-private fun PostThumb(post: PostDto, serverUrl: String) {
+private fun PostThumb(post: PostEntity, serverUrl: String) {
     val context = LocalContext.current
     Box(
         modifier = Modifier
