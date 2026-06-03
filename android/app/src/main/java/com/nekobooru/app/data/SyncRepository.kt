@@ -2,6 +2,7 @@ package com.nekobooru.app.data
 
 import com.nekobooru.app.data.db.NekoDatabase
 import com.nekobooru.app.data.db.PendingChangeEntity
+import com.nekobooru.app.data.db.PoolEntity
 import com.nekobooru.app.data.db.PostEntity
 import com.nekobooru.app.data.db.SyncStateEntity
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -20,6 +21,7 @@ import java.util.UUID
 class SyncRepository(private val db: NekoDatabase) {
 
     val postDao = db.postDao()
+    val poolDao = db.poolDao()
     val outboxDao = db.outboxDao()
 
     /**
@@ -106,6 +108,58 @@ class SyncRepository(private val db: NekoDatabase) {
     }
 
     /**
+     * Create or update a pool locally (marking it dirty) and queue the change.
+     * Pass the full ordered member list; the server reconciles membership to it.
+     */
+    suspend fun enqueuePoolUpsert(
+        uuid: String,
+        name: String,
+        description: String?,
+        members: List<String>,
+    ) {
+        val existing = poolDao.getByUuid(uuid)
+        val now = Instant.now().toString()
+        poolDao.upsert(
+            PoolEntity(
+                uuid = uuid,
+                serverId = existing?.serverId,
+                name = name,
+                description = description,
+                createdAt = existing?.createdAt ?: now,
+                updatedAt = now,
+                postSha256sCsv = PoolEntity.csv(members),
+                dirty = true,
+                deleted = false,
+            )
+        )
+        outboxDao.insert(
+            PendingChangeEntity(
+                type = "pool", op = "upsert", clientId = UUID.randomUUID().toString(),
+                uuid = uuid, name = name, description = description,
+                postSha256sCsv = PoolEntity.csv(members),
+            )
+        )
+    }
+
+    /** Add a post to a pool (creating the pool if it doesn't exist) + queue. */
+    suspend fun addPostToPool(uuid: String, sha: String) {
+        val pool = poolDao.getByUuid(uuid) ?: return
+        if (sha in pool.postSha256s) return
+        enqueuePoolUpsert(uuid, pool.name, pool.description, pool.postSha256s + sha)
+    }
+
+    /** Soft-delete a pool locally + queue the deletion. */
+    suspend fun enqueuePoolDelete(uuid: String) {
+        poolDao.markDeleted(uuid)
+        outboxDao.insert(
+            PendingChangeEntity(
+                type = "pool", op = "delete", clientId = UUID.randomUUID().toString(),
+                uuid = uuid,
+            )
+        )
+    }
+
+    /**
      * Push queued offline changes home. New posts upload their file via
      * /api/uploads, then POST /api/sync/push (server dedups by hash). On
      * success the placeholder is removed and the canonical post arrives via the
@@ -155,6 +209,28 @@ class SyncRepository(private val db: NekoDatabase) {
                 c.type == "favorite" && c.sha256 != null -> {
                     val status = pushOne(api, PushChangeDto(type = "favorite", op = c.op, sha256 = c.sha256))
                     status != null && status != "error"
+                }
+                // Pool create/update (full membership reconcile) or delete.
+                c.type == "pool" && c.op == "upsert" && c.uuid != null -> {
+                    val status = pushOne(
+                        api, PushChangeDto(
+                            type = "pool", op = "upsert", uuid = c.uuid,
+                            name = c.name, description = c.description,
+                            postSha256s = c.poolMembers,
+                        )
+                    )
+                    if (status != null && status != "error") {
+                        // Clear the dirty flag now that the server has it.
+                        poolDao.getByUuid(c.uuid)?.let { poolDao.upsert(it.copy(dirty = false)) }
+                        true
+                    } else false
+                }
+                c.type == "pool" && c.op == "delete" && c.uuid != null -> {
+                    val status = pushOne(api, PushChangeDto(type = "pool", op = "delete", uuid = c.uuid))
+                    if (status != null && status != "error") {
+                        poolDao.deleteByUuid(c.uuid)
+                        true
+                    } else false
                 }
                 else -> true // unknown/empty entry: drop it
             }
@@ -213,7 +289,32 @@ class SyncRepository(private val db: NekoDatabase) {
                     }
                 }
                 "favorite" -> postDao.setFavorite(ch.key, ch.op == "upsert")
-                // tags / pools / notes / comments: applied in later increments
+                "pool" -> {
+                    if (ch.op == "delete") {
+                        poolDao.deleteByUuid(ch.key)
+                    } else if (ch.data != null) {
+                        val dto = ApiFactory.json.decodeFromJsonElement<PoolSyncDto>(ch.data)
+                        val local = poolDao.getByUuid(dto.uuid)
+                        // Don't clobber a locally dirty pool with the server copy;
+                        // our queued push will reconcile it (client edit wins).
+                        if (local?.dirty != true) {
+                            poolDao.upsert(
+                                PoolEntity(
+                                    uuid = dto.uuid,
+                                    serverId = dto.id,
+                                    name = dto.name,
+                                    description = dto.description,
+                                    createdAt = dto.createdAt,
+                                    updatedAt = dto.updatedAt,
+                                    postSha256sCsv = PoolEntity.csv(dto.postSha256s),
+                                    dirty = false,
+                                    deleted = false,
+                                )
+                            )
+                        }
+                    }
+                }
+                // tags / notes / comments: niche on a phone, deferred
                 else -> Unit
             }
         }

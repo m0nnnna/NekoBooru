@@ -14,12 +14,13 @@ fresh session. Branch: **`android-sync-feature`**.
 | **B3** | Room offline cache + sync **pull** | ✅ compiles, committed |
 | **B4** | Outbox + Add screen + sync **push** (new posts) | ✅ compiles, committed |
 | **B5** | Detail screen + edit/delete/favorite push | ✅ compiles, committed |
-| **B6** | Sync pools / notes / comments | ⏳ TODO (this doc) |
-| **B7** | WorkManager auto-sync + share target + retention | ⏳ TODO (this doc) |
+| **B6** | Sync pools (notes/comments deferred) | ✅ compiles |
+| **B7** | WorkManager auto-sync + share target + retention | ✅ compiles |
 
-The core loop (browse, add, edit, delete, favorite, two-way sync) is functionally
-complete. Each step was verified to compile via `assembleDebug` but **not yet run on
-an emulator** — runtime verification is the recommended next manual check (see end).
+The core loop (browse, add, edit, delete, favorite, pools, two-way sync,
+background auto-sync, share target, retention) is functionally complete. Each step
+was verified to compile via `assembleDebug` but **not yet run on an emulator** —
+runtime verification is the recommended next manual check (see end).
 
 ---
 
@@ -60,15 +61,19 @@ untouched.
 
 **Android layers** (`android/app/src/main/java/com/nekobooru/app/`):
 - `data/Dtos.kt` — `PostDto` mirrors Post.to_dict.
-- `data/SyncDtos.kt` — `SyncChangesResponse`, `SyncChange`, `PushChangeDto`, `PushResponseDto`, `UploadTokenDto`.
-- `data/NekoBooruApi.kt` — Retrofit interface + `ApiFactory` (Json is public; `absoluteUrl()` resolves relative media URLs).
-- `data/AppSettings.kt` — SharedPreferences; `serverUrl` default `http://10.0.2.2:8000` (emulator→host).
-- `data/db/Entities.kt` — `PostEntity` (PK sha256; local fields `dirty`, `deleted`, `localMediaPath`), `SyncStateEntity` (cursor), `PendingChangeEntity` (outbox).
-- `data/db/Daos.kt` — `PostDao`, `SyncStateDao`, `OutboxDao`.
-- `data/db/NekoDatabase.kt` — Room DB (**version 2**, `fallbackToDestructiveMigration`).
-- `data/SyncRepository.kt` — `pull()`, `push()`, `enqueueNewPost/Edit/Delete/Favorite()`.
-- `ui/` — `GalleryScreen`+VM, `AddScreen`+VM, `DetailScreen`+VM, `Theme.kt`.
-- `MainActivity.kt` — sealed `Screen { Gallery, Add, Detail(sha) }` state-based nav.
+- `data/SyncDtos.kt` — `SyncChangesResponse`, `SyncChange`, `PushChangeDto`, `PushResponseDto`, `UploadTokenDto`, `PoolSyncDto`.
+- `data/NekoBooruApi.kt` — Retrofit interface (+ streaming `download(@Url)`) + `ApiFactory` (Json public; `absoluteUrl()` resolves relative media URLs).
+- `data/AppSettings.kt` — SharedPreferences; `serverUrl` (default `http://10.0.2.2:8000`), `retention`, `lastSyncedAt`.
+- `data/db/Entities.kt` — `PostEntity` (PK sha256; `dirty`/`deleted`/`localMediaPath` + retention `localOriginalPath`/`lastAccessedAt`), `PoolEntity` (PK uuid; CSV members), `SyncStateEntity` (cursor), `PendingChangeEntity` (outbox; pool payload fields).
+- `data/db/Daos.kt` — `PostDao`, `PoolDao`, `SyncStateDao`, `OutboxDao`.
+- `data/db/NekoDatabase.kt` — Room DB (**version 3**, `fallbackToDestructiveMigration`).
+- `data/SyncRepository.kt` — `pull()`, `push()`, `enqueueNewPost/Edit/Delete/Favorite()`, `enqueuePoolUpsert/Delete()`, `addPostToPool()`.
+- `data/SyncManager.kt` — `sync(context)` = push→pull→stamp `lastSyncedAt`→retention; the one entry point all sync paths use.
+- `data/RetentionManager.kt` — original-file caching/eviction per `Retention` policy; `fetchOriginal()` for on-demand viewing.
+- `sync/SyncWorker.kt` + `sync/SyncScheduler.kt` — WorkManager periodic + one-shot background sync.
+- `ui/` — `GalleryScreen`, `AddScreen`, `DetailScreen`, `PoolsScreen`, `PoolScreen`, `SettingsScreen` (+VMs), shared `PostThumb.kt`, `Theme.kt`.
+- `NekoApp.kt` — Application; schedules periodic sync on start.
+- `MainActivity.kt` — sealed `Screen { Gallery, Add(sharedUri?), Detail(sha), Pools, Pool(uuid), Settings }` state-based nav; handles the ACTION_SEND share intent.
 
 **Key conventions / decisions:**
 - New offline posts get a **placeholder** `PostEntity` keyed `pending-<clientId>` with
@@ -77,68 +82,71 @@ untouched.
 - `push()` then `pull()` on every "Sync"; cursor is NOT advanced to the push response
   (so our own post comes back once, bringing its server thumbnail).
 - Pending posts disable edit/delete in detail until synced.
+- A locally `dirty` pool is not overwritten by an incoming pull (queued client edit wins),
+  mirroring the post LWW policy.
 - Bumping the Room schema = bump `version` in `NekoDatabase` (destructive migration is on).
 
 ---
 
-## Step 6 — sync pools, notes, comments
+## Step 6 — sync pools ✅ (notes/comments deferred)
 
-The change feed already delivers these; `SyncRepository.applyChanges()` currently
-ignores non-post/favorite types. Pools are the worthwhile one on a phone; notes/comments
-are niche — consider pools-only first.
+Pools are the worthwhile entity on a phone; notes/comments stayed niche and were
+**deferred** (the pull still ignores `note`/`comment` types — see `applyChanges`).
 
-**Data (Room, bump DB to v3):**
-- `PoolEntity(uuid PK, serverId?, name, description?, createdAt?, updatedAt?, postSha256sCsv, dirty, deleted)`.
-  Store members as a CSV of post sha256 (ordered) — mirrors `data.postSha256s`.
-- (Optional) `NoteEntity(uuid PK, postSha256, x,y,width,height,text, dirty, deleted)`,
-  `CommentEntity(uuid PK, postSha256, text, createdAt, dirty, deleted)`.
-- Add DAOs (`PoolDao` etc.); register entities in `NekoDatabase`, version=3.
+**Data (Room, now v3):**
+- `PoolEntity(uuid PK, serverId?, name, description?, createdAt?, updatedAt?, postSha256sCsv, dirty, deleted)`
+  in `data/db/Entities.kt`; members stored as an ordered CSV (`PoolEntity.csv()` / `.postSha256s`).
+- `PoolDao` in `data/db/Daos.kt` (observe/get/getAll/upsert/delete/markDeleted).
+- `NekoDatabase` registers `PoolEntity`, `version = 3` (destructive migration).
+- `PostEntity` also gained `localOriginalPath` + `lastAccessedAt` for step-7 retention,
+  and `PendingChangeEntity` gained `uuid/name/description/postSha256sCsv` for queued pools.
 
-**Pull** (`SyncRepository.applyChanges`): add branches:
-- `"pool"` → upsert/delete `PoolEntity` (decode `data` to a `PoolSyncDto{uuid,name,description,postSha256s}`; join sha list to CSV).
-- `"note"`/`"comment"` → upsert/delete by uuid (decode includes `postSha256`).
+**Sync** (`SyncRepository`):
+- Pull: `applyChanges` `"pool"` branch decodes `PoolSyncDto` → `PoolEntity`; **skips
+  clobbering a locally `dirty` pool** so a queued edit wins.
+- Push: `"pool"` upsert/delete branches; clears `dirty`/removes the row on success.
+- `PushChangeDto` extended with `uuid, name, description, postSha256(s), text, x, y, width, height`.
+- New repo methods: `enqueuePoolUpsert`, `enqueuePoolDelete`, `addPostToPool`.
 
-**Push** (`SyncRepository.push`): handle queued pool/note/comment changes:
-- Pool upsert → `PushChangeDto(type="pool", uuid, name, description, postSha256s=...)`.
-- Pool delete → `(type="pool", op="delete", uuid)`. Note/comment analogous.
-  NOTE: `PushChangeDto` must gain fields `uuid, name, description, postSha256s, postSha256, text, x, y, width, height` (backend already accepts them — see `PushChange` in `backend/app/routers/sync.py`).
+**UI:** `PoolsScreen`+VM (list + create/delete), `PoolScreen`+VM (grid filtered to
+`postSha256s` in order), "Add to pool" dialog in `DetailScreen` (pick existing or
+create new). `MainActivity` gained `Screen.Pools` / `Screen.Pool(uuid)`; reach Pools
+from the gallery top-bar list icon. Shared thumbnail grid extracted to `ui/PostThumb.kt`.
 
-**UI (minimal):**
-- A Pools list screen (LazyColumn of `PoolEntity`, tap → pool view = grid filtered to its `postSha256s`).
-- "Add to pool" from `DetailScreen` (pick/create a pool → update CSV locally + queue pool upsert).
-- Add `Screen.Pools` / `Screen.Pool(uuid)` to `MainActivity` nav; a simple tab or menu entry.
-- Notes/comments UI optional; can defer or show read-only on detail.
-
-**Verify:** `assembleDebug`; then create a pool on the web UI → Sync on phone → pool
-appears; create/modify a pool on phone offline → Sync → shows on web.
+**Verify:** create a pool on the web UI → Sync on phone → pool appears; create/modify
+a pool on phone offline → Sync → shows on web.
 
 ---
 
-## Step 7 — auto-sync + share target + retention
+## Step 7 — auto-sync + share target + retention ✅
 
-**WorkManager auto-sync:**
-- Add deps: `androidx.work:work-runtime-ktx:2.9.1`.
-- `SyncWorker(CoroutineWorker)` → `repo.push(url); repo.pull(url)` (read URL from `AppSettings`); return `Result.retry()` on `IOException`, else `success`.
-- Schedule a `PeriodicWorkRequest` (e.g. 1–6h) with `NetworkType.CONNECTED` constraint,
-  + a one-shot enqueue on app start and after each local change (`enqueueUniqueWork`).
-  This replaces the manual "Sync" button as the primary trigger (keep the button too).
-- Surface last-synced time / online state in the gallery top bar (mirrors web
-  `frontend/src/components/BackendStatus.vue`).
+All three sync paths now funnel through **`data/SyncManager.sync(context)`**
+(push → pull → stamp `lastSyncedAt` → run retention), reused by the button, per-edit
+best-effort syncs, and the worker.
 
-**Android share target ("Share to NekoBooru"):**
-- In `AndroidManifest.xml`, add an `<intent-filter>` to `MainActivity` (or a dedicated
-  activity) for `ACTION_SEND` with `mimeType` `image/*` and `video/*`.
-- On launch with a shared `EXTRA_STREAM` Uri, route straight into the Add flow
-  pre-populated with that Uri (reuse `AddViewModel.onPicked(uri)` + `copyToStorage`).
-  Handle the read permission grant from the share intent.
+**WorkManager auto-sync** (`sync/`):
+- `work-runtime-ktx:2.9.1` added.
+- `SyncWorker(CoroutineWorker)` → `SyncManager.sync`; `Result.retry()` on `IOException`.
+- `SyncScheduler`: `ensureScheduled()` (unique periodic, 3h, `NetworkType.CONNECTED`,
+  KEEP) called from the new `NekoApp` Application on start; `requestOneShot()` (unique,
+  REPLACE) fired after each local change so offline edits flush on reconnect.
+- Gallery top bar shows "Last synced …" from `AppSettings.lastSyncedAt`.
 
-**Retention settings:**
-- `AppSettings`: add `retention` ∈ {EVERYTHING, FAVORITES_POOLS, ON_DEMAND}.
-- After `pull()`, a maintenance pass downloads/evicts **original** files per policy
-  (thumbnails always cached via Coil). New field on `PostEntity` like
-  `localOriginalPath`; an LRU/eviction by access time for ON_DEMAND.
-- A Settings screen (server URL — move it off the gallery — + retention radio + manual
-  "Sync now" + status). Add `Screen.Settings` to nav.
+**Share target ("Share to NekoBooru"):** `AndroidManifest` `ACTION_SEND` intent-filter
+(`image/*`, `video/*`); `MainActivity.extractSharedUri()` (Tiramisu-safe) routes a shared
+`EXTRA_STREAM` straight into `Screen.Add(sharedUri)`, which calls `AddViewModel.onPicked`.
+
+**Retention** (`data/RetentionManager.kt`, `AppSettings.retention`):
+- `Retention ∈ {EVERYTHING, FAVORITES_POOLS (default), ON_DEMAND}`.
+- After each pull, `run()` downloads/evicts **originals** under `filesDir/originals`
+  (thumbnails stay Coil-cached): EVERYTHING fetches all; FAVORITES_POOLS keeps
+  favorited+pooled and evicts the rest; ON_DEMAND pre-fetches nothing and LRU-evicts
+  past `ON_DEMAND_CAP` (60) by `lastAccessedAt`.
+- `fetchOriginal()` caches on view + touches access time; `DetailViewModel.localOriginal`
+  feeds the detail `MediaPreview` (so favorited images open offline).
+- New **`SettingsScreen`**+VM: server URL (moved off the gallery), retention radio,
+  "Sync now" + status. `Screen.Settings` reached from the gallery gear icon.
+- Streaming download added: `NekoBooruApi.download(@Url)` returns `ResponseBody`.
 
 **Verify:** airplane-mode test below; confirm a periodic sync fires on reconnect and a
 shared image lands in Add.
@@ -148,7 +156,12 @@ shared image lands in Add.
 ## Known caveats / TODO
 
 - **Video playback**: detail screen shows the video *thumbnail* + play badge only.
-  In-app playback (Media3/ExoPlayer) is unscheduled — add when desired.
+  In-app playback (Media3/ExoPlayer) is unscheduled — add when desired. Retention also
+  never caches video originals (no offline video).
+- **Notes/comments**: deferred. The change feed delivers them and the backend push
+  accepts them; the client just ignores `note`/`comment` pulls and has no UI yet.
+- **Pool ordering on phone**: "Add to pool" appends to the end; there's no drag-reorder
+  UI (the CSV/`order` plumbing supports it if added later).
 - **No auth** (LAN-only per decision). `usesCleartextTraffic=true`. Revisit if remote
   access is ever wanted (Tailscale/VPN + API key).
 - **Push conflict**: client omits `updatedAt`, so phone edits always win on push. Fine
@@ -163,8 +176,15 @@ shared image lands in Add.
 
 1. Backend: `backend/start-dev.bat` (or `cd backend && python run.py`).
 2. Android Studio → open `android/` → Run on an emulator.
-3. Set Server URL `http://10.0.2.2:8000` → **Sync** → gallery matches the site.
+3. **Settings** (gear icon) → set Server URL `http://10.0.2.2:8000` → back → **Sync** →
+   gallery matches the site.
 4. **Airplane mode**: add+tag a new image (shows with upload badge), edit one post's
    tags, delete another. Re-enable Wi-Fi → **Sync** → confirm on the web UI: new upload
    present, tags changed, deleted post gone. Then a web-side edit → **Sync** on phone →
    change appears. (Physical phone: use the server's LAN IP instead of 10.0.2.2.)
+5. **Pools**: list icon → create a pool; open a post → "Add to pool" → Sync → pool shows
+   on the web. Create a pool on the web → Sync on phone → it appears with its members.
+6. **Share target**: from the system Photos app, Share → NekoBooru → lands in Add
+   pre-filled → Add & sync.
+7. **Retention**: Settings → "Favorites & pools"; favorite a post, Sync, then airplane
+   mode → open it → full image still loads from the cached original.

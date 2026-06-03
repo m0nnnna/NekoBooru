@@ -31,9 +31,37 @@ data class PostEntity(
     val dirty: Boolean = false,
     val deleted: Boolean = false,
     val localMediaPath: String? = null,
+    // retention (step 7): cached original file + LRU access time for ON_DEMAND eviction.
+    val localOriginalPath: String? = null,
+    val lastAccessedAt: Long = 0,
 ) {
     val isVideo: Boolean get() = extension == ".mp4" || extension == ".webm"
     val tagList: List<String> get() = if (tags.isBlank()) emptyList() else tags.split(" ")
+}
+
+/**
+ * Local mirror of a server pool, keyed by uuid (the cross-device stable id).
+ * Membership is stored as an ordered CSV of post sha256s (mirrors the server's
+ * ``postSha256s``). ``dirty`` marks a locally-changed pool awaiting push.
+ */
+@Entity(tableName = "pools")
+data class PoolEntity(
+    @PrimaryKey val uuid: String,
+    val serverId: Int?,
+    val name: String,
+    val description: String?,
+    val createdAt: String?,
+    val updatedAt: String?,
+    val postSha256sCsv: String,   // ordered, comma-separated sha256s
+    val dirty: Boolean = false,
+    val deleted: Boolean = false,
+) {
+    val postSha256s: List<String>
+        get() = if (postSha256sCsv.isBlank()) emptyList() else postSha256sCsv.split(",")
+
+    companion object {
+        fun csv(shas: List<String>): String = shas.filter { it.isNotBlank() }.joinToString(",")
+    }
 }
 
 /** Single-row table holding the last applied sync cursor. */
@@ -51,7 +79,7 @@ data class SyncStateEntity(
 @Entity(tableName = "pending_changes")
 data class PendingChangeEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val type: String,                 // "post"
+    val type: String,                 // "post" | "favorite" | "pool"
     val op: String,                   // "upsert" | "delete"
     val clientId: String,             // stable client id for a new post
     val sha256: String? = null,       // for edits/deletes of known posts
@@ -59,7 +87,14 @@ data class PendingChangeEntity(
     val tags: String = "",            // space-separated
     val safety: String = "safe",
     val source: String? = null,
+    // pool payload (type == "pool")
+    val uuid: String? = null,
+    val name: String? = null,
+    val description: String? = null,
+    val postSha256sCsv: String? = null, // ordered, comma-separated members
     val createdAt: Long = System.currentTimeMillis(),
 ) {
     val tagList: List<String> get() = if (tags.isBlank()) emptyList() else tags.split(" ")
+    val poolMembers: List<String>
+        get() = postSha256sCsv?.takeIf { it.isNotBlank() }?.split(",") ?: emptyList()
 }

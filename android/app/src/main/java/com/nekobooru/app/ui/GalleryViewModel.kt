@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nekobooru.app.data.AppSettings
+import com.nekobooru.app.data.SyncManager
 import com.nekobooru.app.data.SyncRepository
 import com.nekobooru.app.data.db.NekoDatabase
 import com.nekobooru.app.data.db.PostEntity
@@ -15,52 +16,51 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class GalleryUiState(
-    val serverUrl: String = AppSettings.DEFAULT_SERVER_URL,
     val query: String = "",
     val posts: List<PostEntity> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
+    val lastSyncedAt: Long = 0,
 )
 
 class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     private val settings = AppSettings(app)
     private val repo = SyncRepository(NekoDatabase.get(app))
 
-    private val serverUrl = MutableStateFlow(settings.serverUrl)
     private val query = MutableStateFlow("")
     private val loading = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
+    private val lastSynced = MutableStateFlow(settings.lastSyncedAt)
 
     // UI is backed by Room, so the gallery works offline and updates live.
     val state: StateFlow<GalleryUiState> = combine(
-        serverUrl, query, loading, error, repo.postDao.observeVisible(),
-    ) { url, q, isLoading, err, posts ->
+        query, loading, error, lastSynced, repo.postDao.observeVisible(),
+    ) { q, isLoading, err, synced, posts ->
         GalleryUiState(
-            serverUrl = url,
             query = q,
             posts = filter(posts, q),
             loading = isLoading,
             error = err,
+            lastSyncedAt = synced,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GalleryUiState())
 
-    fun onServerUrlChange(url: String) { serverUrl.value = url }
+    val serverUrl: String get() = settings.serverUrl
+
     fun onQueryChange(q: String) { query.value = q }
 
-    /** Persist the server URL, push queued offline changes, then pull updates. */
+    /** Re-read the persisted last-synced time (e.g. after returning from Settings). */
+    fun refreshStatus() { lastSynced.value = settings.lastSyncedAt }
+
+    /** Push queued offline changes, pull updates, and refresh the cache. */
     fun sync() {
-        settings.serverUrl = serverUrl.value
         loading.value = true
         error.value = null
         viewModelScope.launch {
-            try {
-                repo.push(serverUrl.value)
-                repo.pull(serverUrl.value)
-            } catch (e: Exception) {
-                error.value = e.message ?: "Failed to reach server"
-            } finally {
-                loading.value = false
-            }
+            SyncManager.sync(getApplication())
+                .onFailure { error.value = it.message ?: "Failed to reach server" }
+            lastSynced.value = settings.lastSyncedAt
+            loading.value = false
         }
     }
 

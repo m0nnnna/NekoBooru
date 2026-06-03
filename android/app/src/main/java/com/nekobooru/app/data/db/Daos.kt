@@ -35,6 +35,44 @@ interface PostDao {
 
     @Query("SELECT COUNT(*) FROM posts")
     suspend fun count(): Int
+
+    // --- retention (step 7) ---
+
+    @Query("SELECT * FROM posts WHERE deleted = 0 AND deletedAt IS NULL")
+    suspend fun allVisible(): List<PostEntity>
+
+    @Query("SELECT * FROM posts WHERE sha256 = :sha")
+    suspend fun getBySha(sha: String): PostEntity?
+
+    @Query("UPDATE posts SET localOriginalPath = :path WHERE sha256 = :sha")
+    suspend fun setLocalOriginal(sha: String, path: String?)
+
+    @Query("UPDATE posts SET lastAccessedAt = :ts WHERE sha256 = :sha")
+    suspend fun touchAccess(sha: String, ts: Long)
+}
+
+@Dao
+interface PoolDao {
+    @Query("SELECT * FROM pools WHERE deleted = 0 ORDER BY name COLLATE NOCASE ASC")
+    fun observeVisible(): Flow<List<PoolEntity>>
+
+    @Query("SELECT * FROM pools WHERE uuid = :uuid")
+    fun observeByUuid(uuid: String): Flow<PoolEntity?>
+
+    @Query("SELECT * FROM pools WHERE uuid = :uuid")
+    suspend fun getByUuid(uuid: String): PoolEntity?
+
+    @Query("SELECT * FROM pools WHERE deleted = 0")
+    suspend fun getAll(): List<PoolEntity>
+
+    @Upsert
+    suspend fun upsert(pool: PoolEntity)
+
+    @Query("DELETE FROM pools WHERE uuid = :uuid")
+    suspend fun deleteByUuid(uuid: String)
+
+    @Query("UPDATE pools SET deleted = 1 WHERE uuid = :uuid")
+    suspend fun markDeleted(uuid: String)
 }
 
 @Dao

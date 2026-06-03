@@ -38,7 +38,30 @@ data class PushChangeDto(
     val tags: List<String>? = null,
     val safety: String? = null,
     val source: String? = null,
+    // pool / note / comment stable id + linkage
+    val uuid: String? = null,
+    val name: String? = null,
+    val description: String? = null,
+    val postSha256: String? = null,
+    val postSha256s: List<String>? = null,
+    val text: String? = null,
+    val x: Float? = null,
+    val y: Float? = null,
+    val width: Float? = null,
+    val height: Float? = null,
     val updatedAt: String? = null,
+)
+
+/** Shape of a ``pool`` change's ``data`` from GET /api/sync/changes (see _serialize_pool). */
+@Serializable
+data class PoolSyncDto(
+    val id: Int? = null,
+    val uuid: String,
+    val name: String,
+    val description: String? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val postSha256s: List<String> = emptyList(),
 )
 
 @Serializable

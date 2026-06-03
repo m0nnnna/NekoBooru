@@ -4,9 +4,13 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nekobooru.app.data.AppSettings
+import com.nekobooru.app.data.RetentionManager
+import com.nekobooru.app.data.SyncManager
 import com.nekobooru.app.data.SyncRepository
 import com.nekobooru.app.data.db.NekoDatabase
+import com.nekobooru.app.data.db.PoolEntity
 import com.nekobooru.app.data.db.PostEntity
+import com.nekobooru.app.sync.SyncScheduler
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -15,6 +19,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DetailViewModel(app: Application) : AndroidViewModel(app) {
@@ -29,7 +34,41 @@ class DetailViewModel(app: Application) : AndroidViewModel(app) {
 
     val serverUrl: String get() = settings.serverUrl
 
-    fun load(sha256: String) { sha.value = sha256 }
+    /** Pools the user can add this post to (offline-aware, live from Room). */
+    val pools: StateFlow<List<PoolEntity>> = repo.poolDao.observeVisible()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Locally cached original file path for the loaded post, if downloaded. */
+    val localOriginal = MutableStateFlow<String?>(null)
+
+    fun load(sha256: String) {
+        sha.value = sha256
+        localOriginal.value = null
+        // Cache (or refresh the LRU access time of) the full-res original.
+        viewModelScope.launch {
+            localOriginal.value = RetentionManager(getApplication())
+                .fetchOriginal(settings.serverUrl, sha256)
+        }
+    }
+
+    /** Add the current post to an existing pool (or a freshly created one), then sync. */
+    fun addToPool(poolUuid: String) {
+        val p = post.value ?: return
+        viewModelScope.launch {
+            repo.addPostToPool(poolUuid, p.sha256)
+            trySync()
+        }
+    }
+
+    fun addToNewPool(name: String) {
+        val p = post.value ?: return
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            repo.enqueuePoolUpsert(UUID.randomUUID().toString(), trimmed, null, listOf(p.sha256))
+            trySync()
+        }
+    }
 
     /** A pending (not-yet-synced new) post can't be edited/deleted on the server yet. */
     val isPending: Boolean get() = post.value?.sha256?.startsWith("pending-") == true
@@ -60,11 +99,9 @@ class DetailViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Best-effort sync; offline changes stay queued if the server is unreachable. */
+    /** Best-effort immediate sync; if offline, a one-shot worker retries online. */
     private suspend fun trySync() {
-        runCatching {
-            repo.push(settings.serverUrl)
-            repo.pull(settings.serverUrl)
-        }
+        SyncManager.sync(getApplication())
+        SyncScheduler.requestOneShot(getApplication())
     }
 }

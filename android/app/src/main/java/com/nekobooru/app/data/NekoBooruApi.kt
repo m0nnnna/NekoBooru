@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.http.Body
@@ -12,6 +13,8 @@ import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.Query
+import retrofit2.http.Streaming
+import retrofit2.http.Url
 import java.util.concurrent.TimeUnit
 
 interface NekoBooruApi {
@@ -37,6 +40,11 @@ interface NekoBooruApi {
 
     @POST("api/sync/push")
     suspend fun push(@Body body: PushRequestDto): PushResponseDto
+
+    /** Stream an original media file (pass an absolute URL). */
+    @Streaming
+    @GET
+    suspend fun download(@Url url: String): ResponseBody
 }
 
 /** Builds a [NekoBooruApi] bound to a given server base URL (e.g. http://10.0.2.2:8000/). */

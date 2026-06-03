@@ -1,5 +1,6 @@
 package com.nekobooru.app.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,14 +14,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +32,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.nekobooru.app.data.ApiFactory
+import com.nekobooru.app.data.db.PoolEntity
 import com.nekobooru.app.data.db.PostEntity
 import java.io.File
 
@@ -53,7 +59,10 @@ import java.io.File
 fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
     LaunchedEffect(sha) { vm.load(sha) }
     val post by vm.post.collectAsStateWithLifecycle()
+    val pools by vm.pools.collectAsStateWithLifecycle()
+    val localOriginal by vm.localOriginal.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf(false) }
+    var addingToPool by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -77,7 +86,7 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            MediaPreview(p, vm.serverUrl)
+            MediaPreview(p, vm.serverUrl, localOriginal)
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = vm::toggleFavorite) {
@@ -127,21 +136,83 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
                             Text("Delete", modifier = Modifier.padding(start = 6.dp))
                         }
                     }
+                    OutlinedButton(onClick = { addingToPool = true }) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Text("Add to pool", modifier = Modifier.padding(start = 6.dp))
+                    }
                 }
             }
         }
     }
+
+    if (addingToPool) {
+        AddToPoolDialog(
+            pools = pools,
+            onDismiss = { addingToPool = false },
+            onPick = { uuid -> vm.addToPool(uuid); addingToPool = false },
+            onCreate = { name -> vm.addToNewPool(name); addingToPool = false },
+        )
+    }
 }
 
 @Composable
-private fun MediaPreview(post: PostEntity, serverUrl: String) {
+private fun AddToPoolDialog(
+    pools: List<PoolEntity>,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit,
+    onCreate: (String) -> Unit,
+) {
+    var newName by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add to pool") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (pools.isEmpty()) {
+                    Text("No pools yet — create one below.")
+                } else {
+                    pools.forEach { pool ->
+                        Text(
+                            pool.name,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(pool.uuid) }
+                                .padding(vertical = 8.dp),
+                        )
+                    }
+                    HorizontalDivider()
+                }
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("New pool name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onCreate(newName) },
+                enabled = newName.isNotBlank(),
+            ) { Text("Create & add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun MediaPreview(post: PostEntity, serverUrl: String, localOriginal: String?) {
     val context = LocalContext.current
-    // Full image for pictures; for video show the thumbnail with a play badge
-    // (in-app playback arrives with Media3 in a later step).
+    // Prefer a locally cached original (offline-capable); fall back to the
+    // newly-added local file, then the server. For video show the thumbnail with
+    // a play badge (in-app playback arrives with Media3 in a later step).
+    val cachedOriginal = localOriginal?.takeUnless { post.isVideo }?.let { File(it) }
     val model: Any = when {
-        post.localMediaPath != null && !post.isVideo -> File(post.localMediaPath)
         post.isVideo -> post.localMediaPath?.let { File(it) }
             ?: ApiFactory.absoluteUrl(serverUrl, post.thumbUrl)
+        post.localMediaPath != null -> File(post.localMediaPath)
+        cachedOriginal != null -> cachedOriginal
         else -> ApiFactory.absoluteUrl(serverUrl, post.contentUrl)
     }
     Box(

@@ -6,12 +6,13 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [PostEntity::class, SyncStateEntity::class, PendingChangeEntity::class],
-    version = 2,
+    entities = [PostEntity::class, PoolEntity::class, SyncStateEntity::class, PendingChangeEntity::class],
+    version = 3,
     exportSchema = false,
 )
 abstract class NekoDatabase : RoomDatabase() {
     abstract fun postDao(): PostDao
+    abstract fun poolDao(): PoolDao
     abstract fun syncStateDao(): SyncStateDao
     abstract fun outboxDao(): OutboxDao
 

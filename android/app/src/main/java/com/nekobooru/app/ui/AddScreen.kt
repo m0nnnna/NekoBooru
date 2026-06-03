@@ -1,5 +1,6 @@
 package com.nekobooru.app.ui
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,8 +33,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 
 @Composable
-fun AddScreen(vm: AddViewModel, onDone: () -> Unit) {
+fun AddScreen(vm: AddViewModel, onDone: () -> Unit, sharedUri: Uri? = null) {
     val state by vm.state.collectAsStateWithLifecycle()
+
+    // Pre-fill from a "Share to NekoBooru" intent, once.
+    LaunchedEffect(sharedUri) {
+        if (sharedUri != null) vm.onPicked(sharedUri)
+    }
 
     LaunchedEffect(state.done) {
         if (state.done) {

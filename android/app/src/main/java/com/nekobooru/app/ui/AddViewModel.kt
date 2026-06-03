@@ -4,9 +4,10 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.nekobooru.app.data.AppSettings
+import com.nekobooru.app.data.SyncManager
 import com.nekobooru.app.data.SyncRepository
 import com.nekobooru.app.data.db.NekoDatabase
+import com.nekobooru.app.sync.SyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,7 +27,6 @@ data class AddUiState(
 )
 
 class AddViewModel(app: Application) : AndroidViewModel(app) {
-    private val settings = AppSettings(app)
     private val repo = SyncRepository(NekoDatabase.get(app))
 
     private val _state = MutableStateFlow(AddUiState())
@@ -58,11 +58,9 @@ class AddViewModel(app: Application) : AndroidViewModel(app) {
                 val tags = cur.tags.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
                 repo.enqueueNewPost(clientId, file, tags, cur.safety, source = null)
 
-                // Best-effort immediate sync; ignore failures (stays queued).
-                runCatching {
-                    repo.push(settings.serverUrl)
-                    repo.pull(settings.serverUrl)
-                }
+                // Best-effort immediate sync; if offline, a worker retries online.
+                SyncManager.sync(getApplication())
+                SyncScheduler.requestOneShot(getApplication())
                 _state.value = _state.value.copy(saving = false, done = true)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(saving = false, error = e.message ?: "Failed to save")
