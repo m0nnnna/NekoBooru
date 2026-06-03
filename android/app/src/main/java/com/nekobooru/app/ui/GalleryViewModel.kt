@@ -47,13 +47,14 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     fun onServerUrlChange(url: String) { serverUrl.value = url }
     fun onQueryChange(q: String) { query.value = q }
 
-    /** Persist the server URL and pull the latest changes into the local cache. */
-    fun refresh() {
+    /** Persist the server URL, push queued offline changes, then pull updates. */
+    fun sync() {
         settings.serverUrl = serverUrl.value
         loading.value = true
         error.value = null
         viewModelScope.launch {
             try {
+                repo.push(serverUrl.value)
                 repo.pull(serverUrl.value)
             } catch (e: Exception) {
                 error.value = e.message ?: "Failed to reach server"

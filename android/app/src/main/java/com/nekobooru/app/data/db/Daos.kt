@@ -15,6 +15,12 @@ interface PostDao {
     @Upsert
     suspend fun upsert(posts: List<PostEntity>)
 
+    @Upsert
+    suspend fun upsertOne(post: PostEntity)
+
+    @Query("DELETE FROM posts WHERE sha256 = :sha")
+    suspend fun deleteBySha(sha: String)
+
     @Query("UPDATE posts SET deleted = 1 WHERE sha256 = :sha")
     suspend fun markDeleted(sha: String)
 
@@ -32,4 +38,19 @@ interface SyncStateDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setState(state: SyncStateEntity)
+}
+
+@Dao
+interface OutboxDao {
+    @Insert
+    suspend fun insert(change: PendingChangeEntity): Long
+
+    @Query("SELECT * FROM pending_changes ORDER BY id ASC")
+    suspend fun all(): List<PendingChangeEntity>
+
+    @Query("SELECT COUNT(*) FROM pending_changes")
+    fun observeCount(): Flow<Int>
+
+    @Query("DELETE FROM pending_changes WHERE id = :id")
+    suspend fun delete(id: Long)
 }

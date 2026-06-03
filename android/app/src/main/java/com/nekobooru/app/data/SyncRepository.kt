@@ -1,9 +1,15 @@
 package com.nekobooru.app.data
 
 import com.nekobooru.app.data.db.NekoDatabase
+import com.nekobooru.app.data.db.PendingChangeEntity
 import com.nekobooru.app.data.db.PostEntity
 import com.nekobooru.app.data.db.SyncStateEntity
 import kotlinx.serialization.json.decodeFromJsonElement
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import java.io.File
+import java.time.Instant
 
 /**
  * Drives the client side of sync. This increment implements the **pull** half:
@@ -13,6 +19,116 @@ import kotlinx.serialization.json.decodeFromJsonElement
 class SyncRepository(private val db: NekoDatabase) {
 
     val postDao = db.postDao()
+    val outboxDao = db.outboxDao()
+
+    /**
+     * Queue a newly added post: store the media in a stable local file, add an
+     * outbox entry, and insert a placeholder post (keyed ``pending-<clientId>``)
+     * so it shows in the gallery immediately, even offline.
+     */
+    suspend fun enqueueNewPost(
+        clientId: String,
+        file: File,
+        tags: List<String>,
+        safety: String,
+        source: String?,
+    ) {
+        val tagStr = tags.joinToString(" ")
+        outboxDao.insert(
+            PendingChangeEntity(
+                type = "post",
+                op = "upsert",
+                clientId = clientId,
+                localMediaPath = file.absolutePath,
+                tags = tagStr,
+                safety = safety,
+                source = source,
+            )
+        )
+        val now = Instant.now().toString()
+        postDao.upsertOne(
+            PostEntity(
+                sha256 = "pending-$clientId",
+                serverId = null,
+                filename = file.name,
+                extension = "." + file.extension.lowercase(),
+                fileSize = file.length(),
+                width = null, height = null, duration = null,
+                safety = safety,
+                source = source,
+                createdAt = now,
+                updatedAt = now,
+                deletedAt = null,
+                tags = tagStr,
+                isFavorited = false,
+                thumbUrl = "",
+                contentUrl = "",
+                dirty = true,
+                deleted = false,
+                localMediaPath = file.absolutePath,
+            )
+        )
+    }
+
+    /**
+     * Push queued offline changes home. New posts upload their file via
+     * /api/uploads, then POST /api/sync/push (server dedups by hash). On
+     * success the placeholder is removed and the canonical post arrives via the
+     * next [pull]. Returns the number of changes successfully pushed.
+     */
+    suspend fun push(serverUrl: String): Int {
+        val api = ApiFactory.create(serverUrl)
+        var pushed = 0
+        for (c in outboxDao.all()) {
+            if (c.type == "post" && c.op == "upsert" && c.localMediaPath != null) {
+                val file = File(c.localMediaPath)
+                if (!file.exists()) {
+                    outboxDao.delete(c.id)
+                    continue
+                }
+                val token = uploadFile(api, file)
+                val resp = api.push(
+                    PushRequestDto(
+                        listOf(
+                            PushChangeDto(
+                                type = "post",
+                                op = "upsert",
+                                clientId = c.clientId,
+                                contentToken = token,
+                                tags = c.tagList,
+                                safety = c.safety,
+                                source = c.source,
+                            )
+                        )
+                    )
+                )
+                val result = resp.results.firstOrNull()
+                if (result != null && (result.status == "created" || result.status == "deduped")) {
+                    postDao.deleteBySha("pending-${c.clientId}")
+                    outboxDao.delete(c.id)
+                    file.delete()
+                    pushed++
+                }
+            }
+        }
+        return pushed
+    }
+
+    private suspend fun uploadFile(api: NekoBooruApi, file: File): String {
+        val mime = when (file.extension.lowercase()) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "mp4" -> "video/mp4"
+            "webm" -> "video/webm"
+            else -> "application/octet-stream"
+        }
+        val part = MultipartBody.Part.createFormData(
+            "content", file.name, file.asRequestBody(mime.toMediaType()),
+        )
+        return api.upload(part).token
+    }
 
     /** Pull all changes since the saved cursor into the local DB. */
     suspend fun pull(serverUrl: String) {

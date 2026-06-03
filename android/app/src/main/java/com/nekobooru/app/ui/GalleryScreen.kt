@@ -13,13 +13,17 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,7 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -36,12 +39,19 @@ import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import com.nekobooru.app.data.ApiFactory
 import com.nekobooru.app.data.db.PostEntity
+import java.io.File
 
 @Composable
-fun GalleryScreen(vm: GalleryViewModel) {
+fun GalleryScreen(vm: GalleryViewModel, onAdd: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
 
-    Scaffold { padding ->
+    Scaffold(
+        floatingActionButton = {
+            FloatingActionButton(onClick = onAdd) {
+                Icon(Icons.Filled.Add, contentDescription = "Add media")
+            }
+        },
+    ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(12.dp)) {
             OutlinedTextField(
                 value = state.serverUrl,
@@ -62,8 +72,8 @@ fun GalleryScreen(vm: GalleryViewModel) {
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
-                Button(onClick = vm::refresh, enabled = !state.loading) {
-                    Text("Load")
+                Button(onClick = vm::sync, enabled = !state.loading) {
+                    Text("Sync")
                 }
             }
 
@@ -78,7 +88,7 @@ fun GalleryScreen(vm: GalleryViewModel) {
                     )
                 }
                 state.posts.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Text("No posts cached. Enter your server URL and tap Load to sync.")
+                    Text("No posts cached. Set your server URL and tap Sync, or add media with +.")
                 }
                 else -> PostGrid(state.posts, state.serverUrl)
             }
@@ -103,6 +113,10 @@ private fun PostGrid(posts: List<PostEntity>, serverUrl: String) {
 @Composable
 private fun PostThumb(post: PostEntity, serverUrl: String) {
     val context = LocalContext.current
+    // Prefer the locally stored file (newly added / not yet synced); otherwise
+    // load the server thumbnail.
+    val model: Any = post.localMediaPath?.let { File(it) }
+        ?: ApiFactory.absoluteUrl(serverUrl, post.thumbUrl)
     Box(
         modifier = Modifier
             .aspectRatio(1f)
@@ -110,7 +124,7 @@ private fun PostThumb(post: PostEntity, serverUrl: String) {
     ) {
         AsyncImage(
             model = ImageRequest.Builder(context)
-                .data(ApiFactory.absoluteUrl(serverUrl, post.thumbUrl))
+                .data(model)
                 .crossfade(true)
                 .build(),
             contentDescription = post.filename,
@@ -124,6 +138,18 @@ private fun PostThumb(post: PostEntity, serverUrl: String) {
                 tint = Color.White,
                 modifier = Modifier.align(Alignment.Center),
             )
+        }
+        if (post.dirty) {
+            Surface(
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.CloudUpload,
+                    contentDescription = "Pending upload",
+                    modifier = Modifier.padding(2.dp),
+                )
+            }
         }
     }
 }

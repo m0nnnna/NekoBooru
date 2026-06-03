@@ -6,13 +6,14 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [PostEntity::class, SyncStateEntity::class],
-    version = 1,
+    entities = [PostEntity::class, SyncStateEntity::class, PendingChangeEntity::class],
+    version = 2,
     exportSchema = false,
 )
 abstract class NekoDatabase : RoomDatabase() {
     abstract fun postDao(): PostDao
     abstract fun syncStateDao(): SyncStateDao
+    abstract fun outboxDao(): OutboxDao
 
     companion object {
         @Volatile
@@ -24,7 +25,7 @@ abstract class NekoDatabase : RoomDatabase() {
                     context.applicationContext,
                     NekoDatabase::class.java,
                     "nekobooru.db",
-                ).build().also { instance = it }
+                ).fallbackToDestructiveMigration().build().also { instance = it }
             }
     }
 }

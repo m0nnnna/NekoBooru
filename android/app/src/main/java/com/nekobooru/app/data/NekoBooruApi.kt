@@ -2,10 +2,15 @@ package com.nekobooru.app.data
 
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Multipart
+import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
@@ -25,6 +30,13 @@ interface NekoBooruApi {
         @Query("since") since: Long = 0,
         @Query("limit") limit: Int = 500,
     ): SyncChangesResponse
+
+    @Multipart
+    @POST("api/uploads")
+    suspend fun upload(@Part content: MultipartBody.Part): UploadTokenDto
+
+    @POST("api/sync/push")
+    suspend fun push(@Body body: PushRequestDto): PushResponseDto
 }
 
 /** Builds a [NekoBooruApi] bound to a given server base URL (e.g. http://10.0.2.2:8000/). */

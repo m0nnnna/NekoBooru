@@ -42,3 +42,24 @@ data class SyncStateEntity(
     @PrimaryKey val id: Int = 0,
     val cursor: Long = 0,
 )
+
+/**
+ * Outbox of changes made while offline, to be pushed when the server is
+ * reachable. This increment uses it for newly added posts (op=upsert with a
+ * local media file); edits/deletes reuse it in the next increment.
+ */
+@Entity(tableName = "pending_changes")
+data class PendingChangeEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val type: String,                 // "post"
+    val op: String,                   // "upsert" | "delete"
+    val clientId: String,             // stable client id for a new post
+    val sha256: String? = null,       // for edits/deletes of known posts
+    val localMediaPath: String? = null, // file to upload for new posts
+    val tags: String = "",            // space-separated
+    val safety: String = "safe",
+    val source: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+) {
+    val tagList: List<String> get() = if (tags.isBlank()) emptyList() else tags.split(" ")
+}
