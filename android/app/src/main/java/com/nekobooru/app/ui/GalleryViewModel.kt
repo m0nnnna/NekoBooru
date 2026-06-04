@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -52,6 +53,42 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GalleryUiState())
 
     val serverUrl: String get() = settings.serverUrl
+
+    // All distinct tags from the offline cache, ordered by frequency (for
+    // autocomplete). Recomputed only when the cached posts change.
+    private val allTags: StateFlow<List<String>> = repo.postDao.observeVisible()
+        .map { posts ->
+            val counts = HashMap<String, Int>()
+            posts.forEach { p -> p.tagList.forEach { t -> counts[t] = (counts[t] ?: 0) + 1 } }
+            counts.entries.sortedWith(
+                compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key }
+            ).map { it.key }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Tag suggestions for the term currently being typed (after the last space). */
+    val suggestions: StateFlow<List<String>> = combine(query, allTags) { q, tags ->
+        val lastTok = q.substringAfterLast(' ')
+        val neg = lastTok.startsWith("-")
+        val term = (if (neg) lastTok.drop(1) else lastTok).trim().lowercase()
+        if (term.isEmpty()) return@combine emptyList()
+        val alreadyTyped = q.lowercase().split(Regex("\\s+"))
+            .map { it.removePrefix("-") }.toSet()
+        tags.asSequence()
+            .filter { it.lowercase().contains(term) && it.lowercase() !in alreadyTyped }
+            .sortedByDescending { it.lowercase().startsWith(term) } // prefix matches first
+            .take(12)
+            .toList()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Complete the current term with [tag] and leave a trailing space for the next. */
+    fun applySuggestion(tag: String) {
+        val q = query.value
+        val cut = q.lastIndexOf(' ')
+        val prefix = if (cut >= 0) q.substring(0, cut + 1) else ""
+        val neg = q.substringAfterLast(' ').startsWith("-")
+        query.value = prefix + (if (neg) "-" else "") + tag + " "
+    }
 
     // Remembered gallery scroll position so returning from a post restores it
     // (the VM survives navigation; the composable's grid state does not).
