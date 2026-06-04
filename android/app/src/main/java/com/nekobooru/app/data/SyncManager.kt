@@ -14,8 +14,12 @@ object SyncManager {
     /**
      * Run a full sync against the configured server. Returns a [Result]; on
      * failure the queued changes simply stay in the outbox for next time.
+     *
+     * [downloadOriginals] controls the heavy offline-mirror step: false for the
+     * interactive "Sync" button (fast: push/pull + thumbnails), true for the
+     * background [com.nekobooru.app.sync.SyncWorker] (also downloads originals).
      */
-    suspend fun sync(context: Context): Result<Unit> {
+    suspend fun sync(context: Context, downloadOriginals: Boolean = false): Result<Unit> {
         val appContext = context.applicationContext
         val settings = AppSettings(appContext)
         val repo = SyncRepository(NekoDatabase.get(appContext))
@@ -24,8 +28,10 @@ object SyncManager {
             repo.push(url)
             repo.pull(url)
             settings.lastSyncedAt = System.currentTimeMillis()
-            // Retention is best-effort and must not fail the sync.
-            runCatching { RetentionManager(appContext).run(url, settings.retention) }
+            // Offline caching is best-effort and must not fail the sync.
+            runCatching {
+                RetentionManager(appContext).run(url, settings.offlinePolicy, downloadOriginals)
+            }
         }
     }
 }

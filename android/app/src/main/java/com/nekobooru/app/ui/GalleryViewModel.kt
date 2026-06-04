@@ -8,6 +8,7 @@ import com.nekobooru.app.data.SyncManager
 import com.nekobooru.app.data.SyncRepository
 import com.nekobooru.app.data.db.NekoDatabase
 import com.nekobooru.app.data.db.PostEntity
+import com.nekobooru.app.sync.SyncScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -73,6 +74,8 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
                 .onFailure { error.value = it.message ?: "Failed to reach server" }
             lastSynced.value = settings.lastSyncedAt
             loading.value = false
+            // Mirror originals offline in the background per the policy.
+            SyncScheduler.requestOneShot(getApplication())
         }
     }
 

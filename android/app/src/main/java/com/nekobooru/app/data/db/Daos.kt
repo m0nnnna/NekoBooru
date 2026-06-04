@@ -36,6 +36,9 @@ interface PostDao {
     @Query("SELECT COUNT(*) FROM posts")
     suspend fun count(): Int
 
+    @Query("SELECT COUNT(*) FROM posts WHERE localOriginalPath IS NOT NULL")
+    suspend fun cachedOriginalCount(): Int
+
     // --- retention (step 7) ---
 
     @Query("SELECT * FROM posts WHERE deleted = 0 AND deletedAt IS NULL")

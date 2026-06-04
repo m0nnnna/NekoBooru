@@ -29,7 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.nekobooru.app.data.Retention
+import com.nekobooru.app.data.OfflinePolicy
 import com.nekobooru.app.data.ThemeMode
 import java.text.DateFormat
 import java.util.Date
@@ -88,30 +88,28 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
 
             HorizontalDivider()
 
-            Text("Keep originals", style = MaterialTheme.typography.titleMedium)
+            Text("Offline collection", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Thumbnails for every synced post are always cached for offline browsing. " +
-                    "This controls the full-resolution originals.",
+                    "This sets how many posts' full-resolution files are mirrored to the " +
+                    "device (newest first). Originals download in the background.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            RetentionOption(
-                selected = state.retention == Retention.EVERYTHING,
-                title = "Everything",
-                subtitle = "Download every post's full file for offline use.",
-                onClick = { vm.onRetentionChange(Retention.EVERYTHING) },
-            )
-            RetentionOption(
-                selected = state.retention == Retention.FAVORITES_POOLS,
-                title = "Favorites & pools",
-                subtitle = "Only keep originals for favorited or pooled posts.",
-                onClick = { vm.onRetentionChange(Retention.FAVORITES_POOLS) },
-            )
-            RetentionOption(
-                selected = state.retention == Retention.ON_DEMAND,
-                title = "On demand",
-                subtitle = "Download originals when viewed; evict least-recently-used.",
-                onClick = { vm.onRetentionChange(Retention.ON_DEMAND) },
+            OfflinePolicy.entries.forEach { policy ->
+                RetentionOption(
+                    selected = state.offlinePolicy == policy,
+                    title = policy.label,
+                    subtitle = if (policy == OfflinePolicy.EVERYTHING)
+                        "Mirror the whole media library, however large."
+                    else "Keep the ${policy.limit} newest posts' full files offline.",
+                    onClick = { vm.onOfflinePolicyChange(policy) },
+                )
+            }
+            Text(
+                "Originals saved on this device: ${state.cachedOriginals}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             HorizontalDivider()

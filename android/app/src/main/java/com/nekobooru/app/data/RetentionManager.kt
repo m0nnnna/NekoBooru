@@ -8,53 +8,53 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Applies the original-file [Retention] policy to the local cache. Thumbnails
- * are always cached by Coil; this manages the (large) full-resolution originals
- * stored under ``filesDir/originals``. Best-effort: failures are swallowed so a
- * flaky download never breaks a sync.
+ * Mirrors the library offline per the [OfflinePolicy]. Thumbnails for every
+ * synced post are always cached (small) so the whole gallery browses offline;
+ * this also keeps the N most-recent posts' full-resolution originals (or all of
+ * them, for EVERYTHING) under ``filesDir/originals``, evicting the rest.
+ * Best-effort: failures are swallowed so a flaky download never breaks a sync.
  */
 class RetentionManager(context: Context) {
     private val appContext = context.applicationContext
     private val db = NekoDatabase.get(appContext)
     private val postDao = db.postDao()
-    private val poolDao = db.poolDao()
     private val originalsDir = File(appContext.filesDir, "originals").apply { mkdirs() }
     private val thumbsDir = File(appContext.filesDir, "thumbs").apply { mkdirs() }
 
-    /** Run the maintenance pass for [retention]; call after a successful pull. */
-    suspend fun run(serverUrl: String, retention: Retention) = withContext(Dispatchers.IO) {
+    /**
+     * Run the offline-cache pass after a successful pull.
+     *
+     * Thumbnail caching and eviction are cheap and always run. Downloading the
+     * (large) originals only happens when [downloadOriginals] is true — i.e. from
+     * the background [com.nekobooru.app.sync.SyncWorker] — so the interactive
+     * "Sync" button never blocks on a multi-GB mirror.
+     */
+    suspend fun run(
+        serverUrl: String,
+        policy: OfflinePolicy,
+        downloadOriginals: Boolean,
+    ) = withContext(Dispatchers.IO) {
         val posts = postDao.allVisible().filter { !it.sha256.startsWith("pending-") }
 
-        // Thumbnails are small and define the offline collection — always cache
-        // them locally so the whole gallery browses without the server.
+        // Thumbnails define the offline gallery — always cache them locally.
         cacheThumbnails(serverUrl, posts)
 
-        when (retention) {
-            Retention.EVERYTHING -> posts.forEach { ensureDownloaded(serverUrl, it) }
+        // Which posts keep their original: the N most recent (by createdAt), or all.
+        val keep = if (policy.limit == null) posts
+        else posts.sortedByDescending { it.createdAt ?: "" }.take(policy.limit)
+        val keepShas = keep.mapTo(HashSet()) { it.sha256 }
 
-            Retention.FAVORITES_POOLS -> {
-                val pooled = poolDao.getAll().flatMap { it.postSha256s }.toSet()
-                val (keep, drop) = posts.partition { it.isFavorited || it.sha256 in pooled }
-                keep.forEach { ensureDownloaded(serverUrl, it) }
-                drop.forEach { evict(it) }
-            }
+        // Evict originals that fall outside the window (cheap; always runs).
+        posts.forEach { if (it.sha256 !in keepShas && it.localOriginalPath != null) evict(it) }
 
-            Retention.ON_DEMAND -> {
-                // Don't pre-fetch; just cap the cache, evicting least-recently-used.
-                val cached = posts.filter { it.localOriginalPath != null }
-                if (cached.size > ON_DEMAND_CAP) {
-                    cached.sortedBy { it.lastAccessedAt }
-                        .take(cached.size - ON_DEMAND_CAP)
-                        .forEach { evict(it) }
-                }
-            }
-        }
+        // Download the in-window originals (heavy; background passes only).
+        if (downloadOriginals) keep.forEach { ensureDownloaded(serverUrl, it) }
     }
 
     /**
-     * Ensure the original for [sha] is cached locally, downloading it if needed,
-     * and record the access time (for LRU). Returns the local path or null.
-     * Used for on-demand viewing.
+     * Ensure the original for [sha] is cached locally, downloading it if needed.
+     * Returns the local path or null. Used for on-demand viewing (the next sync
+     * may evict it again if it's outside the offline window).
      */
     suspend fun fetchOriginal(serverUrl: String, sha: String): String? = withContext(Dispatchers.IO) {
         val post = postDao.getBySha(sha) ?: return@withContext null
@@ -107,10 +107,5 @@ class RetentionManager(context: Context) {
     private suspend fun evict(post: PostEntity) {
         post.localOriginalPath?.let { File(it).delete() }
         if (post.localOriginalPath != null) postDao.setLocalOriginal(post.sha256, null)
-    }
-
-    companion object {
-        /** Max originals kept under ON_DEMAND before LRU eviction kicks in. */
-        private const val ON_DEMAND_CAP = 200
     }
 }

@@ -5,9 +5,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nekobooru.app.data.AppSettings
 import com.nekobooru.app.data.ConnectionTester
-import com.nekobooru.app.data.Retention
+import com.nekobooru.app.data.OfflinePolicy
 import com.nekobooru.app.data.SyncManager
 import com.nekobooru.app.data.ThemeMode
+import com.nekobooru.app.data.db.NekoDatabase
 import com.nekobooru.app.sync.SyncScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,8 +17,9 @@ import kotlinx.coroutines.launch
 
 data class SettingsUiState(
     val serverUrl: String = AppSettings.DEFAULT_SERVER_URL,
-    val retention: Retention = Retention.ON_DEMAND,
+    val offlinePolicy: OfflinePolicy = OfflinePolicy.RECENT_100,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val cachedOriginals: Int = 0,
     val syncing: Boolean = false,
     val testing: Boolean = false,
     val lastSyncedAt: Long = 0,
@@ -26,16 +28,19 @@ data class SettingsUiState(
 
 class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val settings = AppSettings(app)
+    private val postDao = NekoDatabase.get(app).postDao()
 
     private val _state = MutableStateFlow(
         SettingsUiState(
             serverUrl = settings.serverUrl,
-            retention = settings.retention,
+            offlinePolicy = settings.offlinePolicy,
             themeMode = settings.themeMode,
             lastSyncedAt = settings.lastSyncedAt,
         )
     )
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
+
+    init { refreshCachedCount() }
 
     fun onThemeChange(mode: ThemeMode) {
         _state.value = _state.value.copy(themeMode = mode)
@@ -48,9 +53,12 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         settings.serverUrl = url
     }
 
-    fun onRetentionChange(retention: Retention) {
-        _state.value = _state.value.copy(retention = retention)
-        settings.retention = retention
+    /** Change how much is mirrored offline; kicks a background pass to apply it. */
+    fun onOfflinePolicyChange(policy: OfflinePolicy) {
+        _state.value = _state.value.copy(offlinePolicy = policy)
+        settings.offlinePolicy = policy
+        // Download newly-needed originals (or evict) in the background.
+        SyncScheduler.requestOneShot(getApplication())
     }
 
     /** Probe the server and report a precise diagnosis (does not change data). */
@@ -62,7 +70,10 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Manual "Sync now"; reschedules retention as a side effect of the policy. */
+    /**
+     * Manual "Sync now": runs the quick interactive pass (push/pull + thumbnails)
+     * and enqueues the background worker to mirror originals per the policy.
+     */
     fun syncNow() {
         _state.value = _state.value.copy(syncing = true, message = null)
         viewModelScope.launch {
@@ -72,8 +83,15 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                 lastSyncedAt = settings.lastSyncedAt,
                 message = result.fold({ "Synced" }, { it.message ?: "Sync failed" }),
             )
-            // Make sure background sync is scheduled (idempotent).
+            refreshCachedCount()
             SyncScheduler.ensureScheduled(getApplication())
+            SyncScheduler.requestOneShot(getApplication())   // mirror originals in the background
+        }
+    }
+
+    private fun refreshCachedCount() {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(cachedOriginals = postDao.cachedOriginalCount())
         }
     }
 }

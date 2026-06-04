@@ -13,7 +13,8 @@ import java.io.IOException
  */
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        val result = SyncManager.sync(applicationContext)
+        // Background pass mirrors originals offline per the policy (can be large).
+        val result = SyncManager.sync(applicationContext, downloadOriginals = true)
         return result.fold(
             onSuccess = { Result.success() },
             onFailure = { e -> if (e is IOException) Result.retry() else Result.failure() },

@@ -2,18 +2,21 @@ package com.nekobooru.app.data
 
 import android.content.Context
 
-/** Original-file caching policy (thumbnails are always cached locally on sync). */
-enum class Retention {
-    /** Pre-download originals for every post. */
-    EVERYTHING,
-    /** Pre-download favorited/pooled originals; cache others on view (LRU). */
-    FAVORITES_POOLS,
-    /** Don't pre-fetch; download originals when viewed and evict by LRU. */
-    ON_DEMAND;
+/**
+ * How much of the library to mirror offline (full original files). Thumbnails
+ * for every synced post are always cached regardless, so the whole gallery
+ * browses offline; this governs the large originals. ``limit == null`` means a
+ * complete mirror of the server's media directory, however large.
+ */
+enum class OfflinePolicy(val limit: Int?, val label: String) {
+    RECENT_50(50, "50 most recent"),
+    RECENT_100(100, "100 most recent"),
+    RECENT_500(500, "500 most recent"),
+    EVERYTHING(null, "Everything");
 
     companion object {
-        fun from(name: String?): Retention =
-            entries.firstOrNull { it.name == name } ?: ON_DEMAND
+        fun from(name: String?): OfflinePolicy =
+            entries.firstOrNull { it.name == name } ?: RECENT_100
     }
 }
 
@@ -47,9 +50,9 @@ class AppSettings(context: Context) {
         get() = prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
         set(value) = prefs.edit().putString(KEY_SERVER_URL, value).apply()
 
-    var retention: Retention
-        get() = Retention.from(prefs.getString(KEY_RETENTION, null))
-        set(value) = prefs.edit().putString(KEY_RETENTION, value.name).apply()
+    var offlinePolicy: OfflinePolicy
+        get() = OfflinePolicy.from(prefs.getString(KEY_OFFLINE, null))
+        set(value) = prefs.edit().putString(KEY_OFFLINE, value.name).apply()
 
     var themeMode: ThemeMode
         get() = ThemeMode.from(prefs.getString(KEY_THEME, null))
@@ -68,7 +71,7 @@ class AppSettings(context: Context) {
     companion object {
         const val DEFAULT_SERVER_URL = "http://10.0.2.2:8000"
         private const val KEY_SERVER_URL = "server_url"
-        private const val KEY_RETENTION = "retention"
+        private const val KEY_OFFLINE = "offline_policy"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_VISIBLE_SAFETY = "visible_safety"
         private const val KEY_LAST_SYNCED = "last_synced_at"

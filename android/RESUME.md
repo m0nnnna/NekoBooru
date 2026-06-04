@@ -34,9 +34,15 @@ runs on a real device.
 - **Safety filtering**: persisted `visibleSafety` + gallery chips (safe/sketchy/unsafe),
   applied in gallery and pool views.
 - **Offline collection**: thumbnails for every synced post are cached locally on each
-  sync (`localThumbPath`, DB **v4**) so the grid browses fully offline; originals cache
-  on view and persist (default retention is now `ON_DEMAND`, LRU cap 200). Upserts now
+  sync (`localThumbPath`, DB **v4**) so the grid browses fully offline. Upserts now
   preserve local cache columns (previously a re-pull wiped them and re-downloaded).
+- **Offline mirror policy** (`OfflinePolicy`: 50 / 100 / 500 most-recent / Everything):
+  keeps the N newest posts' **full originals** on-device (Everything = whole media
+  library, however large), evicting the rest. The heavy original download runs only in
+  the background `SyncWorker` (`SyncManager.sync(downloadOriginals=true)`); the
+  interactive "Sync" button stays fast (push/pull + thumbnails) and enqueues the worker.
+  Settings shows the cached-original count. Resumable via on-disk existence checks, so a
+  big mirror completes across successive background passes.
 
 **A2 — sync_log backfill**: the change log only captured *new* writes, so a library
 created before the sync layer had an empty `sync_log` and a fresh client's `since=0`
