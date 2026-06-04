@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,7 +40,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -117,7 +115,7 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
                 )
             } else {
                 Text("Tags", style = MaterialTheme.typography.titleMedium)
-                Text(if (p.tags.isBlank()) "(none)" else p.tagList.joinToString(" "))
+                if (p.tags.isBlank()) Text("(none)") else TagPills(p.tagList)
 
                 if (!vm.isPending) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -203,16 +201,26 @@ private fun AddToPoolDialog(
 @Composable
 private fun MediaPreview(post: PostEntity, serverUrl: String, localOriginal: String?) {
     val context = LocalContext.current
-    // Prefer a locally cached original (offline-capable); fall back to the
-    // newly-added local file, then the server. For video show the thumbnail with
-    // a play badge (in-app playback arrives with Media3 in a later step).
-    val cachedOriginal = localOriginal?.takeUnless { post.isVideo }?.let { File(it) }
+
+    // Video: play in-app (Media3), like the website. Use the cached original
+    // (offline) when present, otherwise stream from the server.
+    if (post.isVideo) {
+        // Play the cached original if the offline mirror has it; otherwise stream.
+        val videoUri = (post.localOriginalPath ?: post.localMediaPath)
+            ?.let { android.net.Uri.fromFile(File(it)).toString() }
+            ?: ApiFactory.absoluteUrl(serverUrl, post.contentUrl)
+        VideoPlayer(
+            uri = videoUri,
+            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+        )
+        return
+    }
+
+    // Image: prefer the cached original, then a pending local file, then the
+    // cached thumbnail (offline), then the server original.
+    val cachedOriginal = localOriginal?.let { File(it) }
     val localThumb = post.localThumbPath?.let { File(it) }
     val model: Any = when {
-        // Video: show a (local if cached) thumbnail with the play badge.
-        post.isVideo -> post.localMediaPath?.let { File(it) }
-            ?: localThumb
-            ?: ApiFactory.absoluteUrl(serverUrl, post.thumbUrl)
         post.localMediaPath != null -> File(post.localMediaPath)
         cachedOriginal != null -> cachedOriginal           // full-res, cached
         localThumb != null -> localThumb                   // offline fallback while original loads
@@ -228,12 +236,6 @@ private fun MediaPreview(post: PostEntity, serverUrl: String, localOriginal: Str
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),
         )
-        if (post.isVideo) {
-            Icon(
-                Icons.Filled.PlayCircle, contentDescription = "Video",
-                tint = Color.White, modifier = Modifier.align(Alignment.Center),
-            )
-        }
     }
 }
 

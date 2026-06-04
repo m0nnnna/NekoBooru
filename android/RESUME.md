@@ -182,9 +182,10 @@ shared image lands in Add.
 
 ## Known caveats / TODO
 
-- **Video playback**: detail screen shows the video *thumbnail* + play badge only.
-  In-app playback (Media3/ExoPlayer) is unscheduled — add when desired. Retention also
-  never caches video originals (no offline video).
+- **Video playback**: in-app via Media3/ExoPlayer (`ui/VideoPlayer.kt`), autoplay+loop
+  like the website. Plays the cached original when the offline mirror has it, else
+  streams. On-view does *not* force-download video originals (the offline policy mirrors
+  them in the background instead).
 - **Notes/comments**: deferred. The change feed delivers them and the backend push
   accepts them; the client just ignores `note`/`comment` pulls and has no UI yet.
 - **Pool ordering on phone**: "Add to pool" appends to the end; there's no drag-reorder

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
@@ -23,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +43,14 @@ fun GalleryScreen(
     onOpenSettings: () -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    // Restore the remembered scroll position; persist it when leaving the screen.
+    val gridState = rememberLazyGridState(vm.scrollIndex, vm.scrollOffset)
+    DisposableEffect(Unit) {
+        onDispose {
+            vm.scrollIndex = gridState.firstVisibleItemIndex
+            vm.scrollOffset = gridState.firstVisibleItemScrollOffset
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -105,7 +115,7 @@ fun GalleryScreen(
                 state.posts.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Text("No posts cached. Tap Sync, or add media with +.")
                 }
-                else -> PostThumbGrid(state.posts, vm.serverUrl, onPostClick)
+                else -> PostThumbGrid(state.posts, vm.serverUrl, onPostClick, state = gridState)
             }
         }
     }

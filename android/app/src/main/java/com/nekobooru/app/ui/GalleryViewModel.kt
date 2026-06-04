@@ -53,6 +53,11 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     val serverUrl: String get() = settings.serverUrl
 
+    // Remembered gallery scroll position so returning from a post restores it
+    // (the VM survives navigation; the composable's grid state does not).
+    var scrollIndex = 0
+    var scrollOffset = 0
+
     fun onQueryChange(q: String) { query.value = q }
 
     /** Toggle whether a safety level (safe/sketchy/unsafe) is shown; persisted. */

@@ -44,10 +44,14 @@ class DetailViewModel(app: Application) : AndroidViewModel(app) {
     fun load(sha256: String) {
         sha.value = sha256
         localOriginal.value = null
-        // Cache (or refresh the LRU access time of) the full-res original.
+        // Cache the full-res original for images on view (video streams instead,
+        // and is mirrored offline by the background policy rather than per-view).
         viewModelScope.launch {
-            localOriginal.value = RetentionManager(getApplication())
-                .fetchOriginal(settings.serverUrl, sha256)
+            val p = repo.postDao.getBySha(sha256) ?: return@launch
+            if (!p.isVideo && !p.sha256.startsWith("pending-")) {
+                localOriginal.value = RetentionManager(getApplication())
+                    .fetchOriginal(settings.serverUrl, sha256)
+            }
         }
     }
 
