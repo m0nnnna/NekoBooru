@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nekobooru.app.data.AppSettings
+import com.nekobooru.app.data.ConnectionTester
 import com.nekobooru.app.data.Retention
 import com.nekobooru.app.data.SyncManager
 import com.nekobooru.app.sync.SyncScheduler
@@ -16,6 +17,7 @@ data class SettingsUiState(
     val serverUrl: String = AppSettings.DEFAULT_SERVER_URL,
     val retention: Retention = Retention.FAVORITES_POOLS,
     val syncing: Boolean = false,
+    val testing: Boolean = false,
     val lastSyncedAt: Long = 0,
     val message: String? = null,
 )
@@ -40,6 +42,15 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     fun onRetentionChange(retention: Retention) {
         _state.value = _state.value.copy(retention = retention)
         settings.retention = retention
+    }
+
+    /** Probe the server and report a precise diagnosis (does not change data). */
+    fun testConnection() {
+        _state.value = _state.value.copy(testing = true, message = null)
+        viewModelScope.launch {
+            val result = ConnectionTester.test(_state.value.serverUrl)
+            _state.value = _state.value.copy(testing = false, message = result)
+        }
     }
 
     /** Manual "Sync now"; reschedules retention as a side effect of the policy. */

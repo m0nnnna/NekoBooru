@@ -5,6 +5,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
+import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.http.Body
@@ -55,10 +56,14 @@ object ApiFactory {
     }
 
     fun create(baseUrl: String): NekoBooruApi {
-        val normalized = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
+        val normalized = normalizeBaseUrl(baseUrl)
+        // Log requests to logcat (tag: OkHttp) so connection issues are diagnosable.
+        // Cleartext, LAN-only app, so logging the body is acceptable here.
+        val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
         val client = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(logging)
             .build()
         return Retrofit.Builder()
             .baseUrl(normalized)
@@ -68,10 +73,21 @@ object ApiFactory {
             .create(NekoBooruApi::class.java)
     }
 
+    /**
+     * Normalize a user-entered server URL: trim, default the scheme to http://
+     * (so `192.168.0.2:8000` works), and ensure a single trailing slash (Retrofit
+     * requires it on the base URL).
+     */
+    fun normalizeBaseUrl(raw: String): String {
+        var url = raw.trim()
+        if (!url.startsWith("http://") && !url.startsWith("https://")) url = "http://$url"
+        return if (url.endsWith("/")) url else "$url/"
+    }
+
     /** Resolve a possibly-relative media URL (thumbUrl/contentUrl) against the server. */
     fun absoluteUrl(baseUrl: String, path: String): String {
         if (path.startsWith("http://") || path.startsWith("https://")) return path
-        val base = baseUrl.trimEnd('/')
+        val base = normalizeBaseUrl(baseUrl).trimEnd('/')
         val rel = if (path.startsWith("/")) path else "/$path"
         return "$base$rel"
     }
