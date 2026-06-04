@@ -51,7 +51,7 @@ fun PostThumbGrid(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        items(posts, key = { it.sha256 }) { post ->
+        items(posts, key = { it.sha256 }, contentType = { "post" }) { post ->
             PostThumb(post, serverUrl, onClick = { onPostClick(post.sha256) })
         }
     }
@@ -76,7 +76,7 @@ fun PostThumb(post: PostEntity, serverUrl: String, onClick: () -> Unit) {
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
-            model = ImageRequest.Builder(context).data(model).crossfade(true).build(),
+            model = ImageRequest.Builder(context).data(model).build(),
             contentDescription = post.filename,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),

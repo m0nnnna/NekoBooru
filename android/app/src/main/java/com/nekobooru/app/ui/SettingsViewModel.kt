@@ -1,6 +1,8 @@
 package com.nekobooru.app.ui
 
 import android.app.Application
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nekobooru.app.data.AppSettings
@@ -19,6 +21,7 @@ data class SettingsUiState(
     val serverUrl: String = AppSettings.DEFAULT_SERVER_URL,
     val offlinePolicy: OfflinePolicy = OfflinePolicy.RECENT_100,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val storageLabel: String = "App storage (private)",
     val cachedOriginals: Int = 0,
     val syncing: Boolean = false,
     val testing: Boolean = false,
@@ -35,12 +38,28 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             serverUrl = settings.serverUrl,
             offlinePolicy = settings.offlinePolicy,
             themeMode = settings.themeMode,
+            storageLabel = storageLabel(),
             lastSyncedAt = settings.lastSyncedAt,
         )
     )
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
     init { refreshCachedCount() }
+
+    /** Set (or clear, with null) the user storage folder; mirror into it next pass. */
+    fun onStorageFolderChange(treeUri: String?) {
+        settings.exportTreeUri = treeUri
+        _state.value = _state.value.copy(storageLabel = storageLabel())
+        SyncScheduler.requestOneShot(getApplication())
+    }
+
+    private fun storageLabel(): String {
+        val uri = settings.exportTreeUri ?: return "App storage (private)"
+        val name = runCatching {
+            DocumentFile.fromTreeUri(getApplication(), Uri.parse(uri))?.name
+        }.getOrNull()
+        return name ?: "Custom folder"
+    }
 
     fun onThemeChange(mode: ThemeMode) {
         _state.value = _state.value.copy(themeMode = mode)

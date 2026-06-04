@@ -58,6 +58,14 @@ class AppSettings(context: Context) {
         get() = ThemeMode.from(prefs.getString(KEY_THEME, null))
         set(value) = prefs.edit().putString(KEY_THEME, value.name).apply()
 
+    /**
+     * SAF tree URI of a user-chosen folder where original files are stored so
+     * they live in a normal folder accessible by other apps. Null = app-private.
+     */
+    var exportTreeUri: String?
+        get() = prefs.getString(KEY_EXPORT_TREE, null)
+        set(value) = prefs.edit().putString(KEY_EXPORT_TREE, value).apply()
+
     /** Which safety levels are shown in the gallery. Defaults to all visible. */
     var visibleSafety: Set<String>
         get() = prefs.getStringSet(KEY_VISIBLE_SAFETY, null) ?: Safety.ALL
@@ -72,6 +80,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_SERVER_URL = "http://10.0.2.2:8000"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_OFFLINE = "offline_policy"
+        private const val KEY_EXPORT_TREE = "export_tree_uri"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_VISIBLE_SAFETY = "visible_safety"
         private const val KEY_LAST_SYNCED = "last_synced_at"

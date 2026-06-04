@@ -74,7 +74,10 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
     LaunchedEffect(shareData) {
         val data = shareData ?: return@LaunchedEffect
         runCatching {
-            val uri = FileProvider.getUriForFile(
+            // A user-folder original is already a shareable content URI; an
+            // app-private file must be exposed through our FileProvider.
+            val uri = if (MediaPaths.isContentUri(data.path)) android.net.Uri.parse(data.path)
+            else FileProvider.getUriForFile(
                 context, "${context.packageName}.fileprovider", File(data.path),
             )
             val send = Intent(Intent.ACTION_SEND).apply {
@@ -246,8 +249,8 @@ private fun MediaPreview(post: PostEntity, serverUrl: String, localOriginal: Str
     // (offline) when present, otherwise stream from the server.
     if (post.isVideo) {
         // Play the cached original if the offline mirror has it; otherwise stream.
-        val videoUri = (post.localOriginalPath ?: post.localMediaPath)
-            ?.let { android.net.Uri.fromFile(File(it)).toString() }
+        val videoUri = post.localOriginalPath?.let { MediaPaths.toUri(it).toString() }
+            ?: post.localMediaPath?.let { android.net.Uri.fromFile(File(it)).toString() }
             ?: ApiFactory.absoluteUrl(serverUrl, post.contentUrl)
         VideoPlayer(
             uri = videoUri,
@@ -256,9 +259,9 @@ private fun MediaPreview(post: PostEntity, serverUrl: String, localOriginal: Str
         return
     }
 
-    // Image: prefer the cached original, then a pending local file, then the
-    // cached thumbnail (offline), then the server original.
-    val cachedOriginal = localOriginal?.let { File(it) }
+    // Image: prefer the cached original (file or content URI), then a pending
+    // local file, then the cached thumbnail (offline), then the server original.
+    val cachedOriginal: Any? = localOriginal?.let { MediaPaths.toUri(it) }
     val localThumb = MediaPaths.thumb(context, post.sha256).takeIf { it.exists() }
     val model: Any = when {
         post.localMediaPath != null -> File(post.localMediaPath)

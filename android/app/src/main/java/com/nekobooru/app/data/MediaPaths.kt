@@ -1,6 +1,7 @@
 package com.nekobooru.app.data
 
 import android.content.Context
+import android.net.Uri
 import java.io.File
 
 /**
@@ -17,4 +18,13 @@ object MediaPaths {
 
     fun originalsDir(context: Context): File =
         File(context.filesDir, "originals").apply { mkdirs() }
+
+    /**
+     * Turn a stored original path into a Uri: a ``content://`` string (user's
+     * chosen folder) is parsed as-is; anything else is treated as a file path.
+     */
+    fun toUri(path: String): Uri =
+        if (path.startsWith("content://")) Uri.parse(path) else Uri.fromFile(File(path))
+
+    fun isContentUri(path: String): Boolean = path.startsWith("content://")
 }

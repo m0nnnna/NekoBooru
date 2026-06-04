@@ -1,5 +1,8 @@
 package com.nekobooru.app.ui
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,11 +27,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nekobooru.app.data.OfflinePolicy
@@ -40,6 +45,7 @@ import java.util.Date
 @Composable
 fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -117,6 +123,35 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            HorizontalDivider()
+
+            Text("Storage folder", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Choose a folder to store original files in. They'll live there as normal " +
+                    "files any app or file manager can open. Leave as app storage to keep them " +
+                    "private. Changing this applies to newly-downloaded originals.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            val folderPicker = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocumentTree()
+            ) { uri ->
+                if (uri != null) {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
+                    vm.onStorageFolderChange(uri.toString())
+                }
+            }
+            Text("Current: ${state.storageLabel}", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { folderPicker.launch(null) }) { Text("Choose folder…") }
+                if (state.storageLabel != "App storage (private)") {
+                    TextButton(onClick = { vm.onStorageFolderChange(null) }) { Text("Use app storage") }
+                }
+            }
 
             HorizontalDivider()
 

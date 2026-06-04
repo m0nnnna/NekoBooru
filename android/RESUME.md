@@ -48,6 +48,16 @@ runs on a real device.
   `thumbs/<sha>.jpg`) and resolved by existence — caching them no longer writes the DB,
   so it stops re-firing the gallery's live query (the cause of scroll lag). Downloads
   (thumbs + originals) run only in the background `SyncWorker`, keeping the Sync button fast.
+  Plus an app-wide Coil `ImageLoader` (`NekoApp.newImageLoader`) with a 30%-RAM memory
+  cache + 256 MB disk cache and crossfade off, and `contentType` on grid items, so a
+  large library scrolls without re-decoding thumbnails.
+- **User storage folder** (`AppSettings.exportTreeUri`): Settings → "Storage folder" lets
+  the user pick a directory via SAF (`OpenDocumentTree`, persisted permission). When set,
+  original files are written there as normal files (`RetentionManager` via `DocumentFile`)
+  so any app/file manager can open them — works around Android's limited share sheet.
+  Thumbnails stay app-private. `localOriginalPath` then holds a `content://` URI; display
+  (`MediaPaths.toUri`), video, and share handle both URI and file forms. Unset = app-private
+  (unchanged). Changing the folder applies to newly-downloaded originals.
 - **Share / export**: detail-screen share button exports the original file to the Android
   share sheet via a `FileProvider` (`${applicationId}.fileprovider`, `res/xml/file_paths.xml`),
   downloading it first if not cached. Lets the user post a stored photo/video to any app.

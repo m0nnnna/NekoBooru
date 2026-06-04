@@ -1,6 +1,8 @@
 package com.nekobooru.app.data
 
 import android.content.Context
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import com.nekobooru.app.data.db.NekoDatabase
 import com.nekobooru.app.data.db.PostEntity
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +64,7 @@ class RetentionManager(context: Context) {
     suspend fun fetchOriginal(serverUrl: String, sha: String): String? = withContext(Dispatchers.IO) {
         val post = postDao.getBySha(sha) ?: return@withContext null
         if (post.sha256.startsWith("pending-")) return@withContext post.localMediaPath
-        val path = ensureDownloaded(serverUrl, post)
+        val path = ensureDownloaded(serverUrl, post, exportTree())
         postDao.touchAccess(sha, System.currentTimeMillis())
         path
     }
@@ -95,40 +97,88 @@ class RetentionManager(context: Context) {
 
     /** Download the in-window originals that aren't cached yet, reporting progress. */
     private suspend fun downloadOriginals(serverUrl: String, keep: List<PostEntity>) {
+        val tree = exportTree()
         val missing = keep.filter {
-            it.contentUrl.isNotBlank() &&
-                (it.localOriginalPath == null || !File(it.localOriginalPath).exists())
+            it.contentUrl.isNotBlank() && !isCached(it.localOriginalPath)
         }
         var done = 0
         for (post in missing) {
-            ensureDownloaded(serverUrl, post)
+            ensureDownloaded(serverUrl, post, tree)
             SyncProgress.report("Saving originals", ++done, missing.size)
         }
     }
 
-    /** Download the original if not already present; returns the local path or null. */
-    private suspend fun ensureDownloaded(serverUrl: String, post: PostEntity): String? {
-        post.localOriginalPath?.let { existing ->
-            if (File(existing).exists()) return existing
-        }
+    /**
+     * Download the original if not already present; returns a file path or a
+     * ``content://`` URI string depending on whether a user storage folder is set.
+     */
+    private suspend fun ensureDownloaded(
+        serverUrl: String,
+        post: PostEntity,
+        tree: DocumentFile?,
+    ): String? {
+        if (isCached(post.localOriginalPath)) return post.localOriginalPath
         if (post.contentUrl.isBlank()) return null
         return try {
             val api = ApiFactory.create(serverUrl)
             val url = ApiFactory.absoluteUrl(serverUrl, post.contentUrl)
             val body = api.download(url)
-            val dest = File(originalsDir, post.sha256 + (post.extension ?: ""))
-            body.byteStream().use { input ->
-                dest.outputStream().use { output -> input.copyTo(output) }
+            val out: String = if (tree != null) {
+                // Store in the user-chosen folder so files live in a real folder.
+                val name = post.filename?.takeIf { it.isNotBlank() }
+                    ?: (post.sha256 + (post.extension ?: ""))
+                val doc = tree.createFile(mimeFor(post.extension), name)
+                    ?: return null
+                appContext.contentResolver.openOutputStream(doc.uri)?.use { o ->
+                    body.byteStream().use { it.copyTo(o) }
+                } ?: return null
+                doc.uri.toString()
+            } else {
+                val dest = File(originalsDir, post.sha256 + (post.extension ?: ""))
+                body.byteStream().use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                dest.absolutePath
             }
-            postDao.setLocalOriginal(post.sha256, dest.absolutePath)
-            dest.absolutePath
+            postDao.setLocalOriginal(post.sha256, out)
+            out
         } catch (e: Exception) {
             null
         }
     }
 
     private suspend fun evict(post: PostEntity) {
-        post.localOriginalPath?.let { File(it).delete() }
-        if (post.localOriginalPath != null) postDao.setLocalOriginal(post.sha256, null)
+        val p = post.localOriginalPath ?: return
+        runCatching {
+            if (p.startsWith("content://")) DocumentFile.fromSingleUri(appContext, Uri.parse(p))?.delete()
+            else File(p).delete()
+        }
+        postDao.setLocalOriginal(post.sha256, null)
+    }
+
+    /** The user's chosen storage folder, if any (writable). */
+    private fun exportTree(): DocumentFile? {
+        val uri = AppSettings(appContext).exportTreeUri ?: return null
+        return runCatching { DocumentFile.fromTreeUri(appContext, Uri.parse(uri)) }
+            .getOrNull()?.takeIf { it.canWrite() }
+    }
+
+    /** True if the original at [path] (file path or content URI) is present. */
+    private fun isCached(path: String?): Boolean {
+        if (path == null) return false
+        return if (path.startsWith("content://"))
+            runCatching { DocumentFile.fromSingleUri(appContext, Uri.parse(path))?.exists() == true }
+                .getOrDefault(false)
+        else File(path).exists()
+    }
+
+    private fun mimeFor(ext: String?): String = when (ext?.lowercase()) {
+        ".jpg", ".jpeg" -> "image/jpeg"
+        ".png" -> "image/png"
+        ".gif" -> "image/gif"
+        ".webp" -> "image/webp"
+        ".mp4" -> "video/mp4"
+        ".webm" -> "video/webm"
+        else -> "application/octet-stream"
     }
 }
