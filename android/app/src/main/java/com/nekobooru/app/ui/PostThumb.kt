@@ -55,9 +55,10 @@ fun PostThumbGrid(
 @Composable
 fun PostThumb(post: PostEntity, serverUrl: String, onClick: () -> Unit) {
     val context = LocalContext.current
-    // Prefer a locally stored file (newly added / not yet synced); otherwise the
-    // server thumbnail.
+    // Prefer local files so the grid works fully offline: the pending media file
+    // (not yet synced), then the cached thumbnail, then the server thumbnail.
     val model: Any = post.localMediaPath?.let { File(it) }
+        ?: post.localThumbPath?.let { File(it) }
         ?: ApiFactory.absoluteUrl(serverUrl, post.thumbUrl)
     Box(
         modifier = Modifier

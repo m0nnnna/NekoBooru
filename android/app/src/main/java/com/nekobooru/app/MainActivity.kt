@@ -7,13 +7,17 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nekobooru.app.ui.AddScreen
 import com.nekobooru.app.ui.AddViewModel
+import com.nekobooru.app.ui.AppThemeState
 import com.nekobooru.app.ui.DetailScreen
 import com.nekobooru.app.ui.DetailViewModel
 import com.nekobooru.app.ui.GalleryScreen
@@ -41,56 +45,68 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val shared = extractSharedUri(intent)
         setContent {
-            NekoBooruTheme {
-                // If launched via "Share to NekoBooru", open the Add flow pre-filled.
-                var screen by remember {
-                    mutableStateOf<Screen>(if (shared != null) Screen.Add(shared) else Screen.Gallery)
-                }
-                when (val s = screen) {
-                    Screen.Gallery -> {
-                        val vm: GalleryViewModel = viewModel()
-                        GalleryScreen(
-                            vm,
-                            onAdd = { screen = Screen.Add() },
-                            onPostClick = { sha -> screen = Screen.Detail(sha) },
-                            onOpenPools = { screen = Screen.Pools },
-                            onOpenSettings = { screen = Screen.Settings },
-                        )
-                    }
-                    is Screen.Add -> {
-                        val vm: AddViewModel = viewModel()
-                        AddScreen(
-                            vm,
-                            sharedUri = s.sharedUri,
-                            onDone = { screen = Screen.Gallery },
-                        )
-                    }
-                    is Screen.Detail -> {
-                        val vm: DetailViewModel = viewModel()
-                        DetailScreen(vm, sha = s.sha, onBack = { screen = Screen.Gallery })
-                    }
-                    Screen.Pools -> {
-                        val vm: PoolsViewModel = viewModel()
-                        PoolsScreen(
-                            vm,
-                            onBack = { screen = Screen.Gallery },
-                            onPoolClick = { uuid -> screen = Screen.Pool(uuid) },
-                        )
-                    }
-                    is Screen.Pool -> {
-                        val vm: PoolViewModel = viewModel()
-                        PoolScreen(
-                            vm,
-                            uuid = s.uuid,
-                            onBack = { screen = Screen.Pools },
-                            onPostClick = { sha -> screen = Screen.Detail(sha) },
-                        )
-                    }
-                    Screen.Settings -> {
-                        val vm: SettingsViewModel = viewModel()
-                        SettingsScreen(vm, onBack = { screen = Screen.Gallery })
+            val themeMode by AppThemeState.mode.collectAsStateWithLifecycle()
+            NekoBooruTheme(themeMode = themeMode) {
+                // A simple navigation back stack: the last entry is the current
+                // screen; the system back button pops it (closing the app only at
+                // the root). Detail reached from a pool returns to that pool.
+                val stack = remember {
+                    mutableStateListOf<Screen>(Screen.Gallery).also {
+                        if (shared != null) it.add(Screen.Add(shared))
                     }
                 }
+                AppNav(stack)
+            }
+        }
+    }
+
+    @Composable
+    private fun AppNav(stack: SnapshotStateList<Screen>) {
+        fun push(screen: Screen) { stack.add(screen) }
+        fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
+
+        // Hardware/gesture back pops the stack instead of finishing the activity.
+        BackHandler(enabled = stack.size > 1) { pop() }
+
+        when (val s = stack.last()) {
+            Screen.Gallery -> {
+                val vm: GalleryViewModel = viewModel()
+                GalleryScreen(
+                    vm,
+                    onAdd = { push(Screen.Add()) },
+                    onPostClick = { sha -> push(Screen.Detail(sha)) },
+                    onOpenPools = { push(Screen.Pools) },
+                    onOpenSettings = { push(Screen.Settings) },
+                )
+            }
+            is Screen.Add -> {
+                val vm: AddViewModel = viewModel()
+                AddScreen(vm, sharedUri = s.sharedUri, onDone = { pop() })
+            }
+            is Screen.Detail -> {
+                val vm: DetailViewModel = viewModel()
+                DetailScreen(vm, sha = s.sha, onBack = { pop() })
+            }
+            Screen.Pools -> {
+                val vm: PoolsViewModel = viewModel()
+                PoolsScreen(
+                    vm,
+                    onBack = { pop() },
+                    onPoolClick = { uuid -> push(Screen.Pool(uuid)) },
+                )
+            }
+            is Screen.Pool -> {
+                val vm: PoolViewModel = viewModel()
+                PoolScreen(
+                    vm,
+                    uuid = s.uuid,
+                    onBack = { pop() },
+                    onPostClick = { sha -> push(Screen.Detail(sha)) },
+                )
+            }
+            Screen.Settings -> {
+                val vm: SettingsViewModel = viewModel()
+                SettingsScreen(vm, onBack = { pop() })
             }
         }
     }

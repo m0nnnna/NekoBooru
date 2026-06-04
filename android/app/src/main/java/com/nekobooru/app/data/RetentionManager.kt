@@ -19,10 +19,16 @@ class RetentionManager(context: Context) {
     private val postDao = db.postDao()
     private val poolDao = db.poolDao()
     private val originalsDir = File(appContext.filesDir, "originals").apply { mkdirs() }
+    private val thumbsDir = File(appContext.filesDir, "thumbs").apply { mkdirs() }
 
     /** Run the maintenance pass for [retention]; call after a successful pull. */
     suspend fun run(serverUrl: String, retention: Retention) = withContext(Dispatchers.IO) {
         val posts = postDao.allVisible().filter { !it.sha256.startsWith("pending-") }
+
+        // Thumbnails are small and define the offline collection — always cache
+        // them locally so the whole gallery browses without the server.
+        cacheThumbnails(serverUrl, posts)
+
         when (retention) {
             Retention.EVERYTHING -> posts.forEach { ensureDownloaded(serverUrl, it) }
 
@@ -58,6 +64,25 @@ class RetentionManager(context: Context) {
         path
     }
 
+    /** Download any missing thumbnails to local storage (never evicted). */
+    private suspend fun cacheThumbnails(serverUrl: String, posts: List<PostEntity>) {
+        val api = ApiFactory.create(serverUrl)
+        for (post in posts) {
+            if (post.thumbUrl.isBlank()) continue
+            if (post.localThumbPath != null && File(post.localThumbPath).exists()) continue
+            try {
+                val url = ApiFactory.absoluteUrl(serverUrl, post.thumbUrl)
+                val dest = File(thumbsDir, post.sha256 + ".jpg")
+                api.download(url).byteStream().use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                postDao.setLocalThumb(post.sha256, dest.absolutePath)
+            } catch (e: Exception) {
+                // Leave it for the next sync; the server thumbnail is still used meanwhile.
+            }
+        }
+    }
+
     /** Download the original if not already present; returns the local path or null. */
     private suspend fun ensureDownloaded(serverUrl: String, post: PostEntity): String? {
         post.localOriginalPath?.let { existing ->
@@ -86,6 +111,6 @@ class RetentionManager(context: Context) {
 
     companion object {
         /** Max originals kept under ON_DEMAND before LRU eviction kicks in. */
-        private const val ON_DEMAND_CAP = 60
+        private const val ON_DEMAND_CAP = 200
     }
 }

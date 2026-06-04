@@ -277,6 +277,10 @@ class SyncRepository(private val db: NekoDatabase) {
     }
 
     private suspend fun applyChanges(changes: List<SyncChange>) {
+        // Preserve local-only cache columns across upserts (an upsert replaces the
+        // whole row, which would otherwise wipe cached thumb/original paths and
+        // force a re-download every sync).
+        val localPaths = postDao.localPaths().associateBy { it.sha256 }
         val toUpsert = mutableListOf<PostEntity>()
         for (ch in changes) {
             when (ch.type) {
@@ -285,7 +289,12 @@ class SyncRepository(private val db: NekoDatabase) {
                         postDao.markDeleted(ch.key)
                     } else if (ch.data != null) {
                         val dto = ApiFactory.json.decodeFromJsonElement<PostDto>(ch.data)
-                        toUpsert += dto.toEntity()
+                        val local = localPaths[dto.sha256]
+                        toUpsert += dto.toEntity().copy(
+                            localThumbPath = local?.localThumbPath,
+                            localOriginalPath = local?.localOriginalPath,
+                            lastAccessedAt = local?.lastAccessedAt ?: 0,
+                        )
                     }
                 }
                 "favorite" -> postDao.setFavorite(ch.key, ch.op == "upsert")

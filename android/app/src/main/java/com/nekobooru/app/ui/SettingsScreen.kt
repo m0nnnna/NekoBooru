@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nekobooru.app.data.Retention
+import com.nekobooru.app.data.ThemeMode
 import java.text.DateFormat
 import java.util.Date
 
@@ -73,7 +75,26 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
 
             HorizontalDivider()
 
+            Text("Theme", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ThemeMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = state.themeMode == mode,
+                        onClick = { vm.onThemeChange(mode) },
+                        label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
             Text("Keep originals", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Thumbnails for every synced post are always cached for offline browsing. " +
+                    "This controls the full-resolution originals.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             RetentionOption(
                 selected = state.retention == Retention.EVERYTHING,
                 title = "Everything",

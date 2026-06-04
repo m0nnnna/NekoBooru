@@ -44,8 +44,15 @@ interface PostDao {
     @Query("SELECT * FROM posts WHERE sha256 = :sha")
     suspend fun getBySha(sha: String): PostEntity?
 
+    /** Lightweight projection of the local-only cache columns, keyed by sha. */
+    @Query("SELECT sha256, localThumbPath, localOriginalPath, lastAccessedAt FROM posts")
+    suspend fun localPaths(): List<PostLocalPaths>
+
     @Query("UPDATE posts SET localOriginalPath = :path WHERE sha256 = :sha")
     suspend fun setLocalOriginal(sha: String, path: String?)
+
+    @Query("UPDATE posts SET localThumbPath = :path WHERE sha256 = :sha")
+    suspend fun setLocalThumb(sha: String, path: String?)
 
     @Query("UPDATE posts SET lastAccessedAt = :ts WHERE sha256 = :sha")
     suspend fun touchAccess(sha: String, ts: Long)

@@ -16,11 +16,32 @@ fresh session. Branch: **`android-sync-feature`**.
 | **B5** | Detail screen + edit/delete/favorite push | ✅ compiles, committed |
 | **B6** | Sync pools (notes/comments deferred) | ✅ compiles |
 | **B7** | WorkManager auto-sync + share target + retention | ✅ compiles |
+| **B8** | Device UX pass (theme/icon/back/safety/offline) | ✅ compiles, on-device tested |
+| **A2** | Backend: backfill sync_log for pre-existing libraries | ✅ smoke-tested |
 
 The core loop (browse, add, edit, delete, favorite, pools, two-way sync,
-background auto-sync, share target, retention) is functionally complete. Each step
-was verified to compile via `assembleDebug` but **not yet run on an emulator** —
-runtime verification is the recommended next manual check (see end).
+background auto-sync, share target, retention) is functionally complete and now
+runs on a real device.
+
+**B8 — device UX pass** (from first real-device testing):
+- **Theme** now matches the website palette (ported `frontend/src/App.vue` CSS vars)
+  with a Light/Dark/System toggle in Settings (`AppThemeState` applies it live);
+  dropped Material-You dynamic color. See `ui/Theme.kt`.
+- **Launcher icon** is the pawprint from `favicon.svg` as an adaptive icon
+  (`mipmap-anydpi-v26` + `drawable/ic_launcher_foreground.xml`).
+- **Back navigation** fixed: `MainActivity` uses a `SnapshotStateList` back stack +
+  `BackHandler` so back pops screens (only the root closes the app).
+- **Safety filtering**: persisted `visibleSafety` + gallery chips (safe/sketchy/unsafe),
+  applied in gallery and pool views.
+- **Offline collection**: thumbnails for every synced post are cached locally on each
+  sync (`localThumbPath`, DB **v4**) so the grid browses fully offline; originals cache
+  on view and persist (default retention is now `ON_DEMAND`, LRU cap 200). Upserts now
+  preserve local cache columns (previously a re-pull wiped them and re-downloaded).
+
+**A2 — sync_log backfill**: the change log only captured *new* writes, so a library
+created before the sync layer had an empty `sync_log` and a fresh client's `since=0`
+pull returned nothing. `init_db` now seeds one upsert per existing entity when the log
+is empty (idempotent). See `backend/app/services/sync.py::backfill_sync_log_if_empty`.
 
 ---
 

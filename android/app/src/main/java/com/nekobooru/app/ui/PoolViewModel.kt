@@ -39,10 +39,11 @@ class PoolViewModel(app: Application) : AndroidViewModel(app) {
                 repo.postDao.observeVisible(),
             ) { pool, allPosts ->
                 if (pool == null) return@combine PoolUiState()
+                val visible = settings.visibleSafety
                 val bySha = allPosts.associateBy { it.sha256 }
                 PoolUiState(
                     name = pool.name,
-                    posts = pool.postSha256s.mapNotNull { bySha[it] },
+                    posts = pool.postSha256s.mapNotNull { bySha[it] }.filter { it.safety in visible },
                 )
             }
         }

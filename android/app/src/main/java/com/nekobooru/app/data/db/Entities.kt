@@ -31,7 +31,9 @@ data class PostEntity(
     val dirty: Boolean = false,
     val deleted: Boolean = false,
     val localMediaPath: String? = null,
-    // retention (step 7): cached original file + LRU access time for ON_DEMAND eviction.
+    // offline cache: thumbnail is always cached on sync; the (large) original is
+    // cached per the retention policy. lastAccessedAt drives LRU eviction.
+    val localThumbPath: String? = null,
     val localOriginalPath: String? = null,
     val lastAccessedAt: Long = 0,
 ) {
@@ -63,6 +65,14 @@ data class PoolEntity(
         fun csv(shas: List<String>): String = shas.filter { it.isNotBlank() }.joinToString(",")
     }
 }
+
+/** Projection of a post's local-only cache columns (see PostDao.localPaths). */
+data class PostLocalPaths(
+    val sha256: String,
+    val localThumbPath: String?,
+    val localOriginalPath: String?,
+    val lastAccessedAt: Long,
+)
 
 /** Single-row table holding the last applied sync cursor. */
 @Entity(tableName = "sync_state")

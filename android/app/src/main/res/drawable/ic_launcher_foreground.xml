@@ -3,19 +3,22 @@
     android:height="108dp"
     android:viewportWidth="64"
     android:viewportHeight="64">
-    <!-- Legacy (pre-adaptive) self-contained pawprint icon; adaptive icon lives
-         in mipmap-anydpi-v26. -->
-    <path android:fillColor="#F5F2ED" android:pathData="M0,0h64v64h-64z" />
+    <!-- Pawprint ported from frontend/public/favicon.svg, inset into the
+         adaptive-icon safe zone via a centered 0.7 scale. -->
     <group
         android:pivotX="32"
         android:pivotY="32"
-        android:scaleX="0.82"
-        android:scaleY="0.82">
+        android:scaleX="0.7"
+        android:scaleY="0.7">
+        <!-- Paw pad -->
         <path android:fillColor="#E07A5F" android:pathData="M18,38 a14,12 0 1,0 28,0 a14,12 0 1,0 -28,0 Z" />
+        <!-- Toe beans -->
         <path android:fillColor="#E07A5F" android:pathData="M14,24 a6,7 0 1,0 12,0 a6,7 0 1,0 -12,0 Z" />
         <path android:fillColor="#E07A5F" android:pathData="M26,20 a6,7 0 1,0 12,0 a6,7 0 1,0 -12,0 Z" />
         <path android:fillColor="#E07A5F" android:pathData="M38,24 a6,7 0 1,0 12,0 a6,7 0 1,0 -12,0 Z" />
+        <!-- Inner pad (lighter) -->
         <path android:fillColor="#EB8B72" android:pathData="M23,39 a9,7.5 0 1,0 18,0 a9,7.5 0 1,0 -18,0 Z" />
+        <!-- Inner toe beans (lighter) -->
         <path android:fillColor="#EB8B72" android:pathData="M17,24.5 a3.5,4.5 0 1,0 7,0 a3.5,4.5 0 1,0 -7,0 Z" />
         <path android:fillColor="#EB8B72" android:pathData="M28.5,20.5 a3.5,4.5 0 1,0 7,0 a3.5,4.5 0 1,0 -7,0 Z" />
         <path android:fillColor="#EB8B72" android:pathData="M40,24.5 a3.5,4.5 0 1,0 7,0 a3.5,4.5 0 1,0 -7,0 Z" />

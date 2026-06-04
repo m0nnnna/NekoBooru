@@ -208,11 +208,15 @@ private fun MediaPreview(post: PostEntity, serverUrl: String, localOriginal: Str
     // newly-added local file, then the server. For video show the thumbnail with
     // a play badge (in-app playback arrives with Media3 in a later step).
     val cachedOriginal = localOriginal?.takeUnless { post.isVideo }?.let { File(it) }
+    val localThumb = post.localThumbPath?.let { File(it) }
     val model: Any = when {
+        // Video: show a (local if cached) thumbnail with the play badge.
         post.isVideo -> post.localMediaPath?.let { File(it) }
+            ?: localThumb
             ?: ApiFactory.absoluteUrl(serverUrl, post.thumbUrl)
         post.localMediaPath != null -> File(post.localMediaPath)
-        cachedOriginal != null -> cachedOriginal
+        cachedOriginal != null -> cachedOriginal           // full-res, cached
+        localThumb != null -> localThumb                   // offline fallback while original loads
         else -> ApiFactory.absoluteUrl(serverUrl, post.contentUrl)
     }
     Box(

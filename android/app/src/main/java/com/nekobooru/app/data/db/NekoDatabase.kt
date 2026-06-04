@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [PostEntity::class, PoolEntity::class, SyncStateEntity::class, PendingChangeEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class NekoDatabase : RoomDatabase() {
