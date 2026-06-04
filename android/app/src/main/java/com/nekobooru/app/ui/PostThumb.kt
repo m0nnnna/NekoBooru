@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.nekobooru.app.data.ApiFactory
+import com.nekobooru.app.data.MediaPaths
 import com.nekobooru.app.data.db.PostEntity
 import java.io.File
 
@@ -60,10 +62,13 @@ fun PostThumbGrid(
 fun PostThumb(post: PostEntity, serverUrl: String, onClick: () -> Unit) {
     val context = LocalContext.current
     // Prefer local files so the grid works fully offline: the pending media file
-    // (not yet synced), then the cached thumbnail, then the server thumbnail.
-    val model: Any = post.localMediaPath?.let { File(it) }
-        ?: post.localThumbPath?.let { File(it) }
-        ?: ApiFactory.absoluteUrl(serverUrl, post.thumbUrl)
+    // (not yet synced), then the cached thumbnail (by file existence), then the
+    // server thumbnail. Resolved once per item to keep scrolling smooth.
+    val model: Any = remember(post.sha256, post.localMediaPath, serverUrl) {
+        post.localMediaPath?.let { File(it) }
+            ?: MediaPaths.thumb(context, post.sha256).takeIf { it.exists() }
+            ?: ApiFactory.absoluteUrl(serverUrl, post.thumbUrl)
+    }
     Box(
         modifier = Modifier
             .aspectRatio(1f)

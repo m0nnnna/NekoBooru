@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.nekobooru.app.data.ApiFactory
+import com.nekobooru.app.data.MediaPaths
 import com.nekobooru.app.data.db.PoolEntity
 import com.nekobooru.app.data.db.PostEntity
 import java.io.File
@@ -141,12 +142,14 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
             }
 
             if (editing && !vm.isPending) {
+                val allTags by vm.allTags.collectAsStateWithLifecycle()
                 EditSection(
-                    initialTags = p.tags,
+                    initialTags = p.tagList,
                     initialSafety = p.safety,
+                    allTags = allTags,
                     onCancel = { editing = false },
                     onSave = { tags, safety ->
-                        vm.saveEdit(tags, safety)
+                        vm.saveEdit(tags.joinToString(" "), safety)
                         editing = false
                     },
                 )
@@ -256,7 +259,7 @@ private fun MediaPreview(post: PostEntity, serverUrl: String, localOriginal: Str
     // Image: prefer the cached original, then a pending local file, then the
     // cached thumbnail (offline), then the server original.
     val cachedOriginal = localOriginal?.let { File(it) }
-    val localThumb = post.localThumbPath?.let { File(it) }
+    val localThumb = MediaPaths.thumb(context, post.sha256).takeIf { it.exists() }
     val model: Any = when {
         post.localMediaPath != null -> File(post.localMediaPath)
         cachedOriginal != null -> cachedOriginal           // full-res, cached
@@ -278,18 +281,19 @@ private fun MediaPreview(post: PostEntity, serverUrl: String, localOriginal: Str
 
 @Composable
 private fun EditSection(
-    initialTags: String,
+    initialTags: List<String>,
     initialSafety: String,
+    allTags: List<String>,
     onCancel: () -> Unit,
-    onSave: (String, String) -> Unit,
+    onSave: (List<String>, String) -> Unit,
 ) {
     var tags by remember { mutableStateOf(initialTags) }
     var safety by remember { mutableStateOf(initialSafety) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = tags,
-            onValueChange = { tags = it },
-            label = { Text("Tags (space-separated)") },
+        TagEditor(
+            tags = tags,
+            allTags = allTags,
+            onTagsChange = { tags = it },
             modifier = Modifier.fillMaxWidth(),
         )
         SafetySelectorRow(selected = safety, onSelect = { safety = it })

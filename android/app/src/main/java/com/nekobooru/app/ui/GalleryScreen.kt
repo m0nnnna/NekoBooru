@@ -59,10 +59,13 @@ fun GalleryScreen(
         topBar = {
             TopAppBar(
                 title = {
+                    val progress by com.nekobooru.app.data.SyncProgress.state.collectAsStateWithLifecycle()
                     Column {
                         Text("NekoBooru")
+                        val subtitle = progress?.let { "${it.phase} ${it.done}/${it.total}" }
+                            ?: lastSyncedLabel(state.lastSyncedAt)
                         Text(
-                            lastSyncedLabel(state.lastSyncedAt),
+                            subtitle,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -56,14 +55,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     // All distinct tags from the offline cache, ordered by frequency (for
     // autocomplete). Recomputed only when the cached posts change.
-    private val allTags: StateFlow<List<String>> = repo.postDao.observeVisible()
-        .map { posts ->
-            val counts = HashMap<String, Int>()
-            posts.forEach { p -> p.tagList.forEach { t -> counts[t] = (counts[t] ?: 0) + 1 } }
-            counts.entries.sortedWith(
-                compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key }
-            ).map { it.key }
-        }
+    private val allTags: StateFlow<List<String>> = repo.observeAllTags()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Tag suggestions for the term currently being typed (after the last space). */

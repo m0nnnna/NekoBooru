@@ -10,8 +10,10 @@ import com.nekobooru.app.data.db.NekoDatabase
 import com.nekobooru.app.sync.SyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -19,7 +21,7 @@ import java.util.UUID
 
 data class AddUiState(
     val pickedUri: Uri? = null,
-    val tags: String = "",
+    val tags: List<String> = emptyList(),
     val safety: String = "safe",
     val saving: Boolean = false,
     val error: String? = null,
@@ -32,11 +34,15 @@ class AddViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(AddUiState())
     val state: StateFlow<AddUiState> = _state.asStateFlow()
 
+    /** Known tags for autocomplete. */
+    val allTags: StateFlow<List<String>> = repo.observeAllTags()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Clear state so the screen is fresh next time it's opened. */
     fun reset() { _state.value = AddUiState() }
 
     fun onPicked(uri: Uri) { _state.value = _state.value.copy(pickedUri = uri, error = null) }
-    fun onTagsChange(t: String) { _state.value = _state.value.copy(tags = t) }
+    fun onTagsChange(t: List<String>) { _state.value = _state.value.copy(tags = t) }
     fun onSafetyChange(s: String) { _state.value = _state.value.copy(safety = s) }
 
     /**
@@ -55,8 +61,7 @@ class AddViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val clientId = UUID.randomUUID().toString()
                 val file = withContext(Dispatchers.IO) { copyToStorage(uri, clientId) }
-                val tags = cur.tags.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-                repo.enqueueNewPost(clientId, file, tags, cur.safety, source = null)
+                repo.enqueueNewPost(clientId, file, cur.tags, cur.safety, source = null)
 
                 // Best-effort immediate sync; if offline, a worker retries online.
                 SyncManager.sync(getApplication())

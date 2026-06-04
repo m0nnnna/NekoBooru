@@ -41,6 +41,10 @@ class DetailViewModel(app: Application) : AndroidViewModel(app) {
     val pools: StateFlow<List<PoolEntity>> = repo.poolDao.observeVisible()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Known tags for autocomplete when editing. */
+    val allTags: StateFlow<List<String>> = repo.observeAllTags()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Locally cached original file path for the loaded post, if downloaded. */
     val localOriginal = MutableStateFlow<String?>(null)
 

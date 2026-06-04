@@ -5,6 +5,8 @@ import com.nekobooru.app.data.db.PendingChangeEntity
 import com.nekobooru.app.data.db.PoolEntity
 import com.nekobooru.app.data.db.PostEntity
 import com.nekobooru.app.data.db.SyncStateEntity
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.decodeFromJsonElement
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -23,6 +25,15 @@ class SyncRepository(private val db: NekoDatabase) {
     val postDao = db.postDao()
     val poolDao = db.poolDao()
     val outboxDao = db.outboxDao()
+
+    /** Distinct tags across the cached library, ordered by frequency (for autocomplete). */
+    fun observeAllTags(): Flow<List<String>> = postDao.observeVisible().map { posts ->
+        val counts = HashMap<String, Int>()
+        posts.forEach { p -> p.tagList.forEach { t -> counts[t] = (counts[t] ?: 0) + 1 } }
+        counts.entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .map { it.key }
+    }
 
     /**
      * Queue a newly added post: store the media in a stable local file, add an
