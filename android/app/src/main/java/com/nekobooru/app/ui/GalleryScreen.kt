@@ -14,7 +14,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,7 +22,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import com.nekobooru.app.data.Safety
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -91,18 +89,11 @@ fun GalleryScreen(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Safety.entries.forEach { level ->
-                    FilterChip(
-                        selected = level.label in state.visibleSafety,
-                        onClick = { vm.toggleSafety(level.label) },
-                        label = { Text(level.label) },
-                    )
-                }
-            }
+            SafetyFilterRow(
+                visible = state.visibleSafety,
+                onToggle = vm::toggleSafety,
+                modifier = Modifier.padding(top = 8.dp),
+            )
 
             when {
                 state.loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {

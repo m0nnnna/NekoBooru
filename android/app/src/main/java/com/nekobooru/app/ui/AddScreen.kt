@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -101,15 +100,7 @@ fun AddScreen(vm: AddViewModel, onDone: () -> Unit, sharedUri: Uri? = null) {
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("safe", "sketchy", "unsafe").forEach { level ->
-                    FilterChip(
-                        selected = state.safety == level,
-                        onClick = { vm.onSafetyChange(level) },
-                        label = { Text(level) },
-                    )
-                }
-            }
+            SafetySelectorRow(selected = state.safety, onSelect = vm::onSafetyChange)
 
             if (state.error != null) {
                 Text(

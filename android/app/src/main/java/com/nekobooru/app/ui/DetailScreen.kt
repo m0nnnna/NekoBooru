@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -254,15 +253,7 @@ private fun EditSection(
             label = { Text("Tags (space-separated)") },
             modifier = Modifier.fillMaxWidth(),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("safe", "sketchy", "unsafe").forEach { level ->
-                FilterChip(
-                    selected = safety == level,
-                    onClick = { safety = level },
-                    label = { Text(level) },
-                )
-            }
-        }
+        SafetySelectorRow(selected = safety, onSelect = { safety = it })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onCancel) { Text("Cancel") }
             Button(onClick = { onSave(tags, safety) }) { Text("Save") }
