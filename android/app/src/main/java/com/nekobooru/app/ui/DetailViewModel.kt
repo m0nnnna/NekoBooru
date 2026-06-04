@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+/** A file ready to hand to the Android share sheet (ACTION_SEND). */
+data class ShareData(val path: String, val mime: String)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class DetailViewModel(app: Application) : AndroidViewModel(app) {
     private val settings = AppSettings(app)
@@ -40,6 +43,10 @@ class DetailViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Locally cached original file path for the loaded post, if downloaded. */
     val localOriginal = MutableStateFlow<String?>(null)
+
+    /** Share/export state: a non-null [ShareData] signals the UI to open the sheet. */
+    val sharing = MutableStateFlow(false)
+    val shareEvent = MutableStateFlow<ShareData?>(null)
 
     fun load(sha256: String) {
         sha.value = sha256
@@ -101,6 +108,35 @@ class DetailViewModel(app: Application) : AndroidViewModel(app) {
             trySync()
             onDone()
         }
+    }
+
+    /**
+     * Export the post's original file to the Android share sheet (to post it to
+     * any app). Downloads the original first if it isn't cached yet (videos can
+     * be large), showing a spinner; emits a [ShareData] the screen turns into an
+     * ACTION_SEND intent.
+     */
+    fun share() {
+        val p = post.value ?: return
+        viewModelScope.launch {
+            sharing.value = true
+            val path = if (p.sha256.startsWith("pending-")) p.localMediaPath
+            else RetentionManager(getApplication()).fetchOriginal(settings.serverUrl, p.sha256)
+            sharing.value = false
+            if (path != null) shareEvent.value = ShareData(path, mimeForExtension(p.extension))
+        }
+    }
+
+    fun clearShare() { shareEvent.value = null }
+
+    private fun mimeForExtension(ext: String?): String = when (ext?.lowercase()) {
+        ".jpg", ".jpeg" -> "image/jpeg"
+        ".png" -> "image/png"
+        ".gif" -> "image/gif"
+        ".webp" -> "image/webp"
+        ".mp4" -> "video/mp4"
+        ".webm" -> "video/webm"
+        else -> "application/octet-stream"
     }
 
     /** Best-effort immediate sync; if offline, a one-shot worker retries online. */

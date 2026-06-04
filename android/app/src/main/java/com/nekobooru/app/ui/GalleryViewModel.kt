@@ -85,18 +85,39 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Local filtering: safety/sensitivity gate first, then the site's
-     * `tag` / `-tag` include/exclude syntax.
+     * Local search mirroring the website's query syntax (see backend
+     * `services/search.py`): whitespace-separated terms are AND-ed, `OR` groups
+     * adjacent terms, `-tag` excludes, and `rating:`/`safety:` filter by level.
+     * Tag matching is case-insensitive. The safety chips gate the results first.
      */
     private fun filter(posts: List<PostEntity>, q: String, safety: Set<String>): List<PostEntity> {
         val bySafety = posts.filter { it.safety in safety }
-        val terms = q.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-        if (terms.isEmpty()) return bySafety
-        val required = terms.filterNot { it.startsWith("-") }
-        val excluded = terms.filter { it.startsWith("-") }.map { it.drop(1) }
+        val parts = q.trim().lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (parts.isEmpty()) return bySafety
+
+        val includeGroups = mutableListOf<MutableList<String>>() // each group is OR-ed
+        val excluded = mutableListOf<String>()
+        val ratings = mutableListOf<String>()
+        var orPending = false
+
+        for (part in parts) {
+            when {
+                part == "or" -> orPending = includeGroups.isNotEmpty()
+                part.startsWith("-") && ":" in part.drop(1) -> Unit // negated filters: ignore for now
+                part.startsWith("-") -> { excluded += part.drop(1); orPending = false }
+                part.substringBefore(":", "") in setOf("rating", "safety") ->
+                    { ratings += part.substringAfter(":"); orPending = false }
+                ":" in part -> orPending = false // other filters (width:, etc.): not supported offline
+                orPending && includeGroups.isNotEmpty() -> { includeGroups.last() += part; orPending = false }
+                else -> includeGroups += mutableListOf(part)
+            }
+        }
+
         return bySafety.filter { post ->
-            val tags = post.tagList
-            required.all { it in tags } && excluded.none { it in tags }
+            val tags = post.tagList.map { it.lowercase() }
+            (ratings.isEmpty() || post.safety.lowercase() in ratings) &&
+                includeGroups.all { group -> group.any { it in tags } } &&
+                excluded.none { it in tags }
         }
     }
 }

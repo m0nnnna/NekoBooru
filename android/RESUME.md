@@ -36,6 +36,12 @@ runs on a real device.
 - **Offline collection**: thumbnails for every synced post are cached locally on each
   sync (`localThumbPath`, DB **v4**) so the grid browses fully offline. Upserts now
   preserve local cache columns (previously a re-pull wiped them and re-downloaded).
+- **Search parity** (`GalleryViewModel.filter`): whitespace-separated terms AND together,
+  `OR` groups adjacent terms, `-tag` excludes, `rating:`/`safety:` filter by level;
+  case-insensitive. Mirrors the backend `services/search.py` tokenizer.
+- **Share / export**: detail-screen share button exports the original file to the Android
+  share sheet via a `FileProvider` (`${applicationId}.fileprovider`, `res/xml/file_paths.xml`),
+  downloading it first if not cached. Lets the user post a stored photo/video to any app.
 - **Offline mirror policy** (`OfflinePolicy`: 50 / 100 / 500 most-recent / Everything):
   keeps the N newest posts' **full originals** on-device (Everything = whole media
   library, however large), evicting the rest. The heavy original download runs only in

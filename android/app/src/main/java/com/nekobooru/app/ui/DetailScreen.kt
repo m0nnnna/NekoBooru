@@ -1,5 +1,6 @@
 package com.nekobooru.app.ui
 
+import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -19,8 +21,10 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -43,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -58,8 +63,28 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
     val post by vm.post.collectAsStateWithLifecycle()
     val pools by vm.pools.collectAsStateWithLifecycle()
     val localOriginal by vm.localOriginal.collectAsStateWithLifecycle()
+    val sharing by vm.sharing.collectAsStateWithLifecycle()
+    val shareData by vm.shareEvent.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf(false) }
     var addingToPool by remember { mutableStateOf(false) }
+
+    // Hand a prepared file to the system share sheet, then clear the event.
+    val context = LocalContext.current
+    LaunchedEffect(shareData) {
+        val data = shareData ?: return@LaunchedEffect
+        runCatching {
+            val uri = FileProvider.getUriForFile(
+                context, "${context.packageName}.fileprovider", File(data.path),
+            )
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = data.mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(send, "Share via"))
+        }
+        vm.clearShare()
+    }
 
     Scaffold(
         topBar = {
@@ -68,6 +93,18 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (sharing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(end = 12.dp).size(22.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        IconButton(onClick = vm::share) {
+                            Icon(Icons.Filled.Share, contentDescription = "Share / export")
+                        }
                     }
                 },
             )

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Internal app storage shared out via FileProvider for the share sheet. -->
+    <files-path name="originals" path="originals/" />
+    <files-path name="thumbs" path="thumbs/" />
+    <files-path name="pending" path="pending/" />
+    <cache-path name="share" path="share/" />
+</paths>
