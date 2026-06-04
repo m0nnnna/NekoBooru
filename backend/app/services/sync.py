@@ -9,11 +9,61 @@ The inserts here use Core (``SyncLog.__table__.insert()``) on the same
 ``connection`` the flush is using, so they participate in the same transaction
 and do *not* re-trigger ORM events (no recursion).
 """
+import logging
 from datetime import datetime
 
-from sqlalchemy import event, insert, select
+from sqlalchemy import event, func, insert, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Post, Tag, Pool, PoolPost, Note, Comment, Favorite, SyncLog
+
+logger = logging.getLogger(__name__)
+
+
+async def backfill_sync_log_if_empty(session: AsyncSession) -> int:
+    """Seed the change log with the existing library.
+
+    The ORM listeners below only capture changes made *after* the sync layer is
+    active, so a database created earlier has an empty ``sync_log`` and a fresh
+    client's ``since=0`` pull would return nothing. When the log is empty, emit
+    one ``upsert`` per existing entity so the whole library syncs on first pull.
+    No-op once any change has been logged (i.e. it never re-fires).
+
+    Returns the number of seed rows written.
+    """
+    count = (await session.execute(select(func.count(SyncLog.id)))).scalar() or 0
+    if count > 0:
+        return 0
+
+    now = datetime.utcnow()
+    rows: list[dict] = []
+
+    def add(entity_type: str, key) -> None:
+        if key:
+            rows.append({"entity_type": entity_type, "entity_key": str(key),
+                         "op": "upsert", "ts": now})
+
+    for (sha,) in (await session.execute(select(Post.sha256))).all():
+        add("post", sha)
+    for (name,) in (await session.execute(select(Tag.name))).all():
+        add("tag", name)
+    for (uuid_,) in (await session.execute(select(Pool.uuid))).all():
+        add("pool", uuid_)
+    for (uuid_,) in (await session.execute(select(Note.uuid))).all():
+        add("note", uuid_)
+    for (uuid_,) in (await session.execute(select(Comment.uuid))).all():
+        add("comment", uuid_)
+    fav_shas = await session.execute(
+        select(Post.sha256).join(Favorite, Favorite.post_id == Post.id)
+    )
+    for (sha,) in fav_shas.all():
+        add("favorite", sha)
+
+    if rows:
+        await session.execute(insert(SyncLog.__table__), rows)
+        await session.commit()
+        logger.info("Backfilled sync_log with %d existing entities for first sync.", len(rows))
+    return len(rows)
 
 
 def _log(connection, entity_type: str, entity_key, op: str):

@@ -75,7 +75,7 @@ def _migrate(conn):
 async def init_db():
     """Initialize database tables."""
     from . import models  # noqa: F401
-    from .services.sync import register_sync_listeners
+    from .services.sync import register_sync_listeners, backfill_sync_log_if_empty
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -83,6 +83,11 @@ async def init_db():
 
     # Capture all subsequent writes (web UI + API) into the sync change log.
     register_sync_listeners()
+
+    # Seed the change log for a pre-existing library so a fresh client's first
+    # sync returns everything (no-op once any change has been logged).
+    async with async_session() as session:
+        await backfill_sync_log_if_empty(session)
 
     # Seed default tag categories
     async with async_session() as session:
