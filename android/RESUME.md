@@ -57,7 +57,19 @@ runs on a real device.
   so any app/file manager can open them — works around Android's limited share sheet.
   Thumbnails stay app-private. `localOriginalPath` then holds a `content://` URI; display
   (`MediaPaths.toUri`), video, and share handle both URI and file forms. Unset = app-private
-  (unchanged). Changing the folder applies to newly-downloaded originals.
+  (unchanged). Changing the folder applies to newly-downloaded originals; **"Move existing
+  files into this folder"** (`RetentionManager.migrateToExportFolder`) relocates already-cached
+  app-private originals into it.
+- **Scroll jank (real cause)**: `MediaPaths.thumb/thumbsDir` used to call `mkdirs()` on every
+  invocation — i.e. a filesystem syscall per grid item during fling. They're now pure path
+  builders (dirs created by the writer in `RetentionManager`). This is the main fix; combined
+  with the Coil cache it scrolls smoothly.
+- **Video black-frame bug**: `VideoPlayer` now attaches the ExoPlayer in the `AndroidView`
+  `update` block (after the surface exists) instead of in `factory`, fixing the black-first-play
+  that needed a back-and-forth to render.
+- **Keep screen on**: the detail screen sets `keepScreenOn` while open (esp. for video).
+- **Full-size view**: tap an image to open a fullscreen zoomable lightbox (`ui/ZoomableImage.kt`,
+  pinch/double-tap) that loads the real original.
 - **Share / export**: detail-screen share button exports the original file to the Android
   share sheet via a `FileProvider` (`${applicationId}.fileprovider`, `res/xml/file_paths.xml`),
   downloading it first if not cached. Lets the user post a stored photo/video to any app.

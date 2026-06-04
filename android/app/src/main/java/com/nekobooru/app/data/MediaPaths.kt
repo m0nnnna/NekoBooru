@@ -10,14 +10,14 @@ import java.io.File
  * query — the UI just checks whether the file exists.
  */
 object MediaPaths {
-    fun thumbsDir(context: Context): File =
-        File(context.filesDir, "thumbs").apply { mkdirs() }
+    // NOTE: these are pure path builders — they must NOT touch the filesystem
+    // (no mkdirs), because thumb() is called from grid composition on every item
+    // while scrolling. Creating the dirs is the writer's job (RetentionManager).
+    fun thumbsDir(context: Context): File = File(context.filesDir, "thumbs")
 
-    fun thumb(context: Context, sha: String): File =
-        File(thumbsDir(context), "$sha.jpg")
+    fun thumb(context: Context, sha: String): File = File(thumbsDir(context), "$sha.jpg")
 
-    fun originalsDir(context: Context): File =
-        File(context.filesDir, "originals").apply { mkdirs() }
+    fun originalsDir(context: Context): File = File(context.filesDir, "originals")
 
     /**
      * Turn a stored original path into a Uri: a ``content://`` string (user's

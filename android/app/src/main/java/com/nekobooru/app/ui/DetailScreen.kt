@@ -1,6 +1,7 @@
 package com.nekobooru.app.ui
 
 import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
@@ -37,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,9 +47,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -68,6 +75,14 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
     val shareData by vm.shareEvent.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf(false) }
     var addingToPool by remember { mutableStateOf(false) }
+    var fullscreen by remember { mutableStateOf(false) }
+
+    // Keep the screen awake while viewing a post (esp. video playback).
+    val view = LocalView.current
+    DisposableEffect(Unit) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
 
     // Hand a prepared file to the system share sheet, then clear the event.
     val context = LocalContext.current
@@ -124,7 +139,7 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            MediaPreview(p, vm.serverUrl, localOriginal)
+            MediaPreview(p, vm.serverUrl, localOriginal, onImageClick = { fullscreen = true })
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = vm::toggleFavorite) {
@@ -193,6 +208,32 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
             onCreate = { name -> vm.addToNewPool(name); addingToPool = false },
         )
     }
+
+    // Fullscreen, zoomable view of the image at actual size.
+    val p = post
+    if (fullscreen && p != null && !p.isVideo) {
+        Dialog(
+            onDismissRequest = { fullscreen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Box(Modifier.fillMaxSize().background(Color.Black)) {
+                ZoomableImage(
+                    model = fullImageModel(context, p, vm.serverUrl, localOriginal),
+                    modifier = Modifier.fillMaxSize(),
+                )
+                IconButton(
+                    onClick = { fullscreen = false },
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Close",
+                        tint = Color.White,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -242,7 +283,12 @@ private fun AddToPoolDialog(
 }
 
 @Composable
-private fun MediaPreview(post: PostEntity, serverUrl: String, localOriginal: String?) {
+private fun MediaPreview(
+    post: PostEntity,
+    serverUrl: String,
+    localOriginal: String?,
+    onImageClick: () -> Unit,
+) {
     val context = LocalContext.current
 
     // Video: play in-app (Media3), like the website. Use the cached original
@@ -259,27 +305,52 @@ private fun MediaPreview(post: PostEntity, serverUrl: String, localOriginal: Str
         return
     }
 
-    // Image: prefer the cached original (file or content URI), then a pending
-    // local file, then the cached thumbnail (offline), then the server original.
-    val cachedOriginal: Any? = localOriginal?.let { MediaPaths.toUri(it) }
-    val localThumb = MediaPaths.thumb(context, post.sha256).takeIf { it.exists() }
-    val model: Any = when {
-        post.localMediaPath != null -> File(post.localMediaPath)
-        cachedOriginal != null -> cachedOriginal           // full-res, cached
-        localThumb != null -> localThumb                   // offline fallback while original loads
-        else -> ApiFactory.absoluteUrl(serverUrl, post.contentUrl)
-    }
+    val model = imageModel(context, post, serverUrl, localOriginal)
     Box(
-        modifier = Modifier.fillMaxWidth().aspectRatio(1f).wrapContentHeight(),
+        modifier = Modifier.fillMaxWidth().aspectRatio(1f).wrapContentHeight()
+            .clickable { onImageClick() },
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(
-            model = ImageRequest.Builder(context).data(model).crossfade(true).build(),
+            model = ImageRequest.Builder(context).data(model).build(),
             contentDescription = post.filename,
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),
         )
     }
+}
+
+/**
+ * Best available image source: a pending local file, then the cached original
+ * (file or content URI), then the cached thumbnail (offline), then the server.
+ */
+private fun imageModel(
+    context: android.content.Context,
+    post: PostEntity,
+    serverUrl: String,
+    localOriginal: String?,
+): Any {
+    val cachedOriginal: Any? = localOriginal?.let { MediaPaths.toUri(it) }
+    val localThumb = MediaPaths.thumb(context, post.sha256).takeIf { it.exists() }
+    return when {
+        post.localMediaPath != null -> File(post.localMediaPath)
+        cachedOriginal != null -> cachedOriginal
+        localThumb != null -> localThumb
+        else -> ApiFactory.absoluteUrl(serverUrl, post.contentUrl)
+    }
+}
+
+/** Full-resolution source for the lightbox: skips the thumbnail fallback so zoom
+ *  shows real detail (loads the server original if it isn't cached locally). */
+private fun fullImageModel(
+    context: android.content.Context,
+    post: PostEntity,
+    serverUrl: String,
+    localOriginal: String?,
+): Any = when {
+    post.localMediaPath != null -> File(post.localMediaPath)
+    localOriginal != null -> MediaPaths.toUri(localOriginal)
+    else -> ApiFactory.absoluteUrl(serverUrl, post.contentUrl)
 }
 
 @Composable

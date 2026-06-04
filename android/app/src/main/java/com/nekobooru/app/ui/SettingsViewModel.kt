@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.nekobooru.app.data.AppSettings
 import com.nekobooru.app.data.ConnectionTester
 import com.nekobooru.app.data.OfflinePolicy
+import com.nekobooru.app.data.RetentionManager
 import com.nekobooru.app.data.SyncManager
 import com.nekobooru.app.data.ThemeMode
 import com.nekobooru.app.data.db.NekoDatabase
@@ -25,6 +26,7 @@ data class SettingsUiState(
     val cachedOriginals: Int = 0,
     val syncing: Boolean = false,
     val testing: Boolean = false,
+    val migrating: Boolean = false,
     val lastSyncedAt: Long = 0,
     val message: String? = null,
 )
@@ -51,6 +53,19 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         settings.exportTreeUri = treeUri
         _state.value = _state.value.copy(storageLabel = storageLabel())
         SyncScheduler.requestOneShot(getApplication())
+    }
+
+    /** Move existing app-private originals into the chosen folder. */
+    fun migrateToFolder() {
+        _state.value = _state.value.copy(migrating = true, message = null)
+        viewModelScope.launch {
+            val moved = RetentionManager(getApplication()).migrateToExportFolder()
+            refreshCachedCount()
+            _state.value = _state.value.copy(
+                migrating = false,
+                message = "Moved $moved file(s) into the folder",
+            )
+        }
     }
 
     private fun storageLabel(): String {

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
@@ -150,6 +151,17 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                 OutlinedButton(onClick = { folderPicker.launch(null) }) { Text("Choose folder…") }
                 if (state.storageLabel != "App storage (private)") {
                     TextButton(onClick = { vm.onStorageFolderChange(null) }) { Text("Use app storage") }
+                }
+            }
+            if (state.storageLabel != "App storage (private)") {
+                OutlinedButton(onClick = vm::migrateToFolder, enabled = !state.migrating) {
+                    if (state.migrating) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(end = 8.dp).size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    Text("Move existing files into this folder")
                 }
             }
 

@@ -76,6 +76,7 @@ class RetentionManager(context: Context) {
      * scrolling lag).
      */
     private suspend fun cacheThumbnails(serverUrl: String, posts: List<PostEntity>) {
+        thumbsDir.mkdirs()
         val api = ApiFactory.create(serverUrl)
         val missing = posts.filter {
             it.thumbUrl.isNotBlank() && !File(thumbsDir, it.sha256 + ".jpg").exists()
@@ -134,6 +135,7 @@ class RetentionManager(context: Context) {
                 } ?: return null
                 doc.uri.toString()
             } else {
+                originalsDir.mkdirs()
                 val dest = File(originalsDir, post.sha256 + (post.extension ?: ""))
                 body.byteStream().use { input ->
                     dest.outputStream().use { output -> input.copyTo(output) }
@@ -154,6 +156,41 @@ class RetentionManager(context: Context) {
             else File(p).delete()
         }
         postDao.setLocalOriginal(post.sha256, null)
+    }
+
+    /**
+     * Move every app-private original into the user's chosen folder (copy then
+     * delete the private file, repointing the DB at the new ``content://`` URI).
+     * Returns the number moved. No-op if no folder is set.
+     */
+    suspend fun migrateToExportFolder(): Int = withContext(Dispatchers.IO) {
+        val tree = exportTree() ?: return@withContext 0
+        val candidates = postDao.allVisible().filter {
+            val p = it.localOriginalPath
+            p != null && !p.startsWith("content://") && File(p).exists()
+        }
+        var moved = 0
+        try {
+            candidates.forEachIndexed { i, post ->
+                runCatching {
+                    val src = File(post.localOriginalPath!!)
+                    val name = post.filename?.takeIf { it.isNotBlank() } ?: src.name
+                    val doc = tree.createFile(mimeFor(post.extension), name)
+                    if (doc != null) {
+                        appContext.contentResolver.openOutputStream(doc.uri)?.use { o ->
+                            src.inputStream().use { it.copyTo(o) }
+                        }
+                        postDao.setLocalOriginal(post.sha256, doc.uri.toString())
+                        src.delete()
+                        moved++
+                    }
+                }
+                SyncProgress.report("Moving to folder", i + 1, candidates.size)
+            }
+        } finally {
+            SyncProgress.clear()
+        }
+        moved
     }
 
     /** The user's chosen storage folder, if any (writable). */

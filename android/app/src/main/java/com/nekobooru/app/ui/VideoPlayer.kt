@@ -32,11 +32,10 @@ fun VideoPlayer(uri: String, modifier: Modifier = Modifier) {
     }
     AndroidView(
         modifier = modifier,
-        factory = { ctx ->
-            PlayerView(ctx).apply {
-                this.player = player
-                useController = true
-            }
-        },
+        factory = { ctx -> PlayerView(ctx).apply { useController = true } },
+        // Attach the player in update (after the view is laid out and its surface
+        // exists) — assigning it in factory renders a black frame until you leave
+        // and re-enter.
+        update = { view -> view.player = player },
     )
 }
