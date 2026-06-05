@@ -18,20 +18,20 @@ This guide explains how to build distribution packages for Windows and Ubuntu/Li
 
 ### Windows
 
-Build a Windows distribution package:
+Build a standalone Windows binary (single `.exe`, no Python install needed):
 
 ```batch
-build-windows.bat
+build-binary.bat
 ```
 
 This creates:
-- `dist/nekobooru-windows/` - Complete distribution package
-- Includes frontend build, backend code, and startup scripts
-- Run `install.bat` to set up, then `start.bat` to run
+- `dist/nekobooru-binary/nekobooru.exe` - Self-contained executable (frontend + backend bundled via PyInstaller)
+- Just run `nekobooru.exe`; it creates `data/` and `config/` folders alongside itself
+- Optional: place `ffmpeg.exe` / `yt-dlp.exe` next to it for video thumbnails / downloads
 
 Create a ZIP archive:
 ```powershell
-powershell Compress-Archive -Path "dist\nekobooru-windows" -DestinationPath "dist\nekobooru-windows-1.0.0.zip" -Force
+powershell Compress-Archive -Path "dist\nekobooru-binary\*" -DestinationPath "dist\nekobooru-windows-1.0.0.zip" -Force
 ```
 
 ### Ubuntu/Linux
