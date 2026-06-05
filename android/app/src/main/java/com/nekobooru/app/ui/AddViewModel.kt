@@ -4,8 +4,10 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nekobooru.app.data.AppSettings
 import com.nekobooru.app.data.SyncManager
 import com.nekobooru.app.data.SyncRepository
+import com.nekobooru.app.data.UrlClassifier
 import com.nekobooru.app.data.db.NekoDatabase
 import com.nekobooru.app.sync.SyncScheduler
 import kotlinx.coroutines.Dispatchers
@@ -21,12 +23,17 @@ import java.util.UUID
 
 data class AddUiState(
     val pickedUri: Uri? = null,
+    val url: String = "",
     val tags: List<String> = emptyList(),
     val safety: String = "safe",
     val saving: Boolean = false,
+    val fetching: Boolean = false,
     val error: String? = null,
     val done: Boolean = false,
-)
+) {
+    /** Whether the pasted text looks like a link the server can fetch. */
+    val urlSupported: Boolean get() = url.isNotBlank() && UrlClassifier.looksLikeSupportedUrl(url)
+}
 
 class AddViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = SyncRepository(NekoDatabase.get(app))
@@ -42,8 +49,48 @@ class AddViewModel(app: Application) : AndroidViewModel(app) {
     fun reset() { _state.value = AddUiState() }
 
     fun onPicked(uri: Uri) { _state.value = _state.value.copy(pickedUri = uri, error = null) }
+    fun onUrlChange(u: String) { _state.value = _state.value.copy(url = u, error = null) }
     fun onTagsChange(t: List<String>) { _state.value = _state.value.copy(tags = t) }
     fun onSafetyChange(s: String) { _state.value = _state.value.copy(safety = s) }
+
+    /**
+     * Submit a pasted image/video/post link. The server downloads the media —
+     * using its configured yt-dlp cookies for video sites — then the new post is
+     * pulled into the local library. Requires the server to be online.
+     */
+    fun submitUrl() {
+        val cur = _state.value
+        val url = cur.url.trim()
+        if (url.isEmpty()) {
+            _state.value = cur.copy(error = "Paste an image or video link first")
+            return
+        }
+        _state.value = cur.copy(fetching = true, error = null)
+        viewModelScope.launch {
+            try {
+                val serverUrl = AppSettings(getApplication()).serverUrl
+                val created = withContext(Dispatchers.IO) {
+                    repo.submitUrlPost(serverUrl, url, cur.tags, cur.safety)
+                }
+                if (created == 0) {
+                    _state.value = _state.value.copy(
+                        fetching = false,
+                        error = "The server couldn't fetch any media from that link",
+                    )
+                    return@launch
+                }
+                // Bring the freshly-created post(s) down into the local library.
+                SyncManager.sync(getApplication())
+                SyncScheduler.requestOneShot(getApplication())
+                _state.value = _state.value.copy(fetching = false, done = true)
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    fetching = false,
+                    error = e.message ?: "Failed to fetch link",
+                )
+            }
+        }
+    }
 
     /**
      * Copy the picked media into app storage, queue it in the outbox (with an

@@ -39,6 +39,18 @@ interface NekoBooruApi {
     @POST("api/uploads")
     suspend fun upload(@Part content: MultipartBody.Part): UploadTokenDto
 
+    /** Server downloads a direct image/video link and returns an upload token. */
+    @POST("api/uploads/from-url")
+    suspend fun uploadFromUrl(@Body body: UrlFetchDto): UrlUploadResultDto
+
+    /** Server downloads a video-platform link via yt-dlp (using its cookies) and returns a token. */
+    @POST("api/uploads/from-ytdlp")
+    suspend fun uploadFromYtdlp(@Body body: UrlFetchDto): UrlUploadResultDto
+
+    /** Server fetches all media from a Pleroma/Misskey post and returns a token per attachment. */
+    @POST("api/uploads/from-fediverse")
+    suspend fun uploadFromFediverse(@Body body: UrlFetchDto): FediverseUploadResultDto
+
     @POST("api/sync/push")
     suspend fun push(@Body body: PushRequestDto): PushResponseDto
 

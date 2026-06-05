@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +28,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -92,6 +97,51 @@ fun AddScreen(vm: AddViewModel, onDone: () -> Unit, sharedUri: Uri? = null) {
                 ) { Text("Change selection") }
             }
 
+            // ── Or paste a link the server downloads (images, video sites, fediverse). ──
+            HorizontalDivider()
+            Text("Or paste a link", style = MaterialTheme.typography.titleSmall)
+
+            val clipboard = LocalClipboardManager.current
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = state.url,
+                    onValueChange = vm::onUrlChange,
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    label = { Text("Image or video link") },
+                    enabled = !state.fetching && !state.saving,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+                OutlinedButton(
+                    onClick = { clipboard.getText()?.text?.let { vm.onUrlChange(it.trim()) } },
+                    enabled = !state.fetching && !state.saving,
+                ) { Text("Paste") }
+            }
+            Text(
+                "X, YouTube, TikTok, Reddit, etc. + Pleroma/Misskey posts + direct image links. " +
+                    "The server fetches it (using its saved cookies for video sites).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = vm::submitUrl,
+                enabled = !state.fetching && !state.saving && state.urlSupported,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (state.fetching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.padding(end = 8.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+                Text(if (state.fetching) "Fetching…" else "Fetch & add from link")
+            }
+            HorizontalDivider()
+
             val allTags by vm.allTags.collectAsStateWithLifecycle()
             TagEditor(
                 tags = state.tags,
@@ -113,12 +163,12 @@ fun AddScreen(vm: AddViewModel, onDone: () -> Unit, sharedUri: Uri? = null) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(onClick = onDone, enabled = !state.saving) {
+                OutlinedButton(onClick = onDone, enabled = !state.saving && !state.fetching) {
                     Text("Cancel")
                 }
                 Button(
                     onClick = vm::save,
-                    enabled = !state.saving && state.pickedUri != null,
+                    enabled = !state.saving && !state.fetching && state.pickedUri != null,
                 ) {
                     if (state.saving) {
                         CircularProgressIndicator(

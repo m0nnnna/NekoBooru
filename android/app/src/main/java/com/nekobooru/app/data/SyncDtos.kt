@@ -27,6 +27,44 @@ data class SyncChange(
 @Serializable
 data class UploadTokenDto(val token: String)
 
+/** Body of the server-side fetch endpoints (from-url / from-ytdlp / from-fediverse). */
+@Serializable
+data class UrlFetchDto(val url: String)
+
+/**
+ * Result of POST /api/uploads/from-url and /from-ytdlp. The server downloads the
+ * media (using its configured yt-dlp cookies for video sites) and hands back a
+ * one-shot upload token, just like a regular file upload.
+ */
+@Serializable
+data class UrlUploadResultDto(
+    val token: String,
+    val filename: String? = null,
+    val title: String? = null,
+    val thumbnail: String? = null,
+    val duration: Double? = null,
+    val uploader: String? = null,
+    val size: Long? = null,
+)
+
+/** One downloaded attachment from POST /api/uploads/from-fediverse. */
+@Serializable
+data class FediverseAttachmentDto(
+    val token: String,
+    val filename: String? = null,
+    val size: Long? = null,
+)
+
+/** Result of POST /api/uploads/from-fediverse (a Pleroma/Misskey post may carry several media). */
+@Serializable
+data class FediverseUploadResultDto(
+    val uploads: List<FediverseAttachmentDto> = emptyList(),
+    val tags: List<String> = emptyList(),
+    val source: String? = null,
+    val title: String? = null,
+    val platform: String? = null,
+)
+
 /** One change pushed to POST /api/sync/push (see backend PushChange). */
 @Serializable
 data class PushChangeDto(

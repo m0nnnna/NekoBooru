@@ -253,6 +253,64 @@ class SyncRepository(private val db: NekoDatabase) {
         return pushed
     }
 
+    /**
+     * Submit a pasted image/video/post **link**. The server downloads the media
+     * (using its own yt-dlp cookies for video sites), hands back upload token(s),
+     * and we create the post(s) from those tokens. A fediverse post can yield
+     * several attachments. Returns the number of posts created on the server; the
+     * caller should [pull] afterwards to bring them into the local library.
+     *
+     * Requires the server to be reachable — unlike file uploads, a remote fetch
+     * can't be queued offline since the server is the one doing the download.
+     */
+    suspend fun submitUrlPost(
+        serverUrl: String,
+        url: String,
+        tags: List<String>,
+        safety: String,
+    ): Int {
+        val api = ApiFactory.create(serverUrl)
+        val trimmed = url.trim()
+        var created = 0
+        when (UrlClassifier.classify(trimmed)) {
+            UrlClassifier.Kind.FEDIVERSE -> {
+                val res = api.uploadFromFediverse(UrlFetchDto(trimmed))
+                // Merge the user's tags with the post's hashtags (the website does this too).
+                val merged = (tags + res.tags).distinct()
+                for (att in res.uploads) {
+                    if (pushPostToken(api, att.token, merged, safety, res.source)) created++
+                }
+            }
+            UrlClassifier.Kind.VIDEO -> {
+                val res = api.uploadFromYtdlp(UrlFetchDto(trimmed))
+                if (pushPostToken(api, res.token, tags, safety, null)) created++
+            }
+            else -> {
+                // IMAGE or anything else: let the server try a direct download.
+                val res = api.uploadFromUrl(UrlFetchDto(trimmed))
+                if (pushPostToken(api, res.token, tags, safety, null)) created++
+            }
+        }
+        return created
+    }
+
+    /** Create a post from a server upload token; true if the server accepted it. */
+    private suspend fun pushPostToken(
+        api: NekoBooruApi,
+        token: String,
+        tags: List<String>,
+        safety: String,
+        source: String?,
+    ): Boolean {
+        val status = pushOne(
+            api, PushChangeDto(
+                type = "post", op = "upsert", clientId = UUID.randomUUID().toString(),
+                contentToken = token, tags = tags, safety = safety, source = source,
+            )
+        )
+        return status == "created" || status == "deduped"
+    }
+
     private suspend fun pushOne(api: NekoBooruApi, change: PushChangeDto): String? =
         api.push(PushRequestDto(listOf(change))).results.firstOrNull()?.status
 
