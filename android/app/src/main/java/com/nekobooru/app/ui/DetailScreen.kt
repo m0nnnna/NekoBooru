@@ -1,6 +1,11 @@
 package com.nekobooru.app.ui
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -73,6 +79,8 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
     val localOriginal by vm.localOriginal.collectAsStateWithLifecycle()
     val sharing by vm.sharing.collectAsStateWithLifecycle()
     val shareData by vm.shareEvent.collectAsStateWithLifecycle()
+    val savingToDevice by vm.savingToDevice.collectAsStateWithLifecycle()
+    val saveResult by vm.saveResult.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf(false) }
     var addingToPool by remember { mutableStateOf(false) }
     var fullscreen by remember { mutableStateOf(false) }
@@ -105,6 +113,28 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
         vm.clearShare()
     }
 
+    // "Save to device": API 29+ needs no permission (scoped MediaStore); older
+    // versions must grant WRITE_EXTERNAL_STORAGE first.
+    val writePerm = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) vm.saveToDevice()
+        else Toast.makeText(context, "Storage permission needed to save", Toast.LENGTH_SHORT).show()
+    }
+    val requestSave = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) vm.saveToDevice()
+        else writePerm.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+    }
+    LaunchedEffect(saveResult) {
+        val r = saveResult ?: return@LaunchedEffect
+        Toast.makeText(
+            context,
+            if (r) "Saved to device gallery" else "Couldn't save to device",
+            Toast.LENGTH_SHORT,
+        ).show()
+        vm.clearSaveResult()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -115,6 +145,16 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
                     }
                 },
                 actions = {
+                    if (savingToDevice) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(end = 12.dp).size(22.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        IconButton(onClick = { requestSave() }) {
+                            Icon(Icons.Filled.Download, contentDescription = "Save to device")
+                        }
+                    }
                     if (sharing) {
                         CircularProgressIndicator(
                             modifier = Modifier.padding(end = 12.dp).size(22.dp),

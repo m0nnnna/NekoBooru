@@ -4,9 +4,12 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nekobooru.app.data.AppSettings
+import com.nekobooru.app.data.MediaExport
 import com.nekobooru.app.data.RetentionManager
 import com.nekobooru.app.data.SyncManager
 import com.nekobooru.app.data.SyncRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.nekobooru.app.data.db.NekoDatabase
 import com.nekobooru.app.data.db.PoolEntity
 import com.nekobooru.app.data.db.PostEntity
@@ -51,6 +54,11 @@ class DetailViewModel(app: Application) : AndroidViewModel(app) {
     /** Share/export state: a non-null [ShareData] signals the UI to open the sheet. */
     val sharing = MutableStateFlow(false)
     val shareEvent = MutableStateFlow<ShareData?>(null)
+
+    /** "Save to device" state: spinner while copying; [saveResult] is a one-shot
+     *  event (true = saved, false = failed) the UI shows as a toast then clears. */
+    val savingToDevice = MutableStateFlow(false)
+    val saveResult = MutableStateFlow<Boolean?>(null)
 
     fun load(sha256: String) {
         sha.value = sha256
@@ -132,6 +140,34 @@ class DetailViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearShare() { shareEvent.value = null }
+
+    /**
+     * Copy the post's original into the device gallery (a "NekoBooru" album) so
+     * apps using the system photo picker (e.g. an X reply) can attach it.
+     * Downloads the original first if needed. On API < 29 the caller must have
+     * obtained WRITE_EXTERNAL_STORAGE before invoking this.
+     */
+    fun saveToDevice() {
+        val p = post.value ?: return
+        viewModelScope.launch {
+            savingToDevice.value = true
+            val path = if (p.sha256.startsWith("pending-")) p.localMediaPath
+            else RetentionManager(getApplication()).fetchOriginal(settings.serverUrl, p.sha256)
+            val ok = path != null && withContext(Dispatchers.IO) {
+                MediaExport.saveToGallery(
+                    getApplication(), path, displayName(p), p.isVideo, mimeForExtension(p.extension),
+                )
+            }
+            savingToDevice.value = false
+            saveResult.value = ok
+        }
+    }
+
+    fun clearSaveResult() { saveResult.value = null }
+
+    /** A gallery-friendly filename: the post's own name, else sha + extension. */
+    private fun displayName(p: PostEntity): String =
+        p.filename?.takeIf { it.isNotBlank() } ?: (p.sha256 + (p.extension ?: ""))
 
     private fun mimeForExtension(ext: String?): String = when (ext?.lowercase()) {
         ".jpg", ".jpeg" -> "image/jpeg"
