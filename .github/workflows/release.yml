@@ -99,13 +99,15 @@ jobs:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
-      - name: Build Windows package
+      - name: Build Windows binary
         shell: cmd
-        run: call build-windows.bat
+        # build-windows.bat was removed in favour of the standalone PyInstaller
+        # build; redirect stdin from NUL so its trailing `pause` can't hang CI.
+        run: call build-binary.bat < nul
       - name: Zip Windows package
         shell: pwsh
         run: |
-          Compress-Archive -Path "dist/nekobooru-windows" `
+          Compress-Archive -Path "dist/nekobooru-binary/*" `
             -DestinationPath "dist/nekobooru-windows-$env:VERSION.zip" -Force
       - uses: actions/upload-artifact@v7
         with:
