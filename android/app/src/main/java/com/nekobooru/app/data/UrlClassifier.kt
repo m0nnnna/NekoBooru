@@ -21,6 +21,7 @@ object UrlClassifier {
         "twitch.tv", "clips.twitch.tv",
         "dailymotion.com",
         "streamable.com",
+        "redgifs.com",
     )
 
     private val IMAGE_HOSTS = listOf(

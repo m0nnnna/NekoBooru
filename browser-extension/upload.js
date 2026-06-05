@@ -309,10 +309,63 @@ async function doUpload() {
   }
 }
 
-// Get an upload token. Prefer the server-side fetch (it sends a proper Referer,
-// which works for most boorus/CDNs). If that fails, fall back to fetching the
-// bytes here in the browser and uploading them directly.
+// Video-platform hosts the server can grab with yt-dlp (RedGifs, X, YouTube,
+// TikTok, Reddit, etc.). Kept in sync with the web UI and the Android app.
+const VIDEO_PLATFORMS = [
+  'twitter.com', 'x.com',
+  'youtube.com', 'youtu.be',
+  'tiktok.com',
+  'instagram.com',
+  'reddit.com', 'v.redd.it',
+  'vimeo.com',
+  'twitch.tv', 'clips.twitch.tv',
+  'dailymotion.com',
+  'streamable.com',
+  'redgifs.com',
+]
+
+// Return the URL if its host is a known video platform, else ''. Instagram only
+// carries video on reels/posts.
+function videoPlatformUrl(url) {
+  try {
+    const u = new URL(url)
+    if (!['http:', 'https:'].includes(u.protocol)) return ''
+    const host = u.host.toLowerCase()
+    const match = VIDEO_PLATFORMS.some((d) => host === d || host.endsWith('.' + d))
+    if (!match) return ''
+    if (host.includes('instagram.com')) {
+      return u.pathname.includes('/reel/') || u.pathname.includes('/p/') ? url : ''
+    }
+    return url
+  } catch {
+    return ''
+  }
+}
+
+// Get an upload token. For known video-platform pages, let the server run yt-dlp
+// on the page URL first. Otherwise prefer the server-side fetch (it sends a
+// proper Referer, which works for most boorus/CDNs). If both fail, fall back to
+// fetching the bytes here in the browser and uploading them directly.
 async function getContentToken() {
+  // RedGifs/X/YouTube/etc.: the watch page (or a video element's page) is what
+  // yt-dlp understands, not the blob/CDN src the browser exposes.
+  const ytdlpUrl = videoPlatformUrl(pageUrl) || videoPlatformUrl(srcUrl)
+  if (ytdlpUrl) {
+    try {
+      const res = await fetch(`${instanceUrl}/api/uploads/from-ytdlp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: ytdlpUrl }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.token) return data.token
+      }
+    } catch {
+      // fall through to direct-URL / client-side fetch
+    }
+  }
+
   try {
     const res = await fetch(`${instanceUrl}/api/uploads/from-url`, {
       method: 'POST',

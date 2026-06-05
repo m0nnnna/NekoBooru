@@ -276,6 +276,7 @@ function isVideoUrl(text) {
       'dailymotion.com',
       'streamable.com',
       'v.redd.it',
+      'redgifs.com', 'www.redgifs.com',
     ]
 
     // Check if it's a video platform URL
