@@ -4,26 +4,28 @@
 
 .DESCRIPTION
     Resolves a JDK (Android Studio's bundled JBR by default) and the Android SDK,
-    then runs the committed Gradle wrapper. Produces a debug APK by default; pass
-    -Release for an unsigned release build.
+    then runs the committed Gradle wrapper. Builds the optimized, installable
+    RELEASE variant by default (signed with the debug keystore); pass -Debug for
+    a quick debug build.
 
-.PARAMETER Release
-    Build the release variant (app-release-unsigned.apk) instead of debug.
+.PARAMETER DebugBuild
+    Build the debug variant (app-debug.apk) instead of release.
+    (Named -DebugBuild because -Debug is a reserved PowerShell common parameter.)
 
 .PARAMETER Install
-    After building, install the debug APK on the connected device/emulator.
+    After building, install the APK on the connected device/emulator.
 
 .PARAMETER Clean
     Run a clean before building.
 
 .EXAMPLE
     ./build-apk.ps1
-    ./build-apk.ps1 -Release
+    ./build-apk.ps1 -DebugBuild
     ./build-apk.ps1 -Install
 #>
 [CmdletBinding()]
 param(
-    [switch]$Release,
+    [switch]$DebugBuild,
     [switch]$Install,
     [switch]$Clean
 )
@@ -62,21 +64,23 @@ if ($env:ANDROID_HOME) {
 }
 
 # --- Assemble the Gradle task list. ---
+$variant = if ($DebugBuild) { "Debug" } else { "Release" }
 $tasks = @()
 if ($Clean) { $tasks += "clean" }
-if ($Release) { $tasks += "assembleRelease" } else { $tasks += "assembleDebug" }
-if ($Install -and -not $Release) { $tasks += "installDebug" }
+$tasks += "assemble$variant"
+if ($Install) { $tasks += "install$variant" }
 
 $gradlew = Join-Path $projectDir "gradlew.bat"
 Write-Host "Running: gradlew $($tasks -join ' ')" -ForegroundColor Cyan
 & $gradlew -p $projectDir @tasks --no-daemon
 if ($LASTEXITCODE -ne 0) { throw "Gradle build failed (exit $LASTEXITCODE)." }
 
-# --- Report the APK location. ---
-$apk = if ($Release) {
-    Join-Path $projectDir "app\build\outputs\apk\release\app-release-unsigned.apk"
-} else {
+# --- Report the APK location. The release build is signed (debug keystore), so
+#     its output is app-release.apk, not app-release-unsigned.apk. ---
+$apk = if ($DebugBuild) {
     Join-Path $projectDir "app\build\outputs\apk\debug\app-debug.apk"
+} else {
+    Join-Path $projectDir "app\build\outputs\apk\release\app-release.apk"
 }
 if (Test-Path $apk) {
     $size = "{0:N1} MB" -f ((Get-Item $apk).Length / 1MB)
