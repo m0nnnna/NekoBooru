@@ -3,9 +3,29 @@
 // media from NekoBooru" (browse your instance and copy a piece out).
 
 const MENU_ID = 'nekobooru-upload'
+const VIDEO_MENU_ID = 'nekobooru-upload-video'
 const INSERT_MENU_ID = 'nekobooru-insert'
 const POPUP_WIDTH = 500
 const POPUP_HEIGHT = 680
+
+// Sites where the server can grab the video with yt-dlp from the page URL.
+// On these, the element-based "Download to NekoBooru" item is unreliable: the
+// player shows a poster <img> before playback (you'd grab the thumbnail) and
+// stacks overlay <div>s over the <video> during playback (the image/video menu
+// item disappears). A page-scoped item using the page URL sidesteps both.
+const VIDEO_PLATFORM_PATTERNS = [
+  '*://x.com/*', '*://*.x.com/*',
+  '*://twitter.com/*', '*://*.twitter.com/*',
+  '*://*.youtube.com/*', '*://youtu.be/*',
+  '*://*.tiktok.com/*',
+  '*://*.instagram.com/*',
+  '*://*.reddit.com/*', '*://v.redd.it/*',
+  '*://*.redgifs.com/*',
+  '*://vimeo.com/*', '*://*.vimeo.com/*',
+  '*://*.twitch.tv/*', '*://clips.twitch.tv/*',
+  '*://*.dailymotion.com/*',
+  '*://streamable.com/*', '*://*.streamable.com/*',
+]
 
 // Last known cursor position (screen coords), reported by track-cursor.js on
 // right-click. Used to open the popup near the pointer.
@@ -25,6 +45,16 @@ function createMenu() {
       title: 'Download to NekoBooru',
       contexts: ['image', 'video'],
     })
+    // On video platforms, offer a page-URL → yt-dlp download that works whether
+    // or not the video has started (and regardless of overlay divs). 'page' so
+    // it shows even when the right-click misses the <video>; the media contexts
+    // so it also shows when it does hit the player or poster.
+    chrome.contextMenus.create({
+      id: VIDEO_MENU_ID,
+      title: 'Download video to NekoBooru',
+      contexts: ['page', 'video', 'image', 'link'],
+      documentUrlPatterns: VIDEO_PLATFORM_PATTERNS,
+    })
     // Available anywhere (e.g. while composing a post on another site): browse
     // your NekoBooru instance and copy a piece of media to paste/attach here.
     chrome.contextMenus.create({
@@ -41,6 +71,21 @@ chrome.runtime.onStartup.addListener(createMenu)
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === INSERT_MENU_ID) {
     openPopup('picker.html', new URLSearchParams(), tab)
+    return
+  }
+
+  // Video-platform item: hand the server a page URL to run through yt-dlp. Use a
+  // linked post URL if the click was on a link, else the page itself.
+  if (info.menuItemId === VIDEO_MENU_ID) {
+    const target = info.linkUrl || info.pageUrl || (tab && tab.url) || ''
+    if (!target) return
+    const params = new URLSearchParams({
+      src: target,
+      page: target,
+      type: 'video',
+      fetch: 'link', // tells the popup the src is a page to fetch, not media to preview
+    })
+    openPopup('upload.html', params, tab)
     return
   }
 

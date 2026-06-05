@@ -5,6 +5,9 @@ const params = new URLSearchParams(location.search)
 const srcUrl = params.get('src') || ''
 const pageUrl = params.get('page') || ''
 const mediaType = params.get('type') || 'image'
+// 'link' when src is a page URL the server should fetch (yt-dlp), not direct
+// media to preview inline (e.g. an X tweet whose <video> is a blob URL).
+const fetchMode = params.get('fetch') || ''
 
 const els = {
   needsSetup: document.getElementById('needs-setup'),
@@ -49,6 +52,15 @@ async function init() {
 }
 
 function renderPreview() {
+  // Link-fetch mode: src is a page URL, not playable media. Show a note instead
+  // of a broken <video>; the server fetches the actual video on submit.
+  if (fetchMode === 'link') {
+    const note = document.createElement('div')
+    note.className = 'fetch-note'
+    note.textContent = '\u{1F3AC} The server will download this video on upload.'
+    els.preview.appendChild(note)
+    return
+  }
   if (mediaType === 'video') {
     const v = document.createElement('video')
     v.src = srcUrl
@@ -348,8 +360,10 @@ function videoPlatformUrl(url) {
 // fetching the bytes here in the browser and uploading them directly.
 async function getContentToken() {
   // RedGifs/X/YouTube/etc.: the watch page (or a video element's page) is what
-  // yt-dlp understands, not the blob/CDN src the browser exposes.
-  const ytdlpUrl = videoPlatformUrl(pageUrl) || videoPlatformUrl(srcUrl)
+  // yt-dlp understands, not the blob/CDN src the browser exposes. In link-fetch
+  // mode the src already *is* that page URL, so use it directly.
+  const ytdlpUrl =
+    (fetchMode === 'link' && srcUrl) || videoPlatformUrl(pageUrl) || videoPlatformUrl(srcUrl)
   if (ytdlpUrl) {
     try {
       const res = await fetch(`${instanceUrl}/api/uploads/from-ytdlp`, {

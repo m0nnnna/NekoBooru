@@ -121,6 +121,14 @@ body {
   display: block;
 }
 
+.preview .fetch-note {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 /* Form fields */
 .field-label {
   display: block;
