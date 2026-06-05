@@ -361,9 +361,12 @@ function videoPlatformUrl(url) {
 async function getContentToken() {
   // RedGifs/X/YouTube/etc.: the watch page (or a video element's page) is what
   // yt-dlp understands, not the blob/CDN src the browser exposes. In link-fetch
-  // mode the src already *is* that page URL, so use it directly.
+  // mode the src already *is* that page URL, so use it directly. In direct mode
+  // the background already decided to grab the src as-is — don't reroute it.
   const ytdlpUrl =
-    (fetchMode === 'link' && srcUrl) || videoPlatformUrl(pageUrl) || videoPlatformUrl(srcUrl)
+    fetchMode === 'direct'
+      ? ''
+      : (fetchMode === 'link' && srcUrl) || videoPlatformUrl(pageUrl) || videoPlatformUrl(srcUrl)
   if (ytdlpUrl) {
     try {
       const res = await fetch(`${instanceUrl}/api/uploads/from-ytdlp`, {

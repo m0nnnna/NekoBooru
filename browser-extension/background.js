@@ -3,37 +3,63 @@
 // media from NekoBooru" (browse your instance and copy a piece out).
 
 const MENU_ID = 'nekobooru-upload'
-const VIDEO_MENU_ID = 'nekobooru-upload-video'
+// Same title as MENU_ID so the two read as a single "Download to NekoBooru"
+// entry. This one covers the page context on overlay players (X mid-playback),
+// where the right-click never lands on the <video> itself.
+const DOWNLOAD_PAGE_ID = 'nekobooru-upload-page'
 const INSERT_MENU_ID = 'nekobooru-insert'
 const POPUP_WIDTH = 500
 const POPUP_HEIGHT = 680
 
-// Sites where the server can grab the video with yt-dlp from the page URL.
-// On these, the element-based "Download to NekoBooru" item is unreliable: the
-// player shows a poster <img> before playback (you'd grab the thumbnail) and
-// stacks overlay <div>s over the <video> during playback (the image/video menu
-// item disappears). A page-scoped item using the page URL sidesteps both.
-const VIDEO_PLATFORM_PATTERNS = [
-  '*://x.com/*', '*://*.x.com/*',
-  '*://twitter.com/*', '*://*.twitter.com/*',
-  '*://*.youtube.com/*', '*://youtu.be/*',
-  '*://*.tiktok.com/*',
-  '*://*.instagram.com/*',
-  '*://*.reddit.com/*', '*://v.redd.it/*',
-  '*://*.redgifs.com/*',
-  '*://vimeo.com/*', '*://*.vimeo.com/*',
-  '*://*.twitch.tv/*', '*://clips.twitch.tv/*',
-  '*://*.dailymotion.com/*',
-  '*://streamable.com/*', '*://*.streamable.com/*',
+// Video platforms where the direct media often can't be grabbed normally (blob
+// <video> srcs, poster images standing in for the video), so the click handler
+// downloads from the page URL with yt-dlp instead.
+const VIDEO_PLATFORM_DOMAINS = [
+  'x.com', 'twitter.com',
+  'youtube.com', 'youtu.be',
+  'tiktok.com',
+  'instagram.com',
+  'reddit.com', 'v.redd.it',
+  'redgifs.com',
+  'vimeo.com',
+  'twitch.tv', 'clips.twitch.tv',
+  'dailymotion.com',
+  'streamable.com',
 ]
 
-// Last known cursor position (screen coords), reported by track-cursor.js on
-// right-click. Used to open the popup near the pointer.
+// True if a URL's host is one of the video platforms above.
+function isVideoPlatformUrl(url) {
+  try {
+    const host = new URL(url).host.toLowerCase()
+    return VIDEO_PLATFORM_DOMAINS.some((d) => host === d || host.endsWith('.' + d))
+  } catch {
+    return false
+  }
+}
+
+// Single-page-app players (X, etc.) that hijack the right-click and overlay the
+// <video>, so the click often lands on a non-media element. Only here do we add
+// the page-context "Download to NekoBooru" fallback; ordinary video sites
+// (Reddit, YouTube…) keep just the media-context item.
+const PLAYER_OVERLAY_PATTERNS = [
+  '*://x.com/*', '*://*.x.com/*',
+  '*://twitter.com/*', '*://*.twitter.com/*',
+  '*://*.instagram.com/*',
+  '*://*.tiktok.com/*',
+  '*://*.redgifs.com/*',
+]
+
+// Last known cursor position (screen coords) and whether it was over a <video>,
+// reported by track-cursor.js on right-click. The position opens the popup near
+// the pointer; the video flag lets the download route a poster/overlay click to
+// yt-dlp.
 let lastCursor = null
+let lastHasVideo = false
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg && msg.type === 'nekobooru-cursor') {
     lastCursor = { x: msg.x, y: msg.y }
+    lastHasVideo = !!msg.hasVideo
   }
 })
 
@@ -45,22 +71,24 @@ function createMenu() {
       title: 'Download to NekoBooru',
       contexts: ['image', 'video'],
     })
-    // On video platforms, offer a page-URL → yt-dlp download that works whether
-    // or not the video has started (and regardless of overlay divs). 'page' so
-    // it shows even when the right-click misses the <video>; the media contexts
-    // so it also shows when it does hit the player or poster.
+    // Same label, page context, overlay players only: gives a "Download to
+    // NekoBooru" entry when the right-click misses the media (X's overlay during
+    // playback). The handler sends the page URL through yt-dlp.
     chrome.contextMenus.create({
-      id: VIDEO_MENU_ID,
-      title: 'Download video to NekoBooru',
-      contexts: ['page', 'video', 'image', 'link'],
-      documentUrlPatterns: VIDEO_PLATFORM_PATTERNS,
+      id: DOWNLOAD_PAGE_ID,
+      title: 'Download to NekoBooru',
+      contexts: ['page'],
+      documentUrlPatterns: PLAYER_OVERLAY_PATTERNS,
     })
-    // Available anywhere (e.g. while composing a post on another site): browse
-    // your NekoBooru instance and copy a piece of media to paste/attach here.
+    // Browse your instance and copy a piece of media into whatever you're
+    // composing. No 'page' context: on overlay players (X) the right-click over
+    // the video registers as page context, and 'page' would make Insert tag
+    // along there. Composing happens in an editable field/selection anyway, so
+    // it still shows where it's actually used.
     chrome.contextMenus.create({
       id: INSERT_MENU_ID,
       title: 'Insert media from NekoBooru…',
-      contexts: ['page', 'frame', 'selection', 'link', 'editable', 'image', 'video'],
+      contexts: ['frame', 'selection', 'link', 'editable'],
     })
   })
 }
@@ -74,32 +102,41 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     return
   }
 
-  // Video-platform item: hand the server a page URL to run through yt-dlp. Use a
-  // linked post URL if the click was on a link, else the page itself.
-  if (info.menuItemId === VIDEO_MENU_ID) {
-    const target = info.linkUrl || info.pageUrl || (tab && tab.url) || ''
+  if (info.menuItemId !== MENU_ID && info.menuItemId !== DOWNLOAD_PAGE_ID) return
+
+  const pageUrl = info.pageUrl || (tab && tab.url) || ''
+  const onVideoSite = isVideoPlatformUrl(pageUrl)
+
+  // Route to the server's yt-dlp (via the page URL) when the direct media can't
+  // be grabbed: the page-context entry (no media under the click, e.g. X
+  // mid-playback), or media on a video site that is — or sits over — a <video>
+  // (the player, or a poster frame). Otherwise grab the element's src directly
+  // (ordinary images/videos, e.g. a Reddit image).
+  const overVideo = lastHasVideo || info.mediaType === 'video'
+  const useYtdlp = onVideoSite && (info.menuItemId === DOWNLOAD_PAGE_ID || overVideo)
+
+  if (useYtdlp) {
+    const linked = info.linkUrl && isVideoPlatformUrl(info.linkUrl) ? info.linkUrl : ''
+    const target = linked || pageUrl
     if (!target) return
     const params = new URLSearchParams({
       src: target,
       page: target,
       type: 'video',
-      fetch: 'link', // tells the popup the src is a page to fetch, not media to preview
+      fetch: 'link', // the src is a page for the server to fetch, not media to preview
     })
     openPopup('upload.html', params, tab)
     return
   }
 
-  if (info.menuItemId !== MENU_ID) return
-
   const srcUrl = info.srcUrl
   if (!srcUrl) return
-
   const params = new URLSearchParams({
     src: srcUrl,
-    page: info.pageUrl || (tab && tab.url) || '',
+    page: pageUrl,
     type: info.mediaType || 'image',
+    fetch: 'direct', // grab this src as-is; don't second-guess via yt-dlp
   })
-
   openPopup('upload.html', params, tab)
 })
 
