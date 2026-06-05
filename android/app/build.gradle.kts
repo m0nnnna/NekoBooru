@@ -20,9 +20,29 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        // Sign the release build with the standard debug keystore so it is
+        // directly installable for personal use without managing a keystore.
+        // Swap in a real keystore here before any public distribution.
+        getByName("debug") {
+            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // debuggable = false (the default) is the single biggest scrolling
+            // win for Compose; R8 + resource shrinking layer on top.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

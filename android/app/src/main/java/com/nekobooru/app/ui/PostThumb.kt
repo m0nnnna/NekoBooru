@@ -20,6 +20,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +35,8 @@ import coil.request.ImageRequest
 import com.nekobooru.app.data.ApiFactory
 import com.nekobooru.app.data.MediaPaths
 import com.nekobooru.app.data.db.PostEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /** Adaptive thumbnail grid shared by the gallery and the pool view. */
@@ -63,11 +67,18 @@ fun PostThumb(post: PostEntity, serverUrl: String, onClick: () -> Unit) {
     val context = LocalContext.current
     // Prefer local files so the grid works fully offline: the pending media file
     // (not yet synced), then the cached thumbnail (by file existence), then the
-    // server thumbnail. Resolved once per item to keep scrolling smooth.
-    val model: Any = remember(post.sha256, post.localMediaPath, serverUrl) {
-        post.localMediaPath?.let { File(it) }
-            ?: MediaPaths.thumb(context, post.sha256).takeIf { it.exists() }
-            ?: ApiFactory.absoluteUrl(serverUrl, post.thumbUrl)
+    // server thumbnail. The cached-thumbnail check is a filesystem stat, so it
+    // runs off the main thread (produceState on IO) to keep fling smooth; the
+    // server URL is used until that resolves.
+    val serverThumb = remember(serverUrl, post.thumbUrl) {
+        ApiFactory.absoluteUrl(serverUrl, post.thumbUrl)
+    }
+    val model: Any by produceState<Any>(serverThumb, post.sha256, post.localMediaPath, serverThumb) {
+        value = withContext(Dispatchers.IO) {
+            post.localMediaPath?.let { File(it) }
+                ?: MediaPaths.thumb(context, post.sha256).takeIf { it.exists() }
+                ?: serverThumb
+        }
     }
     Box(
         modifier = Modifier
