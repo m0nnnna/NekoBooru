@@ -779,6 +779,7 @@ async function getContentToken() {
       ? ''
       : (fetchMode === 'link' && srcUrl) || videoPlatformUrl(pageUrl) || videoPlatformUrl(srcUrl)
   if (ytdlpUrl) {
+    let ytdlpError = ''
     try {
       const res = await fetch(`${instanceUrl}/api/uploads/from-ytdlp`, {
         method: 'POST',
@@ -791,9 +792,16 @@ async function getContentToken() {
           contentToken = data.token
           return contentToken
         }
+      } else {
+        const err = await res.json().catch(() => ({}))
+        ytdlpError = err.detail || `HTTP ${res.status}`
       }
-    } catch {
-      // fall through to direct-URL / client-side fetch
+    } catch (e) {
+      ytdlpError = e.message
+    }
+
+    if (fetchMode === 'link') {
+      throw new Error(`yt-dlp could not download this video page: ${ytdlpError || 'no token returned'}`)
     }
   }
 
