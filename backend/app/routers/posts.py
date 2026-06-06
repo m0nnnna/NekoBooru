@@ -80,6 +80,7 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
         # library imports, URL fetches, and direct uploads all share one path.
         final_tags = list(request.tags or [])
         final_safety = request.safety
+        auto_warning = None
         from ..services.auto_tagger import load_options
         opts = load_options()
         should_auto_tag = opts.tagNewUploads if request.autoTag is None else request.autoTag
@@ -88,6 +89,11 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
             auto_result = tag_media(final_path, opts)
             final_tags, auto_categories = merge_with_existing(final_tags, auto_result, opts)
             final_safety = promote_safety(final_safety, auto_result.safety, opts)
+            # Surface a warning if tagging was requested but produced nothing due
+            # to an error (e.g. the remote GPU worker was offline). The post is
+            # still created normally — we just flag that it wasn't auto-tagged.
+            if auto_result.error and not auto_result.all_tags:
+                auto_warning = auto_result.error
         else:
             auto_categories = {}
 
@@ -121,7 +127,10 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
             .where(Post.id == post.id)
         )
         post = result.scalars().first()
-        return post.to_dict()
+        response = post.to_dict()
+        if auto_warning:
+            response["autoTagWarning"] = auto_warning
+        return response
 
     except HTTPException:
         raise

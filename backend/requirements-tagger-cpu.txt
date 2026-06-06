@@ -1,0 +1,22 @@
+# CPU-only auto-tagging dependencies (no CUDA / NVIDIA GPU required).
+# Use this instead of requirements-tagger.txt when you do not have an NVIDIA GPU
+# or want to keep VRAM free. Install in addition to requirements.txt:
+#   pip install -r backend/requirements-tagger-cpu.txt
+#
+# Then enable auto-tagging in the web UI (Settings > Auto Tagging) or with:
+#   NEKO_AUTO_TAGGER_ENABLED=true
+#
+# Note: CPU inference is significantly slower than GPU, and the larger models
+# (Qwen2.5-VL in particular) may be impractical on CPU.
+
+huggingface-hub>=0.27,<1.0
+onnxruntime>=1.20,<2.0
+numpy>=2.0,<3.0
+transformers>=4.51,<5.0
+# CPU torch wheels from the official PyTorch CPU index (all platforms).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.4,<3.0
+torchvision>=0.19,<1.0
+torchaudio>=2.4,<3.0
+accelerate>=1.0,<2.0
+qwen-vl-utils>=0.0.8,<1.0

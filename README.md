@@ -27,6 +27,12 @@ Organize your personal media collection with tags, pools, favorites, and more.
 - **Notes**: Add annotations to images
 - **Comments**: Comment on posts
 
+### AI Auto-Tagging (optional)
+- Local image/video tagging (WD/Camie taggers, plus optional OCR/Whisper/Qwen)
+- Disabled by default and **not bundled** with the app — install the AI stack only where you want it
+- Offload inference to a **remote GPU worker** on your LAN so the main server stays light
+- See [AI Auto-Tagging](#ai-auto-tagging-optional-1) below
+
 ### Search
 - Tag-based queries: `cat dog`
 - Negation: `-unwanted_tag`
@@ -163,6 +169,41 @@ NEKO_DEBUG=True     # Debug mode
 
 ### Settings
 The data directory can be configured in the Settings page or by editing `config/settings.json`.
+
+## AI Auto-Tagging (optional)
+
+AI tagging is **off by default and not part of the base install or the shipped binary** — the model
+stack (torch/CUDA, onnxruntime, transformers) is large, so you install it only where you want it.
+
+### Install the AI runtime
+In the Python environment running NekoBooru:
+```bash
+# NVIDIA GPU (CUDA):
+pip install -r backend/requirements-tagger.txt
+# CPU only (slower; large models may be impractical):
+pip install -r backend/requirements-tagger-cpu.txt
+```
+Then open **Settings → Auto Tagging**, toggle **Enable AI features**, and download the models you want.
+The web UI also shows these commands and a CPU/GPU picker when the runtime isn't installed yet.
+
+### Remote GPU worker (run inference on another machine)
+If your GPU is on a different LAN machine, keep the main server light and offload tagging to a **worker**:
+
+1. **On the GPU machine**, run a normal NekoBooru instance with the AI stack installed
+   (`pip install -r backend/requirements-tagger.txt`), reachable on the LAN
+   (`NEKO_HOST=0.0.0.0`), and set a shared secret:
+   ```bash
+   NEKO_TAGGER_WORKER_TOKEN=<your-secret>
+   ```
+   Download/load the models there via its own **Settings → Auto Tagging**.
+2. **On the main server**, go to **Settings → Auto Tagging → Compute location**, enable
+   **Run AI on a remote GPU worker**, enter the worker URL (e.g. `http://192.168.1.50:8772`) and the
+   same token, then click **Test connection**.
+
+All tagging (uploads, per-post, and bulk backfill jobs) is then forwarded to the worker's
+`/api/auto-tags/infer` endpoint. If the worker is offline, uploads are still saved — just untagged —
+and you'll see a warning. Setting `NEKO_TAGGER_WORKER_TOKEN` is recommended since the worker has no
+authentication otherwise.
 
 ## Building for Distribution
 

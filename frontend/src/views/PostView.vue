@@ -55,6 +55,7 @@
         <button class="btn btn-secondary edit-tags-btn" @click="showTagEditor = true">
           Edit Tags
         </button>
+        <template v-if="autoTagStatus?.enabled">
         <button class="btn btn-secondary edit-tags-btn" @click="previewAutoTags" :disabled="autoTagLoading">
           {{ autoTagLoading ? 'AI Tag running...' : 'AI Tag' }}
         </button>
@@ -108,6 +109,7 @@
             </label>
           </div>
         </details>
+        </template>
       </div>
 
       <div class="sidebar-section actions">

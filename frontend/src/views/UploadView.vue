@@ -41,7 +41,7 @@
       <span class="paste-hint">Tap to paste a copied video link or image (handy on mobile)</span>
     </div>
 
-    <div class="upload-options">
+    <div v-if="aiEnabled" class="upload-options">
       <label class="checkbox-row">
         <input type="checkbox" v-model="autoTagUploads" />
         <span>Auto-tag new uploads</span>
@@ -136,6 +136,11 @@
     <div v-if="showSuccessToast" class="toast success">
       {{ successMessage }}
     </div>
+
+    <!-- Warning Toast -->
+    <div v-if="showWarningToast" class="toast warning">
+      {{ warningMessage }}
+    </div>
   </div>
 </template>
 
@@ -152,16 +157,31 @@ const uploads = ref([])
 const uploading = ref(false)
 const showSuccessToast = ref(false)
 const successMessage = ref('')
+const showWarningToast = ref(false)
+const warningMessage = ref('')
 const fetchingUrl = ref(false)
 const fetchingVideo = ref(false)
 const fetchingFediverse = ref(false)
 const autoTagUploads = ref(false)
+const aiEnabled = ref(false)
 let uploadIdCounter = 0
 
 // Paste event handler
 onMounted(() => {
   document.addEventListener('paste', handlePaste)
+  loadAiEnabled()
 })
+
+async function loadAiEnabled() {
+  try {
+    const status = await api.getAutoTagStatus()
+    aiEnabled.value = Boolean(status?.enabled)
+  } catch (e) {
+    aiEnabled.value = false
+  }
+  // Never request tagging when AI is off, even if a stale value lingers.
+  if (!aiEnabled.value) autoTagUploads.value = false
+}
 
 onUnmounted(() => {
   document.removeEventListener('paste', handlePaste)
@@ -526,6 +546,14 @@ function showToast(message) {
   }, 3000)
 }
 
+function showWarning(message) {
+  warningMessage.value = message
+  showWarningToast.value = true
+  setTimeout(() => {
+    showWarningToast.value = false
+  }, 5000)
+}
+
 async function uploadAll() {
   uploading.value = true
 
@@ -535,6 +563,7 @@ async function uploadAll() {
   uploadProgress.done = false
 
   let successCount = 0
+  let autoTagWarnings = 0
 
   for (const upload of pending) {
     upload.uploading = true
@@ -550,13 +579,14 @@ async function uploadAll() {
       }
 
       // Step 2: Create post
-      await api.createPost({
+      const created = await api.createPost({
         contentToken: token,
         tags: upload.tags,
         safety: upload.safety,
         source: upload.source || null,
         autoTag: autoTagUploads.value,
       })
+      if (created?.autoTagWarning) autoTagWarnings++
 
       upload.completed = true
       successCount++
@@ -581,6 +611,10 @@ async function uploadAll() {
 
   if (successCount > 0) {
     showToast(`Successfully uploaded ${successCount} file${successCount > 1 ? 's' : ''}!`)
+  }
+
+  if (autoTagWarnings > 0) {
+    showWarning(`AI worker offline — ${autoTagWarnings} file${autoTagWarnings > 1 ? 's' : ''} saved without tags.`)
   }
 
   // Clear progress after a delay
@@ -897,6 +931,12 @@ async function uploadAll() {
 .toast.success {
   background: var(--success);
   color: white;
+}
+
+.toast.warning {
+  background: var(--warning, #b8860b);
+  color: white;
+  bottom: 5rem;
 }
 
 @keyframes slideUp {

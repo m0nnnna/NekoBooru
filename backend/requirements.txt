@@ -10,5 +10,9 @@ pydantic-settings>=2.1.0
 httpx>=0.27.0
 yt-dlp>=2024.0.0
 
-# AI auto-tagging runtime. This pulls in larger ML packages such as torch.
--r requirements-tagger.txt
+# AI auto-tagging is OPTIONAL and intentionally NOT part of the base install or
+# the shipped binary. It pulls in a large ML stack (torch/CUDA, onnxruntime,
+# transformers). Install it on demand into your NekoBooru Python environment:
+#   GPU (NVIDIA/CUDA):  pip install -r backend/requirements-tagger.txt
+#   CPU only:           pip install -r backend/requirements-tagger-cpu.txt
+# then enable it in the web UI (Settings > Auto Tagging).

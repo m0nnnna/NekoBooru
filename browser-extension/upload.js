@@ -9,6 +9,10 @@ const mediaType = params.get('type') || 'image'
 // media to preview inline (e.g. an X tweet whose <video> is a blob URL).
 const fetchMode = params.get('fetch') || ''
 
+// How long to keep the popup up after a successful upload before auto-closing.
+// Short enough to feel instant, long enough to show the success state.
+const UPLOAD_CLOSE_DELAY_MS = 450
+
 const els = {
   needsSetup: document.getElementById('needs-setup'),
   formWrap: document.getElementById('form-wrap'),
@@ -57,6 +61,10 @@ async function init() {
   els.formWrap.classList.remove('hidden')
 
   if (stored.lastSafety) els.safety.value = stored.lastSafety
+
+  // AI controls stay hidden until the server reports auto-tagging is enabled.
+  // loadAutoTagControls() flips this on once it fetches status.
+  applyAiVisibility(false)
 
   renderPreview()
   setupTagAutocomplete()
@@ -302,13 +310,15 @@ async function doUpload() {
   setStatus('Fetching media...', 'working')
 
   try {
-    const post = await createPostFromPopup({})
+    await createPostFromPopup({})
 
     await chrome.storage.sync.set({ lastSafety: els.safety.value })
 
     setStatus('Uploaded to NekoBooru.', 'success')
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
-    convertUploadButtonToPostLink(post)
+    // Success: close the popup quickly so uploading feels one-click. On failure
+    // (the catch below) we keep the window open so the error stays visible.
+    setTimeout(() => window.close(), UPLOAD_CLOSE_DELAY_MS)
   } catch (e) {
     setStatus('Upload failed: ' + e.message, 'error')
     notify('NekoBooru upload failed', e.message)
@@ -499,12 +509,13 @@ function formatScoreMap(map) {
     .join(', ')
 }
 
-function convertUploadButtonToPostLink(post) {
-  if (!post?.id) return
-  els.submit.disabled = false
-  els.submit.textContent = 'Open Post in NekoBooru'
-  els.submit.classList.add('uploaded')
-  els.aiTag.disabled = true
+// Show or hide every AI surface in one place. AI features are gated behind the
+// server's auto-tagging flag, so the popup only exposes them when the connected
+// instance has it enabled.
+function applyAiVisibility(enabled) {
+  els.aiTag.classList.toggle('hidden', !enabled)
+  els.aiModelPicker.classList.toggle('hidden', !enabled)
+  if (!enabled) els.aiPreview.classList.add('hidden')
 }
 
 async function loadAutoTagControls() {
@@ -517,8 +528,10 @@ async function loadAutoTagControls() {
     autoTagSettings = await settingsRes.json()
     autoTagSettings.wdEnabled = autoTagSettings.wdEnabled !== false
     autoTagStatus = await statusRes.json()
+    applyAiVisibility(Boolean(autoTagStatus.enabled))
     renderAiModelPicker()
   } catch (e) {
+    applyAiVisibility(false)
     els.aiModelList.innerHTML = ''
     const note = document.createElement('div')
     note.className = 'picker-note'

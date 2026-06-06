@@ -42,3 +42,7 @@ Thumbs.db
 /android/captures/
 *.apk
 *.keystore
+# Opaque, unreviewed binary used only by ./gradlew. Kept out of the tree on
+# purpose; regenerate when an Android build is needed:
+#   gradle wrapper --gradle-version 8.10.2
+/android/gradle/wrapper/gradle-wrapper.jar

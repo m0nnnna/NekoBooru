@@ -63,6 +63,36 @@ if ($env:ANDROID_HOME) {
     Write-Host "ANDROID_HOME not set; relying on android/local.properties (sdk.dir)." -ForegroundColor Yellow
 }
 
+# --- Ensure the Gradle wrapper jar exists. It is intentionally NOT committed
+#     (an opaque binary used only by ./gradlew), so regenerate it on demand from
+#     any available Gradle before invoking the wrapper. ---
+$wrapperJar = Join-Path $projectDir "gradle\wrapper\gradle-wrapper.jar"
+if (-not (Test-Path $wrapperJar)) {
+    # Pull the pinned version out of gradle-wrapper.properties (fallback 8.10.2).
+    $gradleVersion = "8.10.2"
+    $propsPath = Join-Path $projectDir "gradle\wrapper\gradle-wrapper.properties"
+    if (Test-Path $propsPath) {
+        $m = Select-String -Path $propsPath -Pattern 'gradle-([0-9][0-9.]*)-' | Select-Object -First 1
+        if ($m) { $gradleVersion = $m.Matches[0].Groups[1].Value }
+    }
+    Write-Host "Gradle wrapper jar missing; regenerating for Gradle $gradleVersion..." -ForegroundColor Yellow
+
+    # Find a Gradle to bootstrap with: PATH first, then a cached wrapper dist.
+    $gradleExe = (Get-Command gradle -ErrorAction SilentlyContinue).Source
+    if (-not $gradleExe) {
+        $gradleExe = Get-ChildItem "$env:USERPROFILE\.gradle\wrapper\dists" -Recurse -Filter gradle.bat -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+    }
+    if (-not $gradleExe) {
+        throw "Gradle wrapper jar is missing and no Gradle was found to regenerate it. Install Gradle or open the project in Android Studio once, then re-run. (The jar is intentionally not committed; regenerate manually with: gradle wrapper --gradle-version $gradleVersion)"
+    }
+    Write-Host "Bootstrapping wrapper with: $gradleExe" -ForegroundColor Cyan
+    & $gradleExe -p $projectDir wrapper --gradle-version $gradleVersion --distribution-type bin
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $wrapperJar)) {
+        throw "Failed to regenerate the Gradle wrapper jar."
+    }
+}
+
 # --- Assemble the Gradle task list. ---
 $variant = if ($DebugBuild) { "Debug" } else { "Release" }
 $tasks = @()
