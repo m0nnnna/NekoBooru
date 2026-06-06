@@ -142,11 +142,42 @@ function installXButtonStyle() {
       transition: background-color 120ms ease, color 120ms ease;
       vertical-align: middle;
     }
-    .nekobooru-x-download svg {
+    .nekobooru-x-download-mark {
       display: block;
       height: 22px;
+      position: relative;
       width: 22px;
-      stroke: currentColor;
+    }
+    .nekobooru-x-download-mark::before {
+      border-bottom: 2px solid currentColor;
+      border-right: 2px solid currentColor;
+      content: "";
+      height: 8px;
+      left: 7px;
+      position: absolute;
+      top: 6px;
+      transform: rotate(45deg);
+      width: 8px;
+    }
+    .nekobooru-x-download-mark::after {
+      border: 2px solid currentColor;
+      border-top: 0;
+      border-radius: 0 0 4px 4px;
+      bottom: 2px;
+      content: "";
+      height: 7px;
+      left: 3px;
+      position: absolute;
+      width: 16px;
+    }
+    .nekobooru-x-download-stem {
+      background: currentColor;
+      border-radius: 999px;
+      height: 13px;
+      left: 10px;
+      position: absolute;
+      top: 2px;
+      width: 2px;
     }
     .nekobooru-x-download:hover {
       background: rgba(29, 155, 240, 0.12);
@@ -185,13 +216,13 @@ function injectXButton(article) {
   button.className = 'nekobooru-x-download'
   button.title = 'Download to NekoBooru'
   button.setAttribute('aria-label', 'Download to NekoBooru')
-  button.innerHTML = `
-    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 3v11"></path>
-      <path d="m7 10 5 5 5-5"></path>
-      <path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"></path>
-    </svg>
-  `
+  const mark = document.createElement('span')
+  mark.className = 'nekobooru-x-download-mark'
+  mark.setAttribute('aria-hidden', 'true')
+  const stem = document.createElement('span')
+  stem.className = 'nekobooru-x-download-stem'
+  mark.appendChild(stem)
+  button.appendChild(mark)
   button.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
