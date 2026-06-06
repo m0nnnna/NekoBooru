@@ -312,8 +312,7 @@ async function doUpload() {
 
     setStatus('Uploaded to NekoBooru.', 'success')
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
-
-    appendViewPostLink(post)
+    convertUploadButtonToPostLink(post)
   } catch (e) {
     setStatus('Upload failed: ' + e.message, 'error')
     notify('NekoBooru upload failed', e.message)
@@ -513,17 +512,12 @@ function applyAiVisibility(enabled) {
   if (!enabled) els.aiPreview.classList.add('hidden')
 }
 
-function appendViewPostLink(post) {
+function convertUploadButtonToPostLink(post) {
   if (!post?.id) return
-  const existing = els.status.querySelector('.view-link')
-  if (existing) existing.remove()
-  const link = document.createElement('a')
-  link.href = `${instanceUrl}/post/${post.id}`
-  link.target = '_blank'
-  link.textContent = 'Visit post'
-  link.className = 'view-link'
-  els.status.appendChild(document.createElement('br'))
-  els.status.appendChild(link)
+  els.submit.disabled = false
+  els.submit.textContent = 'Open Post in NekoBooru'
+  els.submit.classList.add('uploaded')
+  els.aiTag.disabled = true
 }
 
 async function loadAutoTagControls() {
