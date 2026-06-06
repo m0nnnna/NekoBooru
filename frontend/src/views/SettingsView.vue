@@ -302,7 +302,12 @@
             <div class="model-head">
               <div class="model-title">
                 <strong>{{ model.name }}</strong>
-                <button type="button" class="info-icon model-info-icon" :title="modelInfoTitle(model)">i</button>
+                <button
+                  type="button"
+                  class="info-icon model-info-icon"
+                  :data-tooltip="modelInfoTitle(model)"
+                  :aria-label="modelInfoTitle(model)"
+                >i</button>
                 <span class="model-badge" :class="{ planned: model.status !== 'tagging_ready' }">
                   {{ modelStatusLabel(model.status) }}
                 </span>
@@ -375,7 +380,7 @@
           <label class="field-row">
             <span class="label-with-help">
               Torch device
-              <button type="button" class="info-icon" :title="torchDeviceHelp">?</button>
+              <button type="button" class="info-icon" :data-tooltip="torchDeviceHelp" :aria-label="torchDeviceHelp">?</button>
             </span>
             <select v-model="autoTagSettings.torchDevice">
               <option value="auto">Auto</option>
@@ -436,42 +441,42 @@
           <label class="field-row">
             <span class="label-with-help">
               General threshold
-              <button type="button" class="info-icon" :title="thresholdHelp.general">?</button>
+              <button type="button" class="info-icon" :data-tooltip="thresholdHelp.general" :aria-label="thresholdHelp.general">?</button>
             </span>
             <input type="number" min="0" max="1" step="0.01" v-model.number="autoTagSettings.generalThreshold" />
           </label>
           <label class="field-row">
             <span class="label-with-help">
               Character threshold
-              <button type="button" class="info-icon" :title="thresholdHelp.character">?</button>
+              <button type="button" class="info-icon" :data-tooltip="thresholdHelp.character" :aria-label="thresholdHelp.character">?</button>
             </span>
             <input type="number" min="0" max="1" step="0.01" v-model.number="autoTagSettings.characterThreshold" />
           </label>
           <label class="field-row">
             <span class="label-with-help">
               Unsafe threshold
-              <button type="button" class="info-icon" :title="thresholdHelp.unsafe">?</button>
+              <button type="button" class="info-icon" :data-tooltip="thresholdHelp.unsafe" :aria-label="thresholdHelp.unsafe">?</button>
             </span>
             <input type="number" min="0" max="1" step="0.01" v-model.number="autoTagSettings.unsafeThreshold" />
           </label>
           <label class="field-row">
             <span class="label-with-help">
               Max tags
-              <button type="button" class="info-icon" :title="thresholdHelp.maxTags">?</button>
+              <button type="button" class="info-icon" :data-tooltip="thresholdHelp.maxTags" :aria-label="thresholdHelp.maxTags">?</button>
             </span>
             <input type="number" min="1" max="200" v-model.number="autoTagSettings.maxTags" />
           </label>
           <label class="field-row">
             <span class="label-with-help">
               Video frames
-              <button type="button" class="info-icon" :title="thresholdHelp.videoFrames">?</button>
+              <button type="button" class="info-icon" :data-tooltip="thresholdHelp.videoFrames" :aria-label="thresholdHelp.videoFrames">?</button>
             </span>
             <input type="number" min="1" max="8" v-model.number="autoTagSettings.videoMaxFrames" />
           </label>
           <label class="field-row">
             <span class="label-with-help">
               Light tag cutoff
-              <button type="button" class="info-icon" :title="thresholdHelp.lightCutoff">?</button>
+              <button type="button" class="info-icon" :data-tooltip="thresholdHelp.lightCutoff" :aria-label="thresholdHelp.lightCutoff">?</button>
             </span>
             <input type="number" min="0" max="50" v-model.number="autoTagSettings.lightlyTaggedMaxTags" />
           </label>
@@ -516,6 +521,10 @@
               Cancel
             </button>
           </div>
+        </div>
+        <div class="bulk-defaults-note">
+          <strong>Models used</strong>
+          <span>{{ bulkPipelineSummary }}</span>
         </div>
 
         <div v-if="autoTagEstimate" class="estimate-strip">
@@ -702,6 +711,21 @@ const enabledModelNames = computed(() =>
 const enabledModelsMissingDownloads = computed(() =>
   enabledModels.value.filter((model) => !model.downloaded)
 )
+
+const bulkPipelineSummary = computed(() => {
+  const names = enabledModels.value.map((model) => model.name)
+  const modelText = names.length
+    ? names.join(', ')
+    : 'No models enabled. Save defaults in Model Registry first.'
+  const target = {
+    lightly_tagged: 'lightly tagged posts',
+    untagged: 'untagged posts',
+    videos: 'video posts',
+    images: 'image posts',
+    all: 'the whole library',
+  }[autoTagMode.value] || 'selected posts'
+  return `Bulk jobs process ${target} using saved enabled defaults only: ${modelText}. Downloaded but unchecked models are skipped.`
+})
 
 const torchSummary = computed(() => {
   const torch = autoTagStatus.value.torch || {}
@@ -1770,6 +1794,7 @@ async function deleteCookiesFile() {
 }
 
 .info-icon {
+  position: relative;
   width: 18px;
   height: 18px;
   padding: 0;
@@ -1785,6 +1810,64 @@ async function deleteCookiesFile() {
 .info-icon:hover {
   color: var(--text-primary);
   border-color: var(--accent);
+}
+
+.info-icon::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 20;
+  display: block;
+  width: max-content;
+  max-width: min(360px, 70vw);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: #111827;
+  color: #f8fafc;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+  content: attr(data-tooltip);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: pre-line;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.info-icon::before {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  z-index: 21;
+  width: 10px;
+  height: 10px;
+  background: #111827;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px) rotate(45deg);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.info-icon:hover::after,
+.info-icon:focus-visible::after,
+.info-icon:hover::before,
+.info-icon:focus-visible::before {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.info-icon:hover::before,
+.info-icon:focus-visible::before {
+  transform: translate(-50%, 0) rotate(45deg);
 }
 
 .field-row input,
@@ -1824,6 +1907,25 @@ async function deleteCookiesFile() {
   flex-wrap: wrap;
   gap: 0.5rem;
   justify-content: flex-end;
+}
+
+.bulk-defaults-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  margin-top: 0.85rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.83rem;
+  line-height: 1.45;
+}
+
+.bulk-defaults-note strong {
+  color: var(--text-primary);
 }
 
 .estimate-strip {
