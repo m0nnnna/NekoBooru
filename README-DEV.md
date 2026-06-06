@@ -126,7 +126,8 @@ The frontend uses Vite for fast development:
 Backend configuration can be set via environment variables with the `NEKO_` prefix:
 
 - `NEKO_PORT` - Backend port (default: 8000)
-- `NEKO_HOST` - Backend host (default: 0.0.0.0)
+- `NEKO_HOST` - Backend host (default: `127.0.0.1`, loopback-only — reachable only from this machine). Set to `0.0.0.0` to expose it on your LAN; the app has **no authentication**, so only do this on a trusted network (ideally behind a reverse proxy with auth).
+- `NEKO_CORS_ORIGINS` - Comma-separated browser origins allowed to call the API (default: `http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000,http://127.0.0.1:3000`). Widen only if you serve the web UI to another device's browser.
 - `NEKO_DEBUG` - Debug mode (default: True)
 
 Example:
