@@ -24,6 +24,7 @@ yarn-error.log*
 
 # Runtime data: database, uploads, thumbnails, posts
 /data/
+/config/
 
 # OS / editor cruft
 .DS_Store

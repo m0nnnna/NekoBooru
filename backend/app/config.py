@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from .services.settings import SettingsManager
 
@@ -28,11 +29,8 @@ class Settings(BaseSettings):
 
     # Paths - base_dir is where data/config live (next to exe when frozen)
     base_dir: Path = get_base_dir()
-    config_dir: Path = base_dir / "config"
-    config_file: Path = config_dir / "settings.json"
-
-    # Default data directory (can be overridden by settings file)
-    _default_data_dir: Path = base_dir / "data"
+    config_dir: Path | None = None
+    config_file: Path | None = None
 
     # Thumbnail settings
     thumb_size: int = 300
@@ -42,6 +40,16 @@ class Settings(BaseSettings):
     max_upload_size: int = 100 * 1024 * 1024  # 100MB
     allowed_extensions: set = {".jpg", ".jpeg", ".png", ".gif", ".webm", ".webp", ".mp4"}
 
+    # Optional auto-tagging. Disabled by default because the WD-Tagger stack is
+    # large; set NEKO_AUTO_TAGGER_ENABLED=true after installing the optional
+    # tagger requirements.
+    auto_tagger_enabled: bool = False
+    auto_tagger_model: str = "wd-eva02-large-tagger-v3"
+    auto_tagger_general_threshold: float = 0.35
+    auto_tagger_character_threshold: float = 0.45
+    auto_tagger_max_tags: int = 40
+    auto_tagger_apply_safety: bool = True
+
     # Server settings
     # Bind to loopback by default so the API is reachable only from this
     # machine. The app has no authentication, so exposing it on a network gives
@@ -49,7 +57,7 @@ class Settings(BaseSettings):
     # serve other devices on your LAN, set NEKO_HOST=0.0.0.0 (and ideally put it
     # behind a reverse proxy with auth).
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = 8772
 
     # Browser origins allowed to call the API (CORS). Local-only by default:
     # the web UI is served same-origin and the extension/Android app aren't
@@ -57,14 +65,23 @@ class Settings(BaseSettings):
     # stops arbitrary websites you visit from scripting requests to your
     # instance. Override with NEKO_CORS_ORIGINS as a comma-separated list to
     # allow the web UI from another device's browser, e.g.
-    # NEKO_CORS_ORIGINS="http://192.168.1.50:8000".
+    # NEKO_CORS_ORIGINS="http://192.168.1.50:8772".
     cors_origins: str = (
-        "http://localhost:8000,http://127.0.0.1:8000,"
+        "http://localhost:8772,http://127.0.0.1:8772,"
+        "http://localhost:5173,http://127.0.0.1:5173,"
         "http://localhost:3000,http://127.0.0.1:3000"
     )
 
     class Config:
         env_prefix = "NEKO_"
+
+    @model_validator(mode="after")
+    def set_derived_paths(self):
+        if self.config_dir is None:
+            self.config_dir = self.base_dir / "config"
+        if self.config_file is None:
+            self.config_file = self.config_dir / "settings.json"
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -78,7 +95,7 @@ class Settings(BaseSettings):
         configured_dir = settings_manager.get_data_dir()
         if configured_dir:
             return Path(configured_dir).resolve()
-        return self._default_data_dir.resolve()
+        return (self.base_dir / "data").resolve()
     
     @property
     def database_path(self) -> Path:

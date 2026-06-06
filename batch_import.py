@@ -144,6 +144,8 @@ def import_one(path: Path, args) -> tuple[str, str]:
         # Step 2: create the post (this is where the file is hashed, moved into
         # storage, thumbnailed, and recorded in the DB).
         body = {"contentToken": token, "safety": args.safety, "tags": derive_tags(path, args)}
+        if args.auto_tags is not None:
+            body["autoTag"] = args.auto_tags
         r2 = s.post(f"{args.url}/api/posts", json=body, timeout=args.timeout)
         if r2.status_code == 200:
             status = "uploaded"
@@ -182,6 +184,12 @@ def parse_args(argv=None):
                          "files that don't match fall back to the filename.")
     ap.add_argument("--extra-tags", default="",
                     help="Comma-separated tags added to every imported post.")
+    auto_group = ap.add_mutually_exclusive_group()
+    auto_group.add_argument("--auto-tags", dest="auto_tags", action="store_true",
+                            help="Ask the backend to run auto-tagging for each imported image.")
+    auto_group.add_argument("--no-auto-tags", dest="auto_tags", action="store_false",
+                            help="Disable backend auto-tagging for this import.")
+    ap.set_defaults(auto_tags=None)
     ap.add_argument("--workers", type=int, default=4, help="Concurrent uploads (default: 4).")
     ap.add_argument("--timeout", type=float, default=300.0,
                     help="Per-request timeout in seconds (default: 300).")

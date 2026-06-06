@@ -1,0 +1,14 @@
+# Optional auto-tagging dependencies. Install in addition to requirements.txt:
+#   pip install -r backend/requirements-tagger.txt
+#
+# Then enable with:
+#   NEKO_AUTO_TAGGER_ENABLED=true
+
+huggingface-hub>=0.27,<1.0
+onnxruntime>=1.20,<2.0
+numpy>=2.0,<3.0
+transformers>=4.51,<5.0
+torch>=2.4,<3.0
+torchvision>=0.19,<1.0
+accelerate>=1.0,<2.0
+qwen-vl-utils>=0.0.8,<1.0

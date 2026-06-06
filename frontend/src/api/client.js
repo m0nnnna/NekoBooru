@@ -1,4 +1,5 @@
 const API_BASE = '/api'
+const BACKEND_LABEL = import.meta.env.VITE_BACKEND || 'the configured backend'
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`
@@ -27,7 +28,7 @@ async function request(endpoint, options = {}) {
   } catch (error) {
     // Handle network errors (backend not running, connection refused, etc.)
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      throw new Error('Backend server is not running. Please start the backend server on port 8000.')
+      throw new Error(`Backend server is not running. Please start ${BACKEND_LABEL}.`)
     }
     throw error
   }
@@ -57,6 +58,20 @@ export const api = {
 
   async toggleFavorite(id) {
     return request(`/posts/${id}/favorite`, { method: 'POST' })
+  },
+
+  async previewAutoTags(id, data = {}) {
+    return request(`/posts/${id}/auto-tags/preview`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async applyAutoTags(id, data = {}) {
+    return request(`/posts/${id}/auto-tags/apply`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
   },
 
   // Uploads
@@ -95,6 +110,92 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     })
+  },
+
+  // Auto tags
+  async getAutoTagSettings() {
+    return request('/auto-tags/settings')
+  },
+
+  async updateAutoTagSettings(settings) {
+    return request('/auto-tags/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ settings }),
+    })
+  },
+
+  async getAutoTagStatus() {
+    return request('/auto-tags/status')
+  },
+
+  async downloadAutoTagModel() {
+    return request('/auto-tags/model/download', { method: 'POST' })
+  },
+
+  async getAutoTagModels() {
+    return request('/auto-tags/models')
+  },
+
+  async downloadAutoTagModelById(id) {
+    return request(`/auto-tags/models/${encodeURIComponent(id)}/download`, { method: 'POST' })
+  },
+
+  async downloadAllAutoTagModels() {
+    return request('/auto-tags/models/download-all', { method: 'POST' })
+  },
+
+  async getAutoTagModelDownloadJob() {
+    return request('/auto-tags/models/download-job')
+  },
+
+  async loadAutoTagModelById(id) {
+    return request(`/auto-tags/models/${encodeURIComponent(id)}/load`, { method: 'POST' })
+  },
+
+  async unloadAutoTagModelById(id) {
+    return request(`/auto-tags/models/${encodeURIComponent(id)}/unload`, { method: 'POST' })
+  },
+
+  async getAutoTagModelLoadJob() {
+    return request('/auto-tags/models/load-job')
+  },
+
+  async saveHuggingFaceToken(token) {
+    return request('/auto-tags/huggingface-token', {
+      method: 'PUT',
+      body: JSON.stringify({ token }),
+    })
+  },
+
+  async deleteHuggingFaceToken() {
+    return request('/auto-tags/huggingface-token', { method: 'DELETE' })
+  },
+
+  async estimateAutoTagJob(mode = 'lightly_tagged') {
+    return request(`/auto-tags/estimate?mode=${encodeURIComponent(mode)}`)
+  },
+
+  async createAutoTagJob(data) {
+    return request('/auto-tags/jobs', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async getCurrentAutoTagJob() {
+    return request('/auto-tags/jobs/current')
+  },
+
+  async getAutoTagJob(id) {
+    return request(`/auto-tags/jobs/${id}`)
+  },
+
+  async cancelAutoTagJob(id) {
+    return request(`/auto-tags/jobs/${id}/cancel`, { method: 'POST' })
+  },
+
+  async applyAutoTagJob(id) {
+    return request(`/auto-tags/jobs/${id}/apply`, { method: 'POST' })
   },
 
   // Tags

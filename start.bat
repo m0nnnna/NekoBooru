@@ -43,8 +43,8 @@ if errorlevel 1 (
 
 echo Starting NekoBooru backend server...
 echo.
-echo   Backend API: http://localhost:8000
-echo   API Docs:    http://localhost:8000/docs
+echo   Backend API: http://localhost:8772
+echo   API Docs:    http://localhost:8772/docs
 echo.
 echo   Press Ctrl+C to stop
 echo.

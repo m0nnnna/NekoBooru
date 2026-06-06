@@ -179,11 +179,340 @@
         </div>
       </div>
     </div>
+
+    <div class="settings-section">
+      <h2>Auto Tagging</h2>
+      <p class="section-description">
+        Configure optional AI tagging for imports, individual posts, and your existing library.
+      </p>
+
+      <div class="auto-status">
+        <div class="pipeline-head">
+          <div>
+            <strong>Pipeline:</strong>
+            <span :class="autoTagStatus.enabled ? 'model-ok' : 'model-missing'">
+              {{ autoTagStatus.enabled ? 'Enabled' : 'Disabled' }}
+            </span>
+          </div>
+          <div class="pipeline-models">
+            {{ enabledModelNames || 'No models enabled' }}
+          </div>
+        </div>
+        <div class="pipeline-grid">
+          <div>
+            <span>Downloaded</span>
+            <strong>{{ downloadedModelCount }} / {{ modelCatalog.length }}</strong>
+          </div>
+          <div>
+            <span>Loaded</span>
+            <strong>{{ loadedModelCount }} / {{ modelCatalog.length }}</strong>
+          </div>
+          <div>
+            <span>Runtime</span>
+            <strong :class="missingRuntimeModels.length ? 'model-missing' : 'model-ok'">
+              {{ missingRuntimeModels.length ? `${missingRuntimeModels.length} missing` : 'Ready' }}
+            </strong>
+          </div>
+          <div>
+            <span>Video support</span>
+            <strong :class="autoTagStatus.ffmpeg ? 'model-ok' : 'model-missing'">
+              {{ autoTagStatus.ffmpeg ? 'ffmpeg ready' : 'ffmpeg missing' }}
+            </strong>
+          </div>
+          <div>
+            <span>Hugging Face token</span>
+            <strong>{{ autoTagStatus.huggingFaceTokenConfigured ? 'Configured' : 'Not configured' }}</strong>
+          </div>
+          <div>
+            <span>Active defaults</span>
+            <strong>{{ enabledModels.length }} model{{ enabledModels.length === 1 ? '' : 's' }}</strong>
+          </div>
+        </div>
+        <p v-if="enabledModelsMissingDownloads.length" class="status-note warning">
+          Enabled but not downloaded: {{ enabledModelsMissingDownloads.map(model => model.name).join(', ') }}
+        </p>
+        <p v-if="missingRuntimeModels.length" class="status-note warning">
+          Missing runtime packages: {{ missingRuntimeModels.map(model => model.name).join(', ') }}
+        </p>
+      </div>
+
+      <div class="form-group">
+        <label>Hugging Face token</label>
+        <div class="path-input-group">
+          <input
+            v-model="huggingFaceToken"
+            type="password"
+            placeholder="Paste a token for private/gated models"
+            autocomplete="off"
+            class="path-input"
+          />
+          <button class="btn btn-secondary" @click="saveHuggingFaceToken" :disabled="savingToken || !huggingFaceToken.trim()">
+            {{ savingToken ? 'Saving...' : 'Save Token' }}
+          </button>
+          <button class="btn btn-secondary" @click="deleteHuggingFaceToken" :disabled="savingToken || !autoTagStatus.huggingFaceTokenConfigured">
+            Forget
+          </button>
+        </div>
+        <p class="help-text">
+          Stored locally in NekoBooru config and used only for Hugging Face model downloads.
+        </p>
+      </div>
+
+      <div v-if="modelStatusMessage.show" class="cookies-status" :class="modelStatusMessage.success ? 'success' : 'error'">
+        <p><strong>{{ modelStatusMessage.message }}</strong></p>
+      </div>
+
+      <div class="model-download-panel">
+        <div class="config-panel-head">
+          <h3>Model Registry</h3>
+          <p>Download weights, review resource needs, and choose which models run by default.</p>
+        </div>
+
+        <div class="form-actions model-download-actions">
+          <button class="btn" @click="downloadAllAutoTagModels" :disabled="modelDownloadRunning">
+            {{ modelDownloadRunning ? 'Downloading...' : 'Download All Models' }}
+          </button>
+          <button class="btn btn-secondary" @click="refreshAutoTagStatus">
+            Refresh Status
+          </button>
+        </div>
+
+        <div v-if="modelDownloadJob" class="download-summary">
+          <div class="download-summary-head">
+            <strong>{{ downloadJobTitle }}</strong>
+            <span>{{ downloadJobCounts }}</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: downloadJobProgress + '%' }"></div>
+          </div>
+          <p>{{ downloadJobDetail }}</p>
+        </div>
+
+        <div class="model-list">
+          <div v-for="model in modelCatalog" :key="model.id" class="model-row">
+            <div class="model-head">
+              <div class="model-title">
+                <strong>{{ model.name }}</strong>
+                <button type="button" class="info-icon model-info-icon" :title="modelInfoTitle(model)">i</button>
+                <span class="model-badge" :class="{ planned: model.status !== 'tagging_ready' }">
+                  {{ modelStatusLabel(model.status) }}
+                </span>
+              </div>
+              <span :class="model.downloaded ? 'model-ok' : 'model-missing'">
+                {{ model.downloaded ? 'Downloaded' : 'Not downloaded' }}
+              </span>
+            </div>
+            <div class="model-meta">
+              <code>{{ model.repoId }}</code>
+              <span>{{ model.purpose }}</span>
+              <div class="model-facts">
+                <span><strong>Size</strong>{{ model.downloadSize || 'Unknown' }}</span>
+                <span><strong>VRAM</strong>{{ model.vramRequirement || 'Unknown' }}</span>
+                <span :class="model.runtimeAvailable ? 'model-ok' : 'model-missing'">
+                  <strong>Runtime</strong>{{ model.runtimeAvailable ? 'Ready' : 'Missing' }}
+                </span>
+                <span :class="model.loaded ? 'model-ok' : 'model-missing'">
+                  <strong>Memory</strong>{{ model.loaded ? 'Loaded' : 'Not loaded' }}
+                </span>
+              </div>
+              <label class="pipeline-toggle">
+                <input type="checkbox" v-model="autoTagSettings[modelSettingKey(model.id)]" />
+                <span>
+                  <strong>{{ modelPipelineLabel(model.id) }}</strong>
+                  <small>{{ modelPipelineDescription(model.id) }}</small>
+                </span>
+              </label>
+              <label v-if="model.id === 'qwen'" class="pipeline-toggle nested">
+                <input type="checkbox" v-model="autoTagSettings.semanticPoliticalEnabled" />
+                <span>
+                  <strong>Political/edit semantic tags</strong>
+                  <small>Ask Qwen to look for political edit, propaganda, meme, and contextual edit signals.</small>
+                </span>
+              </label>
+            </div>
+            <div v-if="modelDownloadState(model.id)" class="model-progress">
+              <div class="progress-bar">
+                <div class="progress-fill" :style="{ width: modelProgressPercent(model.id) + '%' }"></div>
+              </div>
+              <p>
+                {{ modelDownloadStateLabel(model.id) }}
+                <span v-if="modelDownloadState(model.id).current">: {{ modelDownloadState(model.id).current }}</span>
+                <span v-if="modelDownloadBytes(model.id)"> - {{ modelDownloadBytes(model.id) }}</span>
+              </p>
+              <p v-if="modelDownloadState(model.id).error" class="stats-error">{{ modelDownloadState(model.id).error }}</p>
+            </div>
+            <div class="model-actions">
+              <button class="btn btn-secondary" @click="downloadAutoTagModelById(model.id)" :disabled="modelDownloadRunning || model.downloaded">
+                {{ model.downloaded ? 'Downloaded' : 'Download' }}
+              </button>
+              <button
+                class="btn btn-secondary"
+                @click="model.loaded ? unloadAutoTagModelById(model.id) : loadAutoTagModelById(model.id)"
+                :disabled="modelDownloadRunning || !model.downloaded || !model.runtimeAvailable || modelMemoryBusy"
+              >
+                {{ model.loaded ? 'Unload' : 'Load' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="config-panel">
+        <div class="config-panel-head">
+          <h3>Automation Scope</h3>
+          <p>Choose where automatic tagging is allowed to run and what metadata it may update.</p>
+        </div>
+        <div class="toggle-grid">
+          <label class="toggle-card">
+            <input type="checkbox" v-model="autoTagSettings.enabled" />
+            <span>
+              <strong>Enable auto-tagging</strong>
+              <small>Allows AI tagging on imports, posts, and bulk library jobs.</small>
+            </span>
+          </label>
+          <label class="toggle-card">
+            <input type="checkbox" v-model="autoTagSettings.tagImages" />
+            <span>
+              <strong>Images</strong>
+              <small>Run image models on JPG, PNG, GIF, and WebP posts.</small>
+            </span>
+          </label>
+          <label class="toggle-card">
+            <input type="checkbox" v-model="autoTagSettings.tagVideos" />
+            <span>
+              <strong>Videos</strong>
+              <small>Sample frames and optional audio/text context from video posts.</small>
+            </span>
+          </label>
+          <label class="toggle-card">
+            <input type="checkbox" v-model="autoTagSettings.applySafety" />
+            <span>
+              <strong>Safety updates</strong>
+              <small>Promote posts to sketchy or unsafe when model evidence supports it.</small>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div class="config-panel">
+        <div class="config-panel-head">
+          <h3>Thresholds</h3>
+          <p>Tune sensitivity, tag volume, and video frame sampling.</p>
+        </div>
+        <div class="numeric-grid">
+          <label class="field-row">
+            <span class="label-with-help">
+              General threshold
+              <button type="button" class="info-icon" :title="thresholdHelp.general">?</button>
+            </span>
+            <input type="number" min="0" max="1" step="0.01" v-model.number="autoTagSettings.generalThreshold" />
+          </label>
+          <label class="field-row">
+            <span class="label-with-help">
+              Character threshold
+              <button type="button" class="info-icon" :title="thresholdHelp.character">?</button>
+            </span>
+            <input type="number" min="0" max="1" step="0.01" v-model.number="autoTagSettings.characterThreshold" />
+          </label>
+          <label class="field-row">
+            <span class="label-with-help">
+              Unsafe threshold
+              <button type="button" class="info-icon" :title="thresholdHelp.unsafe">?</button>
+            </span>
+            <input type="number" min="0" max="1" step="0.01" v-model.number="autoTagSettings.unsafeThreshold" />
+          </label>
+          <label class="field-row">
+            <span class="label-with-help">
+              Max tags
+              <button type="button" class="info-icon" :title="thresholdHelp.maxTags">?</button>
+            </span>
+            <input type="number" min="1" max="200" v-model.number="autoTagSettings.maxTags" />
+          </label>
+          <label class="field-row">
+            <span class="label-with-help">
+              Video frames
+              <button type="button" class="info-icon" :title="thresholdHelp.videoFrames">?</button>
+            </span>
+            <input type="number" min="1" max="8" v-model.number="autoTagSettings.videoMaxFrames" />
+          </label>
+          <label class="field-row">
+            <span class="label-with-help">
+              Light tag cutoff
+              <button type="button" class="info-icon" :title="thresholdHelp.lightCutoff">?</button>
+            </span>
+            <input type="number" min="0" max="50" v-model.number="autoTagSettings.lightlyTaggedMaxTags" />
+          </label>
+        </div>
+      </div>
+
+      <div class="config-panel">
+        <div class="config-panel-head">
+          <h3>Bulk Library Job</h3>
+          <p>Run auto-tagging across existing posts using the saved defaults above.</p>
+        </div>
+        <div class="bulk-toolbar">
+          <label class="field-row bulk-mode">
+            <span>Target posts</span>
+            <select v-model="autoTagMode">
+              <option value="lightly_tagged">Lightly tagged</option>
+              <option value="untagged">Untagged</option>
+              <option value="videos">Videos</option>
+              <option value="images">Images</option>
+              <option value="all">All</option>
+            </select>
+          </label>
+          <div class="bulk-actions">
+            <button class="btn" @click="saveAutoTagSettings" :disabled="savingAutoTags">
+              {{ savingAutoTags ? 'Saving...' : 'Save Settings' }}
+            </button>
+            <button class="btn btn-secondary" @click="estimateAutoTags">Estimate</button>
+            <button class="btn btn-secondary" @click="startAutoTagJob(true)" :disabled="autoTagJobRunning">
+              Preview Job
+            </button>
+            <button class="btn" @click="startAutoTagJob(false)" :disabled="autoTagJobRunning">
+              Apply Job
+            </button>
+            <button
+              class="btn"
+              @click="applyPreviewedJob"
+              :disabled="autoTagJobRunning || !autoTagJob || !autoTagJob.dryRun || autoTagJob.status !== 'completed'"
+            >
+              Apply Preview
+            </button>
+            <button class="btn btn-danger" @click="cancelAutoTagJob" :disabled="!autoTagJobRunning">
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        <div v-if="autoTagEstimate" class="estimate-strip">
+          <strong>Estimate</strong>
+          <span>{{ autoTagEstimate.total }} total</span>
+          <span>{{ autoTagEstimate.images }} images</span>
+          <span>{{ autoTagEstimate.gifs }} GIFs</span>
+          <span>{{ autoTagEstimate.videos }} videos</span>
+        </div>
+
+        <div v-if="autoTagJob" class="job-panel">
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: autoTagProgressPercent + '%' }"></div>
+          </div>
+          <p>
+            {{ autoTagJob.status }}:
+            {{ autoTagJob.processed }} / {{ autoTagJob.total }}
+            tagged {{ autoTagJob.tagged }},
+            skipped {{ autoTagJob.skipped }},
+            failed {{ autoTagJob.failed }}
+          </p>
+          <p v-if="autoTagJob.error" class="stats-error">{{ autoTagJob.error }}</p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import api from '../api/client'
 
 const currentSettings = ref({})
@@ -202,6 +531,32 @@ const cookiesStatus = ref({
 const stats = ref({})
 const statsLoading = ref(true)
 const statsError = ref(null)
+const autoTagSettings = ref({})
+const autoTagStatus = ref({})
+const autoTagMode = ref('lightly_tagged')
+const autoTagEstimate = ref(null)
+const autoTagJob = ref(null)
+const savingAutoTags = ref(false)
+const huggingFaceToken = ref('')
+const savingToken = ref(false)
+const modelCatalog = ref([])
+const modelDownloadJob = ref(null)
+const modelMemoryBusy = ref(false)
+const modelStatusMessage = ref({
+  show: false,
+  success: false,
+  message: '',
+})
+const thresholdHelp = {
+  general: 'Minimum confidence for general booru tags. Lower values add more tags but more noise; raise it if posts are getting vague or wrong tags. Typical range: 0.30-0.45.',
+  character: 'Minimum confidence for character, copyright, and source tags. Lower it if known characters are missed; raise it if false character names appear. Typical range: 0.40-0.60.',
+  unsafe: 'Confidence required before auto-tagging can promote a post to unsafe. Lower catches more NSFW content; raise it to avoid false unsafe ratings. It will not downgrade safer ratings when downgrade protection is on.',
+  maxTags: 'Maximum number of tags kept from model output. Increase for richer search coverage; decrease if posts become cluttered. This limit applies before manual review.',
+  videoFrames: 'Number of sampled video frames for visual tagging. More frames improve AMV/edit coverage but take longer. 3-4 is a good default; use 1 for fast middle-frame tagging.',
+  lightCutoff: 'Posts with this many tags or fewer count as lightly tagged for bulk jobs. Increase to retag sparse libraries; decrease to only target nearly empty posts.',
+}
+let autoTagPollTimer = null
+let modelDownloadPollTimer = null
 
 const migrationPrompt = ref({
   show: false,
@@ -217,8 +572,150 @@ const migrationStatus = ref({
 })
 
 onMounted(async () => {
-  await Promise.all([loadSettings(), loadStats()])
+  await Promise.all([loadSettings(), loadStats(), loadAutoTags()])
 })
+
+onUnmounted(() => {
+  if (autoTagPollTimer) clearInterval(autoTagPollTimer)
+  if (modelDownloadPollTimer) clearInterval(modelDownloadPollTimer)
+})
+
+const autoTagJobRunning = computed(() =>
+  autoTagJob.value && ['queued', 'running'].includes(autoTagJob.value.status)
+)
+
+const autoTagProgressPercent = computed(() => {
+  if (!autoTagJob.value || !autoTagJob.value.total) return 0
+  return Math.round((autoTagJob.value.processed / autoTagJob.value.total) * 100)
+})
+
+const modelDownloadRunning = computed(() =>
+  modelDownloadJob.value && ['queued', 'running'].includes(modelDownloadJob.value.status)
+)
+
+const downloadJobModels = computed(() =>
+  Object.values(modelDownloadJob.value?.models || {})
+)
+
+const downloadJobTotal = computed(() =>
+  downloadJobModels.value.length || modelCatalog.value.length
+)
+
+const downloadJobCompleted = computed(() =>
+  downloadJobModels.value.filter((model) => ['completed', 'skipped'].includes(model.status)).length
+)
+
+const downloadJobFailed = computed(() =>
+  downloadJobModels.value.filter((model) => model.status === 'failed').length
+)
+
+const downloadJobRunningRows = computed(() =>
+  downloadJobModels.value.filter((model) => ['queued', 'running'].includes(model.status))
+)
+
+const downloadJobActiveRow = computed(() =>
+  downloadJobModels.value.find((model) => model.status === 'running') ||
+  downloadJobModels.value.find((model) => model.status === 'queued') ||
+  null
+)
+
+const downloadJobProgress = computed(() => {
+  if (!downloadJobTotal.value) return 0
+  return Math.round((downloadJobCompleted.value / downloadJobTotal.value) * 100)
+})
+
+const downloadJobTitle = computed(() => {
+  if (!modelDownloadJob.value) return ''
+  if (modelDownloadJob.value.status === 'completed') return 'Model downloads complete'
+  if (modelDownloadJob.value.status === 'failed') return 'Model downloads finished with errors'
+  return 'Downloading model weights'
+})
+
+const downloadJobCounts = computed(() =>
+  `${downloadJobCompleted.value}/${downloadJobTotal.value} done${downloadJobFailed.value ? `, ${downloadJobFailed.value} failed` : ''}`
+)
+
+const downloadJobDetail = computed(() => {
+  const active = downloadJobActiveRow.value
+  if (active) return `${active.name || active.modelId}: ${active.current || active.status}`
+  if (downloadJobFailed.value) return 'Check the model rows below for the failure details.'
+  if (downloadJobTotal.value && downloadJobCompleted.value === downloadJobTotal.value) {
+    return 'All selected models are downloaded.'
+  }
+  return 'Waiting for download status.'
+})
+
+const downloadedModelCount = computed(() =>
+  modelCatalog.value.filter((model) => model.downloaded).length
+)
+
+const loadedModelCount = computed(() =>
+  modelCatalog.value.filter((model) => model.loaded).length
+)
+
+const missingRuntimeModels = computed(() =>
+  modelCatalog.value.filter((model) => !model.runtimeAvailable)
+)
+
+const enabledModels = computed(() =>
+  modelCatalog.value.filter((model) => isModelEnabled(model.id))
+)
+
+const enabledModelNames = computed(() =>
+  enabledModels.value.map((model) => model.name).join(', ')
+)
+
+const enabledModelsMissingDownloads = computed(() =>
+  enabledModels.value.filter((model) => !model.downloaded)
+)
+
+function modelSettingKey(id) {
+  return {
+    wd: 'wdEnabled',
+    camie: 'characterModelEnabled',
+    ocr: 'ocrEnabled',
+    whisper: 'whisperEnabled',
+    qwen: 'qwenEnabled',
+  }[id] || `${id}Enabled`
+}
+
+function modelPipelineLabel(id) {
+  return {
+    wd: 'Enable by default for booru tags',
+    camie: 'Enable by default for character/source tags',
+    ocr: 'Enable by default for text extraction',
+    whisper: 'Enable by default for audio transcripts',
+    qwen: 'Enable by default for semantic tags',
+  }[id] || 'Enable by default'
+}
+
+function modelPipelineDescription(id) {
+  return {
+    wd: 'Runs on images and sampled video frames. Best baseline for visual library tags.',
+    camie: 'Adds anime characters, copyright/source tags, artist tags, and rating evidence.',
+    ocr: 'Reads visible captions, subtitles, and meme text from representative frames.',
+    whisper: 'Extracts speech from video audio for AMVs, edits, narration, and spoken context.',
+    qwen: 'Uses image plus OCR/transcript context for higher-level edit and scene meaning.',
+  }[id] || 'Use this model in the saved default auto-tagging pipeline.'
+}
+
+function modelInfoTitle(model) {
+  return [
+    model.name,
+    model.purpose,
+    modelPipelineDescription(model.id),
+    `Download size: ${model.downloadSize || 'Unknown'}`,
+    `VRAM: ${model.vramRequirement || 'Unknown'}`,
+    `Runtime: ${model.runtimeAvailable ? 'ready' : 'missing'}`,
+    `Memory: ${model.loaded ? 'loaded' : 'not loaded'}`,
+  ].join('\n')
+}
+
+function isModelEnabled(id) {
+  const key = modelSettingKey(id)
+  if (id === 'wd') return autoTagSettings.value[key] !== false
+  return Boolean(autoTagSettings.value[key])
+}
 
 async function loadStats() {
   statsLoading.value = true
@@ -250,6 +747,405 @@ async function loadSettings() {
     dataDir.value = currentSettings.value.data_dir || ''
   } catch (e) {
     alert('Failed to load settings: ' + e.message)
+  }
+}
+
+async function loadAutoTags() {
+  try {
+    const [settingsResult, statusResult, currentJob, modelsResult] = await Promise.all([
+      api.getAutoTagSettings(),
+      api.getAutoTagStatus(),
+      api.getCurrentAutoTagJob(),
+      api.getAutoTagModels(),
+    ])
+    autoTagSettings.value = {
+      ...settingsResult,
+      wdEnabled: settingsResult.wdEnabled !== false,
+    }
+    autoTagStatus.value = statusResult
+    autoTagJob.value = currentJob
+    modelCatalog.value = modelsResult.models || []
+    modelDownloadJob.value = modelsResult.downloadJob
+    if (autoTagJobRunning.value) startAutoTagPolling()
+    if (modelDownloadRunning.value) startModelDownloadPolling()
+  } catch (e) {
+    console.error('Failed to load auto tag settings:', e)
+  }
+}
+
+async function saveAutoTagSettings() {
+  savingAutoTags.value = true
+  try {
+    autoTagSettings.value = await api.updateAutoTagSettings(autoTagSettings.value)
+    autoTagStatus.value = await api.getAutoTagStatus()
+  } catch (e) {
+    alert('Failed to save auto tag settings: ' + e.message)
+  } finally {
+    savingAutoTags.value = false
+  }
+}
+
+async function refreshAutoTagStatus() {
+  try {
+    const [statusResult, modelsResult] = await Promise.all([
+      api.getAutoTagStatus(),
+      api.getAutoTagModels(),
+    ])
+    autoTagStatus.value = statusResult
+    modelCatalog.value = modelsResult.models || []
+    modelDownloadJob.value = modelsResult.downloadJob
+  } catch (e) {
+    alert('Failed to refresh auto tag status: ' + e.message)
+  }
+}
+
+async function saveHuggingFaceToken() {
+  if (!huggingFaceToken.value.trim()) return
+  savingToken.value = true
+  modelStatusMessage.value.show = false
+  try {
+    autoTagStatus.value = await api.saveHuggingFaceToken(huggingFaceToken.value.trim())
+    huggingFaceToken.value = ''
+    modelStatusMessage.value = {
+      show: true,
+      success: true,
+      message: 'Hugging Face token saved.',
+    }
+  } catch (e) {
+    modelStatusMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to save Hugging Face token: ' + e.message,
+    }
+  } finally {
+    savingToken.value = false
+  }
+}
+
+async function deleteHuggingFaceToken() {
+  savingToken.value = true
+  modelStatusMessage.value.show = false
+  try {
+    autoTagStatus.value = await api.deleteHuggingFaceToken()
+    modelStatusMessage.value = {
+      show: true,
+      success: true,
+      message: 'Hugging Face token removed.',
+    }
+  } catch (e) {
+    modelStatusMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to remove Hugging Face token: ' + e.message,
+    }
+  } finally {
+    savingToken.value = false
+  }
+}
+
+async function downloadAutoTagModelById(id) {
+  const model = modelCatalog.value.find((row) => row.id === id)
+  if (model?.downloaded) {
+    modelDownloadJob.value = optimisticDownloadJob([id], { status: 'completed' })
+    modelStatusMessage.value = {
+      show: true,
+      success: true,
+      message: `${model.name} is already downloaded.`,
+    }
+    return
+  }
+
+  modelDownloadJob.value = optimisticDownloadJob([id])
+  modelStatusMessage.value = {
+    show: true,
+    success: true,
+    message: `Starting ${model?.name || 'model'} download. Large models can take a while.`,
+  }
+  try {
+    modelDownloadJob.value = await api.downloadAutoTagModelById(id)
+    await pollModelDownloadOnce()
+    startModelDownloadPolling()
+  } catch (e) {
+    modelStatusMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to start model download: ' + e.message,
+    }
+  }
+}
+
+async function downloadAllAutoTagModels() {
+  const ids = modelCatalog.value.map((model) => model.id)
+  const missing = modelCatalog.value.filter((model) => !model.downloaded)
+  if (!missing.length) {
+    modelDownloadJob.value = optimisticDownloadJob(ids, { status: 'completed' })
+    modelStatusMessage.value = {
+      show: true,
+      success: true,
+      message: 'All models are already downloaded.',
+    }
+    return
+  }
+
+  modelDownloadJob.value = optimisticDownloadJob(ids)
+  modelStatusMessage.value = {
+    show: true,
+    success: true,
+    message: `Starting ${missing.length} model download${missing.length === 1 ? '' : 's'}. Already downloaded models are marked complete.`,
+  }
+  try {
+    modelDownloadJob.value = await api.downloadAllAutoTagModels()
+    await pollModelDownloadOnce()
+    startModelDownloadPolling()
+  } catch (e) {
+    modelStatusMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to start model downloads: ' + e.message,
+    }
+  }
+}
+
+async function loadAutoTagModelById(id) {
+  const model = modelCatalog.value.find((row) => row.id === id)
+  modelMemoryBusy.value = true
+  modelStatusMessage.value = {
+    show: true,
+    success: true,
+    message: `Loading ${model?.name || 'model'} into memory.`,
+  }
+  try {
+    await api.loadAutoTagModelById(id)
+    await waitForModelLoad()
+    await refreshAutoTagStatus()
+    modelStatusMessage.value = {
+      show: true,
+      success: true,
+      message: `${model?.name || 'Model'} loaded into memory.`,
+    }
+  } catch (e) {
+    modelStatusMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to load model: ' + e.message,
+    }
+  } finally {
+    modelMemoryBusy.value = false
+  }
+}
+
+async function unloadAutoTagModelById(id) {
+  const model = modelCatalog.value.find((row) => row.id === id)
+  modelMemoryBusy.value = true
+  try {
+    const result = await api.unloadAutoTagModelById(id)
+    modelCatalog.value = result.models || modelCatalog.value
+    autoTagStatus.value = await api.getAutoTagStatus()
+    modelStatusMessage.value = {
+      show: true,
+      success: true,
+      message: result.unloaded
+        ? `${model?.name || 'Model'} unloaded from memory.`
+        : `${model?.name || 'Model'} was already unloaded.`,
+    }
+  } catch (e) {
+    modelStatusMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to unload model: ' + e.message,
+    }
+  } finally {
+    modelMemoryBusy.value = false
+  }
+}
+
+async function waitForModelLoad() {
+  for (let i = 0; i < 600; i += 1) {
+    const job = await api.getAutoTagModelLoadJob()
+    if (!job || !['queued', 'running'].includes(job.status)) {
+      if (job?.status === 'failed') throw new Error(job.error || 'Model load failed')
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 750))
+  }
+  throw new Error('Timed out waiting for model load')
+}
+
+function optimisticDownloadJob(ids, options = {}) {
+  const status = options.status || 'running'
+  const now = Date.now() / 1000
+  const rows = {}
+  let queuedStarted = false
+  for (const id of ids) {
+    const model = modelCatalog.value.find((row) => row.id === id) || { id, name: id, repoId: id }
+    const alreadyDone = status === 'completed' || model.downloaded
+    const rowStatus = alreadyDone ? 'completed' : queuedStarted ? 'queued' : 'running'
+    if (!alreadyDone && !queuedStarted) queuedStarted = true
+    rows[id] = {
+      id,
+      modelId: id,
+      name: model.name,
+      repoId: model.repoId,
+      status: rowStatus,
+      current: alreadyDone ? 'Already downloaded' : rowStatus === 'running' ? 'Starting download' : 'Waiting',
+      bytesDownloaded: 0,
+      bytesTotal: 0,
+      error: null,
+    }
+  }
+  const total = Object.keys(rows).length
+  const completed = Object.values(rows).filter((row) => row.status === 'completed').length
+  return {
+    id: `local-${Math.round(now * 1000)}`,
+    status: completed === total ? 'completed' : 'running',
+    modelIds: ids,
+    models: rows,
+    completed,
+    failed: 0,
+    total,
+    startedAt: now,
+    updatedAt: now,
+  }
+}
+
+async function pollModelDownloadOnce() {
+  const [job, modelsResult] = await Promise.all([
+    api.getAutoTagModelDownloadJob(),
+    api.getAutoTagModels(),
+  ])
+  if (job) modelDownloadJob.value = job
+  modelCatalog.value = modelsResult.models || modelCatalog.value
+}
+
+function startModelDownloadPolling() {
+  if (modelDownloadPollTimer) clearInterval(modelDownloadPollTimer)
+  modelDownloadPollTimer = setInterval(async () => {
+    try {
+      await pollModelDownloadOnce()
+      if (!modelDownloadRunning.value && modelDownloadPollTimer) {
+        clearInterval(modelDownloadPollTimer)
+        modelDownloadPollTimer = null
+        autoTagStatus.value = await api.getAutoTagStatus()
+        modelStatusMessage.value = {
+          show: true,
+          success: modelDownloadJob.value?.status === 'completed',
+          message: modelDownloadJob.value?.status === 'completed'
+            ? 'Model downloads completed.'
+            : 'One or more model downloads failed.',
+        }
+      }
+    } catch (e) {
+      console.error('Failed to poll model download:', e)
+    }
+  }, 1000)
+}
+
+function modelDownloadState(id) {
+  return modelDownloadJob.value?.models?.[id] || null
+}
+
+function modelProgressPercent(id) {
+  const state = modelDownloadState(id)
+  if (!state) return 0
+  if (state.status === 'completed') return 100
+  if (!state.bytesTotal) {
+    if (state.status === 'running') return 18
+    if (state.status === 'queued') return 4
+    return 0
+  }
+  return Math.min(100, Math.round((state.bytesDownloaded / state.bytesTotal) * 100))
+}
+
+function modelDownloadStateLabel(id) {
+  const state = modelDownloadState(id)
+  if (!state) return ''
+  if (state.status === 'completed') return 'completed'
+  if (state.status === 'running') return 'downloading'
+  if (state.status === 'queued') return 'queued'
+  if (state.status === 'failed') return 'failed'
+  return state.status || ''
+}
+
+function modelDownloadBytes(id) {
+  const state = modelDownloadState(id)
+  if (!state?.bytesTotal) return ''
+  return `${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.bytesTotal)}`
+}
+
+function modelStatusLabel(status) {
+  if (status === 'tagging_ready') return 'Tagging ready'
+  if (status === 'download_only') return 'Download only'
+  return status || 'Unknown'
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0)
+  if (value < 1024) return `${value} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let size = value / 1024
+  let unit = units.shift()
+  while (size >= 1024 && units.length) {
+    size /= 1024
+    unit = units.shift()
+  }
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`
+}
+
+async function estimateAutoTags() {
+  try {
+    autoTagEstimate.value = await api.estimateAutoTagJob(autoTagMode.value)
+  } catch (e) {
+    alert('Failed to estimate auto tag job: ' + e.message)
+  }
+}
+
+async function startAutoTagJob(dryRun) {
+  try {
+    await saveAutoTagSettings()
+    autoTagJob.value = await api.createAutoTagJob({
+      mode: autoTagMode.value,
+      dryRun,
+      settings: autoTagSettings.value,
+    })
+    startAutoTagPolling()
+  } catch (e) {
+    alert('Failed to start auto tag job: ' + e.message)
+  }
+}
+
+function startAutoTagPolling() {
+  if (autoTagPollTimer) clearInterval(autoTagPollTimer)
+  autoTagPollTimer = setInterval(async () => {
+    if (!autoTagJob.value?.id) return
+    try {
+      autoTagJob.value = await api.getAutoTagJob(autoTagJob.value.id)
+      if (!autoTagJobRunning.value && autoTagPollTimer) {
+        clearInterval(autoTagPollTimer)
+        autoTagPollTimer = null
+      }
+    } catch (e) {
+      console.error('Failed to poll auto tag job:', e)
+    }
+  }, 1500)
+}
+
+async function cancelAutoTagJob() {
+  if (!autoTagJob.value?.id) return
+  try {
+    autoTagJob.value = await api.cancelAutoTagJob(autoTagJob.value.id)
+  } catch (e) {
+    alert('Failed to cancel auto tag job: ' + e.message)
+  }
+}
+
+async function applyPreviewedJob() {
+  if (!autoTagJob.value?.id) return
+  try {
+    const result = await api.applyAutoTagJob(autoTagJob.value.id)
+    alert(`Applied ${result.applied} suggestion${result.applied === 1 ? '' : 's'}`)
+    autoTagJob.value = await api.getAutoTagJob(autoTagJob.value.id)
+  } catch (e) {
+    alert('Failed to apply previewed job: ' + e.message)
   }
 }
 
@@ -611,6 +1507,418 @@ async function deleteCookiesFile() {
   gap: 1rem;
 }
 
+.auto-status,
+.job-panel {
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+
+.pipeline-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.pipeline-models {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  text-align: right;
+}
+
+.pipeline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+.pipeline-grid div {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+}
+
+.pipeline-grid span {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  margin-bottom: 0.25rem;
+}
+
+.pipeline-grid strong {
+  font-size: 0.95rem;
+}
+
+.status-note {
+  margin: 0.75rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.status-note.warning {
+  color: var(--warning);
+}
+
+.model-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.model-download-panel {
+  padding: 1rem;
+  margin-top: 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.model-download-actions {
+  justify-content: flex-start;
+  margin-top: 0;
+}
+
+.download-summary {
+  margin-top: 1rem;
+  padding: 0.85rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.download-summary-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--text-primary);
+  margin-bottom: 0.6rem;
+}
+
+.download-summary p {
+  margin: 0.4rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.config-panel {
+  padding: 1rem;
+  margin-top: 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.config-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.config-panel-head h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.config-panel-head p {
+  margin: 0;
+  max-width: 560px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.toggle-card,
+.model-toggle-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.toggle-card input,
+.model-toggle-row input {
+  margin-top: 0.15rem;
+}
+
+.toggle-card strong,
+.model-toggle-row strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.9rem;
+}
+
+.toggle-card small,
+.model-toggle-row small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.model-toggle-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.model-toggle-row {
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.model-toggle-row em {
+  justify-self: end;
+  padding: 0.22rem 0.5rem;
+  border-radius: 0.35rem;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.numeric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.field-row {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.label-with-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.info-icon {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: help;
+  font-size: 0.72rem;
+  line-height: 16px;
+}
+
+.info-icon:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.field-row input,
+.field-row select {
+  width: 100%;
+}
+
+.bulk-toolbar {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: end;
+}
+
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.estimate-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.estimate-strip strong {
+  color: var(--text-primary);
+}
+
+.model-row {
+  padding: 1rem;
+  background: linear-gradient(180deg, var(--bg-secondary), var(--bg-primary));
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.model-head,
+.model-meta,
+.model-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.model-head {
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.model-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.model-info-icon {
+  flex: 0 0 auto;
+}
+
+.model-meta {
+  align-items: flex-start;
+  flex-direction: column;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.model-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.model-facts span {
+  padding: 0.55rem 0.65rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+}
+
+.model-facts strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pipeline-toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: flex-start;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  color: var(--text-primary);
+}
+
+.pipeline-toggle.nested {
+  margin-top: 0;
+  margin-left: 1.75rem;
+  width: calc(100% - 1.75rem);
+}
+
+.pipeline-toggle input {
+  margin-top: 0.15rem;
+}
+
+.pipeline-toggle strong {
+  display: block;
+  margin-bottom: 0.15rem;
+  font-size: 0.86rem;
+}
+
+.pipeline-toggle small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.model-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.35rem;
+  background: var(--success-soft);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+}
+
+.model-badge.planned {
+  background: var(--warning);
+}
+
+.model-ok {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.model-missing {
+  color: var(--text-secondary);
+}
+
+.model-progress {
+  margin-top: 0.75rem;
+}
+
+.model-progress p {
+  margin: 0.35rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.model-actions {
+  margin-top: 0.75rem;
+}
+
+.progress-bar {
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
 .stat-card {
   background: var(--bg-secondary);
   border-radius: 0.75rem;
@@ -649,6 +1957,38 @@ async function deleteCookiesFile() {
 
   .stat-card.wide {
     grid-column: span 1;
+  }
+
+  .config-panel-head,
+  .pipeline-head {
+    flex-direction: column;
+  }
+
+  .config-panel-head p,
+  .pipeline-models {
+    max-width: none;
+    text-align: left;
+  }
+
+  .model-toggle-row {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .model-toggle-row em {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .bulk-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .bulk-actions {
+    justify-content: stretch;
+  }
+
+  .bulk-actions .btn {
+    flex: 1 1 140px;
   }
 }
 </style>

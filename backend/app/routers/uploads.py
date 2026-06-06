@@ -77,6 +77,26 @@ def remove_upload_token(token: str):
     upload_tokens.pop(token, None)
 
 
+@router.get("/{token}/auto-tags")
+async def auto_tags_for_upload(token: str):
+    """Preview optional model tags for an uploaded token."""
+    temp_path = get_upload_path(token)
+    if not temp_path or not temp_path.exists():
+        raise HTTPException(status_code=404, detail="Invalid or expired content token")
+
+    from ..services.auto_tagger import tag_media
+    result = tag_media(temp_path)
+    return {
+        "enabled": result.enabled,
+        "model": result.model,
+        "tags": result.tags,
+        "characterTags": result.character_tags,
+        "rating": result.rating,
+        "safety": result.safety,
+        "error": result.error,
+    }
+
+
 # Mapping of content-type to extension
 MIME_TO_EXT = {
     'image/jpeg': '.jpg',

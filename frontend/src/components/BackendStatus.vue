@@ -4,10 +4,10 @@
       <span class="status-icon">⚠️</span>
       <div class="status-content">
         <strong>(=;&#x2D8;;=) Backend server is not running</strong>
-        <p>Please start the backend server on port 8000 to use this application.</p>
+        <p>Please start the backend server at {{ backendLabel }} to use this application.</p>
         <div class="status-actions">
           <button class="btn btn-sm" @click="checkConnection">Retry Connection</button>
-          <a href="http://localhost:8000/docs" target="_blank" class="btn btn-sm btn-secondary">
+          <a :href="apiDocsUrl" target="_blank" class="btn btn-sm btn-secondary">
             Open API Docs
           </a>
         </div>
@@ -21,6 +21,8 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import api from '../api/client'
 
 const isConnected = ref(true)
+const backendLabel = import.meta.env.VITE_BACKEND || 'http://127.0.0.1:8772'
+const apiDocsUrl = `${backendLabel.replace(/\/$/, '')}/docs`
 let checkInterval = null
 
 async function checkConnection() {

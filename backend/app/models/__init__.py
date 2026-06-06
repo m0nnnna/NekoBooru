@@ -5,3 +5,4 @@ from .note import Note
 from .comment import Comment
 from .favorite import Favorite
 from .sync import SyncLog
+from .auto_tag import AutoTagJob, AutoTagSuggestion

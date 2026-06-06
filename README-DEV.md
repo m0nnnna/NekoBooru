@@ -39,19 +39,19 @@ cd frontend && npm run dev
 
 ## Development URLs
 
-- **Backend API**: http://localhost:8000
-- **Backend API Docs**: http://localhost:8000/docs
-- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:8772
+- **Backend API Docs**: http://localhost:8772/docs
+- **Frontend**: http://localhost:5173
 
 ## Troubleshooting
 
 ### "Backend server is not running" Error
 
-If you see this error in the frontend, it means the backend server isn't running on port 8000.
+If you see this error in the frontend, it means the backend server isn't running on port 8772.
 
 **Solution:**
 1. Make sure you've started the backend server using `start.bat` (Windows) or `./start.sh` (Linux)
-2. Check that the backend is running by visiting http://localhost:8000/docs
+2. Check that the backend is running by visiting http://localhost:8772/docs
 3. If the backend isn't starting, check the terminal for error messages
 
 ### "ECONNREFUSED" Proxy Error
@@ -64,19 +64,19 @@ This error means the Vite dev server can't connect to the backend.
 - Firewall blocking the connection
 
 **Solution:**
-1. Ensure the backend is running on port 8000
+1. Ensure the backend is running on port 8772
 2. Check `backend/app/config.py` for the port configuration
-3. Verify no other application is using port 8000
+3. Verify no other application is using port 8772
 
 ### Port Already in Use
 
 If you get a "port already in use" error:
 
-**Backend (port 8000):**
+**Backend (port 8772):**
 - Change the port in `backend/app/config.py` or set `NEKO_PORT` environment variable
 - Or stop the conflicting service
 
-**Frontend (port 3000):**
+**Frontend (port 5173):**
 - Change the port in `frontend/vite.config.js`
 - Or stop the conflicting service
 
@@ -110,24 +110,24 @@ nekobooru/
 
 The backend uses FastAPI with automatic API documentation:
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+- **Swagger UI**: http://localhost:8772/docs
+- **ReDoc**: http://localhost:8772/redoc
 
 ## Frontend Development
 
 The frontend uses Vite for fast development:
 
 - Hot Module Replacement (HMR) is enabled
-- API requests are proxied from `/api` to `http://localhost:8000/api`
+- API requests are proxied from `/api` to `http://localhost:8772/api`
 - Changes to Vue components are reflected immediately
 
 ## Environment Variables
 
 Backend configuration can be set via environment variables with the `NEKO_` prefix:
 
-- `NEKO_PORT` - Backend port (default: 8000)
+- `NEKO_PORT` - Backend port (default: 8772)
 - `NEKO_HOST` - Backend host (default: `127.0.0.1`, loopback-only — reachable only from this machine). Set to `0.0.0.0` to expose it on your LAN; the app has **no authentication**, so only do this on a trusted network (ideally behind a reverse proxy with auth).
-- `NEKO_CORS_ORIGINS` - Comma-separated browser origins allowed to call the API (default: `http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000,http://127.0.0.1:3000`). Widen only if you serve the web UI to another device's browser.
+- `NEKO_CORS_ORIGINS` - Comma-separated browser origins allowed to call the API (default: `http://localhost:8772,http://127.0.0.1:8772,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000`). Widen only if you serve the web UI to another device's browser.
 - `NEKO_DEBUG` - Debug mode (default: True)
 
 Example:

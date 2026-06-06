@@ -14,6 +14,8 @@ from ..models.post import PostTag
 from ..utils.hashing import calculate_sha256
 from ..services.media import get_media_info, create_thumbnail, move_to_storage, convert_video_to_gif
 from ..services.search import search_posts
+from ..services.tagging import process_tags_for_post as apply_tags_for_post
+from ..services.tagging import replace_tags_for_post
 from .uploads import get_upload_path, remove_upload_token
 
 router = APIRouter(prefix="/api", tags=["posts"])
@@ -24,6 +26,7 @@ class CreatePostRequest(BaseModel):
     safety: str = "safe"
     tags: list[str] = []
     source: Optional[str] = None
+    autoTag: Optional[bool] = None
 
 
 class UpdatePostRequest(BaseModel):
@@ -73,6 +76,21 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
             logger = logging.getLogger(__name__)
             logger.warning(f"Failed to create thumbnail for {final_path} (extension: {extension})")
 
+        # Optional auto-tagging runs after the file is in permanent storage so
+        # library imports, URL fetches, and direct uploads all share one path.
+        final_tags = list(request.tags or [])
+        final_safety = request.safety
+        from ..services.auto_tagger import load_options
+        opts = load_options()
+        should_auto_tag = opts.tagNewUploads if request.autoTag is None else request.autoTag
+        if should_auto_tag:
+            from ..services.auto_tagger import merge_with_existing, promote_safety, tag_media
+            auto_result = tag_media(final_path, opts)
+            final_tags, auto_categories = merge_with_existing(final_tags, auto_result, opts)
+            final_safety = promote_safety(final_safety, auto_result.safety, opts)
+        else:
+            auto_categories = {}
+
         # Create post record
         post = Post(
             sha256=sha256,
@@ -82,14 +100,14 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
             width=media_info.get("width"),
             height=media_info.get("height"),
             duration=media_info.get("duration"),
-            safety=request.safety,
+            safety=final_safety,
             source=request.source,
         )
         db.add(post)
         await db.flush()  # Get post ID
 
         # Process tags using direct inserts (avoids lazy loading issues)
-        await process_tags_for_post(db, post.id, request.tags)
+        await apply_tags_for_post(db, post.id, final_tags, categories=auto_categories)
 
         await db.commit()
 
@@ -117,66 +135,7 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
 
 async def process_tags_for_post(db: AsyncSession, post_id: int, tag_names: list[str]):
     """Process tags for a post using direct SQL inserts to avoid async issues."""
-    if not tag_names:
-        return
-
-    resolved_tag_ids = set()
-
-    # Get default category
-    default_cat = await db.execute(select(TagCategory).where(TagCategory.name == "general"))
-    default_category = default_cat.scalars().first()
-    default_cat_id = default_category.id if default_category else 1
-
-    for tag_name in tag_names:
-        tag_name = tag_name.strip().lower().replace(" ", "_")
-        if not tag_name:
-            continue
-
-        # Check for alias
-        alias_result = await db.execute(
-            select(TagAlias).options(selectinload(TagAlias.target)).where(TagAlias.alias_name == tag_name)
-        )
-        alias = alias_result.scalars().first()
-        if alias and alias.target:
-            tag_name = alias.target.name
-
-        # Get or create tag
-        tag_result = await db.execute(select(Tag).where(Tag.name == tag_name))
-        tag = tag_result.scalars().first()
-
-        if not tag:
-            tag = Tag(name=tag_name, category_id=default_cat_id)
-            db.add(tag)
-            await db.flush()
-
-        resolved_tag_ids.add(tag.id)
-
-        # Get implications
-        impl_result = await db.execute(
-            select(TagImplication).where(TagImplication.antecedent_id == tag.id)
-        )
-        for impl in impl_result.scalars().all():
-            resolved_tag_ids.add(impl.consequent_id)
-
-    # Insert all tag associations using direct SQL
-    for tag_id in resolved_tag_ids:
-        # Check if association already exists
-        existing = await db.execute(
-            select(PostTag).where(
-                PostTag.c.post_id == post_id,
-                PostTag.c.tag_id == tag_id
-            )
-        )
-        if not existing.first():
-            await db.execute(
-                insert(PostTag).values(post_id=post_id, tag_id=tag_id)
-            )
-            # Update usage count
-            await db.execute(
-                Tag.__table__.update().where(Tag.id == tag_id).values(
-                    usage_count=Tag.usage_count + 1
-                )
-            )
+    await apply_tags_for_post(db, post_id, tag_names)
 
 
 @router.get("/posts")
@@ -234,17 +193,7 @@ async def update_post(post_id: int, request: UpdatePostRequest, db: AsyncSession
         post.source = request.source
 
     if request.tags is not None:
-        # Decrement old tag counts
-        for tag in post.tags:
-            tag.usage_count = max(0, tag.usage_count - 1)
-
-        # Delete existing tag associations
-        await db.execute(
-            delete(PostTag).where(PostTag.c.post_id == post_id)
-        )
-
-        # Process new tags
-        await process_tags_for_post(db, post_id, request.tags)
+        await replace_tags_for_post(db, post, request.tags)
 
     # Touch updated_at so the change is recorded even when only tags changed
     # (tag associations are written via Core inserts that don't fire ORM events).
@@ -261,6 +210,34 @@ async def update_post(post_id: int, request: UpdatePostRequest, db: AsyncSession
     )
     post = result.scalars().first()
     return post.to_dict()
+
+
+@router.post("/posts/{post_id}/auto-tags/preview")
+async def preview_auto_tags(post_id: int, body: dict | None = None):
+    """Preview AI tag suggestions for a single post without applying."""
+    from ..services.auto_tag_jobs import preview_post
+    body = body or {}
+    try:
+        return await preview_post(post_id, overrides=body.get("settings") or {})
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+
+@router.post("/posts/{post_id}/auto-tags/apply")
+async def apply_auto_tags(post_id: int, body: dict | None = None):
+    """Apply AI tag suggestions, or edited suggestions, to a single post."""
+    from ..services.auto_tag_jobs import apply_post
+    body = body or {}
+    try:
+        return await apply_post(
+            post_id,
+            tags=body.get("tags"),
+            safety=body.get("safety"),
+            categories=body.get("categories") or {},
+            overrides=body.get("settings") or {},
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Post not found")
 
 
 @router.delete("/posts/{post_id}")

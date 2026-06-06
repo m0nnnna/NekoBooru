@@ -12,8 +12,8 @@ echo "========================================"
 echo
 echo "This will start both backend and frontend servers."
 echo
-echo "  Backend API: http://localhost:8000"
-echo "  Frontend:    http://localhost:3000"
+echo "  Backend API: http://localhost:8772"
+echo "  Frontend:    http://localhost:5173"
 echo
 echo "Press Ctrl+C to stop both servers"
 echo
@@ -60,8 +60,8 @@ FRONTEND_PID=$!
 echo
 echo "Both servers are running."
 echo
-echo "  Backend API: http://localhost:8000"
-echo "  Frontend:    http://localhost:3000"
+echo "  Backend API: http://localhost:8772"
+echo "  Frontend:    http://localhost:5173"
 echo
 echo "Press Ctrl+C to stop both servers"
 echo
