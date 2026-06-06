@@ -82,6 +82,12 @@ function installXButtonStyle() {
       transition: background-color 120ms ease, color 120ms ease;
       vertical-align: middle;
     }
+    .nekobooru-x-download svg {
+      display: block;
+      height: 22px;
+      width: 22px;
+      stroke: currentColor;
+    }
     .nekobooru-x-download:hover {
       background: rgba(29, 155, 240, 0.12);
       color: rgb(29, 155, 240);
@@ -118,7 +124,13 @@ function injectXButton(article) {
   button.className = 'nekobooru-x-download'
   button.title = 'Download to NekoBooru'
   button.setAttribute('aria-label', 'Download to NekoBooru')
-  button.textContent = '↓'
+  button.innerHTML = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3v11"></path>
+      <path d="m7 10 5 5 5-5"></path>
+      <path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"></path>
+    </svg>
+  `
   button.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
