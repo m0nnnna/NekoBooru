@@ -23,8 +23,8 @@ export default defineConfig(({ mode }) => {
           changeOrigin: false,
           secure: false,
           ws: true,
-          timeout: 10000,
-          proxyTimeout: 10000,
+          timeout: 600000,
+          proxyTimeout: 600000,
           configure: (proxy, _options) => {
             proxy.on('error', (err, req, res) => {
               console.error('Proxy error for', req.url, ':', err.message)

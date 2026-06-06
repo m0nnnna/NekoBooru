@@ -56,8 +56,18 @@
           Edit Tags
         </button>
         <button class="btn btn-secondary edit-tags-btn" @click="previewAutoTags" :disabled="autoTagLoading">
-          {{ autoTagLoading ? 'Tagging...' : 'AI Tag' }}
+          {{ autoTagLoading ? 'AI Tag running...' : 'AI Tag' }}
         </button>
+        <div v-if="autoTagLoading" class="ai-inline-status">
+          <div class="ai-inline-status-head">
+            <strong>{{ autoTagStageTitle }}</strong>
+            <span>{{ autoTagRunElapsed }}s</span>
+          </div>
+          <div class="auto-progress compact">
+            <div class="auto-progress-fill" :style="{ width: autoTagOverallProgress + '%' }"></div>
+          </div>
+          <small>{{ autoTagStageMessage }}</small>
+        </div>
         <details class="ai-model-picker" :open="autoModelPickerOpen" @toggle="autoModelPickerOpen = $event.target.open">
           <summary>AI models</summary>
           <div class="ai-model-list">
@@ -193,23 +203,49 @@
       </div>
     </div>
 
-    <div v-if="showAutoLoadModal" class="modal-overlay">
-      <div class="modal">
-        <h2>Loading AI Model</h2>
+    <div v-if="showAutoProcessModal" class="modal-overlay">
+      <div class="modal ai-process-modal">
+        <h2>{{ autoTagStageTitle }}</h2>
         <p class="auto-summary">
-          {{ autoLoadJob?.message || 'Loading model weights into memory...' }}
+          {{ autoTagStageMessage }}
         </p>
         <div class="auto-progress">
-          <div class="auto-progress-fill" :style="{ width: autoLoadProgress + '%' }"></div>
+          <div class="auto-progress-fill" :style="{ width: autoTagOverallProgress + '%' }"></div>
         </div>
         <p class="auto-load-meta">
-          {{ autoLoadProgress }}% · elapsed {{ autoLoadElapsed }}s · estimated {{ autoLoadEstimate }}s
+          {{ autoTagOverallProgress }}% · elapsed {{ autoTagRunElapsed }}s · {{ autoTagEstimateLabel }}
         </p>
+        <div class="ai-process-steps">
+          <div
+            v-for="step in autoTagProcessSteps"
+            :key="step.key"
+            class="ai-process-step"
+            :class="step.state"
+          >
+            <span class="step-dot"></span>
+            <div>
+              <strong>{{ step.label }}</strong>
+              <small>{{ step.detail }}</small>
+            </div>
+          </div>
+        </div>
+        <div v-if="selectedAutoTagModelRows.length" class="ai-selected-models">
+          <strong>Selected models</strong>
+          <ul>
+            <li v-for="model in selectedAutoTagModelRows" :key="model.id">
+              <span>{{ model.name }}</span>
+              <small>
+                {{ model.loaded ? 'loaded' : model.downloaded ? 'ready to load' : 'not downloaded' }}
+                · {{ model.vramRequirement || 'VRAM varies' }}
+              </small>
+            </li>
+          </ul>
+        </div>
         <p v-if="autoLoadJob?.error" class="auto-load-error">
           {{ autoLoadJob.error }}
         </p>
         <p class="auto-load-meta">
-          First load reads model weights from disk. Later AI Tag clicks should be much faster.
+          First loads read model weights from disk. Qwen and multi-model previews can take several minutes on CPU or when offloading.
         </p>
       </div>
     </div>
@@ -243,11 +279,14 @@ const autoTagLoading = ref(false)
 const autoTagStatus = ref(null)
 const postAutoTagSettings = ref({})
 const autoModelPickerOpen = ref(false)
-const showAutoLoadModal = ref(false)
+const showAutoProcessModal = ref(false)
+const autoTagStage = ref('idle')
+const autoTagStageMessage = ref('')
+const autoTagRunStartedAt = ref(0)
+const autoTagRunElapsed = ref(0)
 const autoLoadJob = ref(null)
-const autoLoadElapsed = ref(0)
 let autoLoadPollTimer = null
-let autoLoadTickTimer = null
+let autoTagTickTimer = null
 const pools = ref([])
 const selectedPool = ref('')
 
@@ -286,6 +325,54 @@ const hasAutoTagChanges = computed(() => {
 
 const autoLoadProgress = computed(() => Math.max(0, Math.min(100, Number(autoLoadJob.value?.progress || 0))))
 const autoLoadEstimate = computed(() => Number(autoLoadJob.value?.estimatedSeconds || 20))
+const selectedAutoTagModelRows = computed(() => enabledModelRows())
+const autoTagStageTitle = computed(() => ({
+  checking: 'Checking AI Tagging',
+  loading: 'Loading AI Model Weights',
+  analyzing: 'Analyzing Media',
+  ready: 'AI Tag Preview Ready',
+  failed: 'AI Tagging Failed',
+}[autoTagStage.value] || 'Preparing AI Tagging'))
+const autoTagOverallProgress = computed(() => {
+  if (autoTagStage.value === 'checking') return 8
+  if (autoTagStage.value === 'loading') return Math.max(12, Math.min(72, 12 + Math.round(autoLoadProgress.value * 0.6)))
+  if (autoTagStage.value === 'analyzing') {
+    const expected = currentPreviewEstimateSeconds()
+    const elapsedProgress = expected ? Math.min(24, Math.round((autoTagRunElapsed.value / expected) * 24)) : 8
+    return Math.min(96, 72 + elapsedProgress)
+  }
+  if (autoTagStage.value === 'ready') return 100
+  if (autoTagStage.value === 'failed') return Math.max(8, autoLoadProgress.value)
+  return 0
+})
+const autoTagEstimateLabel = computed(() => {
+  if (autoTagStage.value === 'loading') return `model estimate ${autoLoadEstimate.value}s`
+  if (autoTagStage.value === 'analyzing') return `analysis usually ${currentPreviewEstimateSeconds()}s+`
+  return 'starting'
+})
+const autoTagProcessSteps = computed(() => {
+  const selected = selectedAutoTagModelRows.value.length
+  return [
+    {
+      key: 'check',
+      label: 'Check settings',
+      detail: 'Validating enabled models, downloads, and runtime packages.',
+      state: stepState(['loading', 'analyzing', 'ready'], 'checking'),
+    },
+    {
+      key: 'load',
+      label: 'Load model weights',
+      detail: autoLoadJob.value?.message || `${selected || 'Selected'} model${selected === 1 ? '' : 's'} will be loaded if needed.`,
+      state: stepState(['analyzing', 'ready'], 'loading'),
+    },
+    {
+      key: 'analyze',
+      label: mediaType.value === 'video' ? 'Sample frames and analyze video' : 'Analyze image',
+      detail: analysisDetail(),
+      state: stepState(['ready'], 'analyzing'),
+    },
+  ]
+})
 const postModelRows = computed(() => {
   const models = autoTagStatus.value?.models || []
   return models.map((model) => ({
@@ -303,6 +390,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopAutoLoadPolling()
+  stopAutoTagTimer()
 })
 
 watch(() => route.params.id, loadPost)
@@ -417,6 +505,7 @@ async function saveTags() {
 
 async function previewAutoTags() {
   autoTagLoading.value = true
+  beginAutoTagProcess('checking', 'Checking settings, selected models, and local runtime packages.')
   try {
     autoTagStatus.value = await api.getAutoTagStatus()
     if (!autoTagStatus.value.enabled) {
@@ -448,16 +537,21 @@ async function previewAutoTags() {
 
     await loadEnabledAutoTagModels()
 
+    beginAutoTagStage('analyzing', analysisDetail())
     autoTagSuggestion.value = await api.previewAutoTags(post.value.id, {
       settings: autoTagRunSettings(),
     })
     autoTagEditedTags.value = [...(autoTagSuggestion.value.suggestedTags || post.value.tags)]
     autoTagEditedSafety.value = autoTagSuggestion.value.suggestedSafety || post.value.safety || 'safe'
+    beginAutoTagStage('ready', 'Preview is ready. Review the suggested tags and safety rating before applying.')
     showAutoTagModal.value = true
   } catch (e) {
-    alert('Failed to preview AI tags: ' + e.message)
+    beginAutoTagStage('failed', e.message)
+    alert(`Failed to preview AI tags: ${e.message}\n\nLarge Qwen runs can take a while. If the backend is still healthy, try again after the model finishes loading.`)
   } finally {
     autoTagLoading.value = false
+    showAutoProcessModal.value = false
+    stopAutoTagTimer()
   }
 }
 
@@ -475,38 +569,49 @@ function enabledModelRows() {
 async function loadEnabledAutoTagModels() {
   for (const model of enabledModelRows()) {
     if (!model.downloaded || !model.runtimeAvailable || model.loaded) continue
-    await loadAutoTagWeights(model.id)
+    await loadAutoTagWeights(model.id, { keepOpen: true })
   }
 }
 
-async function loadAutoTagWeights(modelId = 'wd') {
-  showAutoLoadModal.value = true
-  autoLoadElapsed.value = 0
-  autoLoadJob.value = await api.loadAutoTagModelById(modelId)
-  const startedAt = Number(autoLoadJob.value?.startedAt || Date.now() / 1000)
-  autoLoadTickTimer = setInterval(() => {
-    autoLoadElapsed.value = Math.max(0, Math.round(Date.now() / 1000 - startedAt))
-  }, 500)
-  await new Promise((resolve, reject) => {
-    autoLoadPollTimer = setInterval(async () => {
-      try {
-        autoLoadJob.value = await api.getAutoTagModelLoadJob()
-        if (!autoLoadJob.value || !['queued', 'running'].includes(autoLoadJob.value.status)) {
-          stopAutoLoadPolling()
-          if (autoLoadJob.value?.status === 'failed') {
-            reject(new Error(autoLoadJob.value.error || 'Model load failed'))
-            return
+async function loadAutoTagWeights(modelId = 'wd', options = {}) {
+  const keepOpen = Boolean(options.keepOpen)
+  const message = `Starting ${modelLabel(modelId)} model load.`
+  if (showAutoProcessModal.value) {
+    beginAutoTagStage('loading', message)
+  } else {
+    beginAutoTagProcess('loading', message)
+  }
+  try {
+    autoLoadJob.value = await api.loadAutoTagModelById(modelId)
+    if (autoLoadJob.value?.message) autoTagStageMessage.value = autoLoadJob.value.message
+    await new Promise((resolve, reject) => {
+      autoLoadPollTimer = setInterval(async () => {
+        try {
+          autoLoadJob.value = await api.getAutoTagModelLoadJob()
+          if (autoLoadJob.value?.message) {
+            autoTagStageMessage.value = autoLoadJob.value.message
           }
-          resolve()
+          if (!autoLoadJob.value || !['queued', 'running'].includes(autoLoadJob.value.status)) {
+            stopAutoLoadPolling()
+            if (autoLoadJob.value?.status === 'failed') {
+              reject(new Error(autoLoadJob.value.error || 'Model load failed'))
+              return
+            }
+            resolve()
+          }
+        } catch (e) {
+          stopAutoLoadPolling()
+          reject(e)
         }
-      } catch (e) {
-        stopAutoLoadPolling()
-        reject(e)
-      }
-    }, 700)
-  })
-  showAutoLoadModal.value = false
-  autoTagStatus.value = await api.getAutoTagStatus()
+      }, 700)
+    })
+    autoTagStatus.value = await api.getAutoTagStatus()
+  } finally {
+    if (!keepOpen) {
+      showAutoProcessModal.value = false
+      stopAutoTagTimer()
+    }
+  }
 }
 
 async function unloadAutoTagWeights(modelId) {
@@ -528,9 +633,62 @@ async function unloadAutoTagWeights(modelId) {
 
 function stopAutoLoadPolling() {
   if (autoLoadPollTimer) clearInterval(autoLoadPollTimer)
-  if (autoLoadTickTimer) clearInterval(autoLoadTickTimer)
   autoLoadPollTimer = null
-  autoLoadTickTimer = null
+}
+
+function beginAutoTagProcess(stage, message) {
+  showAutoProcessModal.value = true
+  autoLoadJob.value = null
+  autoTagRunStartedAt.value = Date.now()
+  autoTagRunElapsed.value = 0
+  beginAutoTagStage(stage, message)
+  stopAutoTagTimer()
+  autoTagTickTimer = setInterval(() => {
+    autoTagRunElapsed.value = Math.max(0, Math.round((Date.now() - autoTagRunStartedAt.value) / 1000))
+  }, 500)
+}
+
+function beginAutoTagStage(stage, message) {
+  autoTagStage.value = stage
+  autoTagStageMessage.value = message || ''
+  if (stage !== 'loading') {
+    autoLoadJob.value = null
+  }
+}
+
+function stopAutoTagTimer() {
+  if (autoTagTickTimer) clearInterval(autoTagTickTimer)
+  autoTagTickTimer = null
+}
+
+function stepState(completedStages, activeStage) {
+  if (completedStages.includes(autoTagStage.value)) return 'completed'
+  if (autoTagStage.value === activeStage) return 'active'
+  if (autoTagStage.value === 'failed') return 'failed'
+  return 'pending'
+}
+
+function modelLabel(modelId) {
+  return postModelRows.value.find((model) => model.id === modelId)?.name || 'AI'
+}
+
+function currentPreviewEstimateSeconds() {
+  const ids = selectedAutoTagModelRows.value.map((model) => model.id)
+  let estimate = mediaType.value === 'video' ? 45 : 20
+  if (ids.includes('qwen')) estimate += mediaType.value === 'video' ? 150 : 90
+  if (ids.includes('whisper')) estimate += 45
+  if (ids.includes('ocr')) estimate += 20
+  if (ids.includes('camie')) estimate += 20
+  return estimate
+}
+
+function analysisDetail() {
+  const names = selectedAutoTagModelRows.value.map((model) => model.name)
+  const joined = names.length ? names.join(', ') : 'selected models'
+  if (mediaType.value === 'video') {
+    return `Sampling frames and running ${joined}. Qwen or audio transcript passes may run longer.`
+  }
+  return `Running ${joined} against this image and preparing tag evidence.`
 }
 
 async function applyAutoTags() {
@@ -699,6 +857,30 @@ function formatDate(dateStr) {
   width: 100%;
 }
 
+.ai-inline-status {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+}
+
+.ai-inline-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.ai-inline-status-head span,
+.ai-inline-status small {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+}
+
 .ai-model-picker {
   margin-top: 0.75rem;
   border: 1px solid var(--border);
@@ -787,6 +969,100 @@ function formatDate(dateStr) {
 .auto-summary {
   margin-bottom: 0.75rem;
   color: var(--text-secondary);
+}
+
+.ai-process-modal {
+  width: 520px;
+}
+
+.ai-process-steps {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+
+.ai-process-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.7rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+}
+
+.ai-process-step strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  margin-bottom: 0.15rem;
+}
+
+.ai-process-step small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.step-dot {
+  width: 11px;
+  height: 11px;
+  margin-top: 0.2rem;
+  border-radius: 999px;
+  background: var(--border);
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.08);
+}
+
+.ai-process-step.active .step-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.ai-process-step.completed .step-dot {
+  background: #4ade80;
+  box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.13);
+}
+
+.ai-process-step.failed .step-dot {
+  background: #f87171;
+  box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.14);
+}
+
+.ai-selected-models {
+  padding: 0.8rem;
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+}
+
+.ai-selected-models > strong {
+  display: block;
+  margin-bottom: 0.55rem;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.ai-selected-models ul {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-selected-models li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.ai-selected-models small {
+  color: var(--text-secondary);
+  text-align: right;
 }
 
 .safety-review {
@@ -952,6 +1228,12 @@ function formatDate(dateStr) {
   border-radius: 5px;
   overflow: hidden;
   margin: 1rem 0 0.5rem;
+}
+
+.auto-progress.compact {
+  height: 7px;
+  margin: 0 0 0.45rem;
+  background: rgba(148, 163, 184, 0.18);
 }
 
 .auto-progress-fill {
