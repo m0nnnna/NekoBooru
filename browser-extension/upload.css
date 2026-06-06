@@ -327,6 +327,15 @@ select:focus {
   cursor: default;
 }
 
+.btn.uploaded {
+  background: var(--success);
+  color: #102017;
+}
+
+.btn.uploaded:hover {
+  background: #a6d3bc;
+}
+
 .btn-block {
   width: 100%;
 }
@@ -452,24 +461,6 @@ select:focus {
   font-size: 0.7rem;
   font-weight: 700;
   cursor: help;
-}
-
-.ai-review {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.75rem;
-  align-items: center;
-  margin-top: 0.75rem;
-  padding: 0.75rem;
-  border: 1px solid rgba(143, 196, 170, 0.45);
-  border-radius: 0.5rem;
-  background: rgba(143, 196, 170, 0.1);
-}
-
-.ai-review small {
-  display: block;
-  color: var(--text-secondary);
-  font-size: 0.78rem;
 }
 
 .ai-preview-card {

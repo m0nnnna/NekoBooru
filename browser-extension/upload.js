@@ -23,8 +23,6 @@ const els = {
   submit: document.getElementById('submit'),
   aiModelPicker: document.getElementById('ai-model-picker'),
   aiModelList: document.getElementById('ai-model-list'),
-  aiReview: document.getElementById('ai-review'),
-  applyAi: document.getElementById('apply-ai'),
   aiPreview: document.getElementById('ai-preview'),
   aiPreviewSafety: document.getElementById('ai-preview-safety'),
   aiPreviewTags: document.getElementById('ai-preview-tags'),
@@ -66,7 +64,6 @@ async function init() {
 
   els.submit.addEventListener('click', doUpload)
   els.aiTag.addEventListener('click', runAiTag)
-  els.applyAi.addEventListener('click', applyAiTags)
 }
 
 function renderPreview() {
@@ -295,6 +292,11 @@ function setStatus(message, kind) {
 }
 
 async function doUpload() {
+  if (createdPost?.id) {
+    window.open(`${instanceUrl}/post/${createdPost.id}`, '_blank')
+    return
+  }
+
   els.submit.disabled = true
   els.aiTag.disabled = true
   setStatus('Fetching media...', 'working')
@@ -306,8 +308,7 @@ async function doUpload() {
 
     setStatus('Uploaded to NekoBooru.', 'success')
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
-
-    appendViewPostLink(post)
+    convertUploadButtonToPostLink(post)
   } catch (e) {
     setStatus('Upload failed: ' + e.message, 'error')
     notify('NekoBooru upload failed', e.message)
@@ -365,7 +366,6 @@ async function updateCreatedPost() {
 async function runAiTag() {
   els.aiTag.disabled = true
   els.submit.disabled = true
-  els.aiReview.classList.add('hidden')
   els.aiPreview.classList.add('hidden')
   autoTagSuggestion = null
 
@@ -407,8 +407,7 @@ async function runAiTag() {
     setTags(autoTagSuggestion.suggestedTags || tags)
     els.safety.value = autoTagSuggestion.suggestedSafety || els.safety.value || 'safe'
     renderAiPreview(autoTagSuggestion)
-    els.aiReview.classList.remove('hidden')
-    setStatus('AI tag preview ready. Use the suggestions or keep editing before upload.', 'success')
+    setStatus('AI suggestions are in the form. Review or edit them, then upload.', 'success')
   } catch (e) {
     setStatus('AI tag failed: ' + e.message, 'error')
     notify('NekoBooru AI tag failed', e.message)
@@ -500,37 +499,12 @@ function formatScoreMap(map) {
     .join(', ')
 }
 
-async function applyAiTags() {
-  if (!autoTagSuggestion) return
-  els.applyAi.disabled = true
-  els.aiTag.disabled = true
-  els.submit.disabled = true
-
-  try {
-    setTags(autoTagSuggestion.suggestedTags || tags)
-    els.safety.value = autoTagSuggestion.suggestedSafety || els.safety.value || 'safe'
-    els.aiReview.classList.add('hidden')
-    setStatus('AI suggestions are in the form. Press Upload to create the post.', 'success')
-  } catch (e) {
-    setStatus('Failed to use AI tags: ' + e.message, 'error')
-  } finally {
-    els.applyAi.disabled = false
-    els.aiTag.disabled = false
-    els.submit.disabled = false
-  }
-}
-
-function appendViewPostLink(post) {
+function convertUploadButtonToPostLink(post) {
   if (!post?.id) return
-  const existing = els.status.querySelector('.view-link')
-  if (existing) existing.remove()
-  const link = document.createElement('a')
-  link.href = `${instanceUrl}/post/${post.id}`
-  link.target = '_blank'
-  link.textContent = 'Visit post'
-  link.className = 'view-link'
-  els.status.appendChild(document.createElement('br'))
-  els.status.appendChild(link)
+  els.submit.disabled = false
+  els.submit.textContent = 'Open Post in NekoBooru'
+  els.submit.classList.add('uploaded')
+  els.aiTag.disabled = true
 }
 
 async function loadAutoTagControls() {
