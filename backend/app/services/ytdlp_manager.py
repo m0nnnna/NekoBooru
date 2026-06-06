@@ -133,6 +133,8 @@ async def _run_update(target: str) -> None:
     _job.started_at = datetime.utcnow().isoformat()
     package = "yt-dlp" if target == "latest" else f"yt-dlp=={target}"
     cmd = [sys.executable, "-m", "pip", "install", "--upgrade", package]
+    if target == "latest":
+        cmd.extend(["--upgrade-strategy", "eager"])
     try:
         proc = await asyncio.to_thread(
             subprocess.run,

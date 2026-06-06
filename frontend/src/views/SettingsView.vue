@@ -119,17 +119,21 @@
 
       <div class="ytdlp-panel">
         <div class="config-panel-head">
-          <h3>yt-dlp Runtime</h3>
-          <p>Control the backend yt-dlp version used by extension and URL video downloads.</p>
+          <h3>yt-dlp Video Downloader</h3>
+          <p>Used for X/Twitter, YouTube, Reddit, and other page-based video URLs. Direct media files do not need this.</p>
         </div>
         <div class="ytdlp-status-grid">
           <div>
-            <span>Installed</span>
-            <strong>{{ ytdlpStatus.version || 'Not installed' }}</strong>
+            <span>Runtime</span>
+            <strong :class="ytdlpStatus.installed ? 'model-ok' : 'model-missing'">
+              {{ ytdlpStatus.installed ? 'Ready' : 'Not installed' }}
+            </strong>
+            <small>{{ ytdlpStatus.version || 'Install yt-dlp in the backend venv' }}</small>
           </div>
           <div>
-            <span>Update job</span>
-            <strong>{{ ytdlpStatus.job?.status || 'idle' }}</strong>
+            <span>Last update</span>
+            <strong :class="ytdlpJobClass">{{ ytdlpJobLabel }}</strong>
+            <small>{{ ytdlpJobDetail }}</small>
           </div>
         </div>
         <p class="help-text">
@@ -141,18 +145,23 @@
 
         <div class="ytdlp-controls">
           <label class="field-row">
-            <span>Startup update policy</span>
+            <span>Automatic update on backend start</span>
             <select v-model="ytdlpSettings.updatePolicy">
-              <option value="manual">Manual only</option>
-              <option value="startup_latest">Update to latest on backend start</option>
-              <option value="startup_pinned">Install pinned version on backend start</option>
+              <option value="manual">Off - update manually</option>
+              <option value="startup_latest">Always install latest</option>
+              <option value="startup_pinned">Always install pinned version</option>
             </select>
           </label>
           <label class="field-row">
-            <span>Pinned version</span>
+            <span>Pinned version for rollback</span>
             <input v-model="ytdlpSettings.pinnedVersion" type="text" placeholder="Example: 2026.03.17" />
           </label>
         </div>
+        <p class="help-text">
+          Most failures are site/login/cookie issues, not an installed-runtime issue. Use
+          <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noreferrer">yt-dlp releases</a>
+          to pick a known-good pinned version when latest breaks.
+        </p>
 
         <div v-if="ytdlpMessage.show" class="cookies-status" :class="ytdlpMessage.success ? 'success' : 'error'">
           <p><strong>{{ ytdlpMessage.message }}</strong></p>
@@ -173,7 +182,7 @@
             Refresh
           </button>
           <button class="btn btn-secondary" @click="startYtdlpUpdate('latest')" :disabled="ytdlpBusy">
-            Update Latest
+            Install Latest
           </button>
           <button
             class="btn btn-secondary"
@@ -777,6 +786,34 @@ const canViewPreview = computed(() =>
 const canApplyPreview = computed(() =>
   !!autoTagJob.value?.dryRun && autoTagJob.value.status === 'completed' && !autoTagJobRunning.value
 )
+
+const ytdlpJobLabel = computed(() => {
+  const status = ytdlpStatus.value.job?.status || 'idle'
+  if (['queued', 'running'].includes(status)) return 'Updating'
+  if (status === 'completed') return 'Updated'
+  if (status === 'failed') return 'Needs attention'
+  return 'No update running'
+})
+
+const ytdlpJobDetail = computed(() => {
+  const job = ytdlpStatus.value.job || {}
+  if (['queued', 'running'].includes(job.status)) return `Installing ${job.target || 'latest'}...`
+  if (job.status === 'completed') {
+    const after = job.after_version || ytdlpStatus.value.version
+    return after ? `Installed ${after}` : 'Update completed'
+  }
+  if (job.status === 'failed') {
+    return job.error || (job.output ? 'Open pip output for details' : 'Previous update failed before details were captured')
+  }
+  return ytdlpStatus.value.installed ? 'Manual updates are available below' : 'Install yt-dlp to enable page-based video downloads'
+})
+
+const ytdlpJobClass = computed(() => {
+  const status = ytdlpStatus.value.job?.status || 'idle'
+  if (status === 'completed') return 'model-ok'
+  if (status === 'failed') return 'model-missing'
+  return ''
+})
 
 const autoTagProgressPercent = computed(() => {
   if (!autoTagJob.value || !autoTagJob.value.total) return 0
@@ -1635,7 +1672,7 @@ function startYtdlpPolling() {
           success: result.job?.status === 'completed',
           message: result.job?.status === 'completed'
             ? `yt-dlp is now ${result.version || 'updated'}. Restart the backend if a downloader was already mid-run.`
-            : `yt-dlp update failed: ${result.job?.error || 'unknown error'}`,
+            : `yt-dlp update failed: ${result.job?.error || (result.job?.output ? 'open pip output for details' : 'no error details were captured')}`,
         }
       }
     } catch (e) {
