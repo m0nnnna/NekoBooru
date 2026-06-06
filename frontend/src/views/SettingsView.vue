@@ -780,6 +780,38 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showPreviewModal" class="modal-overlay" @click.self="showPreviewModal = false">
+      <div class="preview-modal">
+        <div class="modal-head">
+          <div>
+            <h2>Preview Suggestions</h2>
+            <p>{{ previewSuggestions.length }} suggestion{{ previewSuggestions.length === 1 ? '' : 's' }} from job #{{ autoTagJob?.id }}</p>
+          </div>
+          <button class="btn btn-secondary" @click="showPreviewModal = false">Close</button>
+        </div>
+        <div v-if="previewLoading" class="stats-loading">Loading suggestions...</div>
+        <div v-else-if="!previewSuggestions.length" class="empty-preview">
+          No saved suggestions found for this preview job.
+        </div>
+        <div v-else class="preview-list">
+          <div v-for="suggestion in previewSuggestions" :key="suggestion.id" class="preview-row">
+            <div class="preview-row-head">
+              <strong>Post #{{ suggestion.postId }}</strong>
+              <span :class="suggestion.error ? 'model-missing' : 'model-ok'">{{ suggestion.error ? 'error' : suggestion.status }}</span>
+            </div>
+            <div class="preview-tags">
+              <span v-for="tag in suggestion.suggestedTags.slice(0, 18)" :key="tag">{{ tag }}</span>
+              <em v-if="suggestion.suggestedTags.length > 18">+{{ suggestion.suggestedTags.length - 18 }} more</em>
+            </div>
+            <p>
+              Safety: <strong>{{ suggestion.suggestedSafety || 'unchanged' }}</strong>
+              <span v-if="suggestion.error"> · {{ suggestion.error }}</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -2577,61 +2609,6 @@ function startYtdlpPolling() {
 
 .bulk-action-group.danger-zone {
   border-color: rgba(248, 113, 113, 0.35);
-}
-
-.action-tooltip {
-  position: relative;
-}
-
-.action-tooltip::after {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 10px);
-  z-index: 30;
-  display: block;
-  width: max-content;
-  max-width: min(360px, 72vw);
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 0.45rem;
-  background: #111827;
-  color: #f8fafc;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
-  content: attr(data-tooltip);
-  font-size: 0.78rem;
-  font-weight: 500;
-  line-height: 1.4;
-  text-align: left;
-  white-space: normal;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, 4px);
-  transition: opacity 0.12s ease, transform 0.12s ease;
-}
-
-.action-tooltip:hover::after,
-.action-tooltip:focus-visible::after {
-  opacity: 1;
-  transform: translate(-50%, 0);
-}
-
-.bulk-defaults-note {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.75rem;
-  align-items: center;
-  margin-top: 0.85rem;
-  padding: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font-size: 0.83rem;
-  line-height: 1.45;
-}
-
-.bulk-defaults-note strong {
-  color: var(--text-primary);
 }
 
 .action-tooltip {
