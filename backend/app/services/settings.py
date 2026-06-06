@@ -46,6 +46,46 @@ class SettingsManager:
         settings['data_dir'] = data_dir
         self.save_settings(settings)
 
+    def get_auto_tag_settings(self) -> dict:
+        """Get persisted auto-tag settings."""
+        settings = self.load_settings()
+        return dict(settings.get("auto_tagging") or {})
+
+    def set_auto_tag_settings(self, auto_tagging: dict) -> None:
+        """Persist auto-tag settings without disturbing other settings."""
+        settings = self.load_settings()
+        settings["auto_tagging"] = auto_tagging
+        self.save_settings(settings)
+
+    def get_ytdlp_settings(self) -> dict:
+        """Get persisted yt-dlp update settings."""
+        settings = self.load_settings()
+        return dict(settings.get("ytdlp") or {})
+
+    def set_ytdlp_settings(self, ytdlp: dict) -> None:
+        """Persist yt-dlp update settings without disturbing other settings."""
+        settings = self.load_settings()
+        settings["ytdlp"] = ytdlp
+        self.save_settings(settings)
+
+    def get_huggingface_token(self) -> Optional[str]:
+        """Get the locally stored Hugging Face token, if configured."""
+        settings = self.load_settings()
+        token = settings.get("huggingface_token")
+        return str(token) if token else None
+
+    def set_huggingface_token(self, token: str) -> None:
+        """Persist a Hugging Face token locally."""
+        settings = self.load_settings()
+        settings["huggingface_token"] = token.strip()
+        self.save_settings(settings)
+
+    def delete_huggingface_token(self) -> None:
+        """Remove the locally stored Hugging Face token."""
+        settings = self.load_settings()
+        settings.pop("huggingface_token", None)
+        self.save_settings(settings)
+
     def normalize_path(self, path_str: str) -> str:
         """Normalize path for cross-platform compatibility."""
         # Convert to Path object to handle both Windows and Unix paths

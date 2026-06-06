@@ -41,6 +41,13 @@
       <span class="paste-hint">Tap to paste a copied video link or image (handy on mobile)</span>
     </div>
 
+    <div class="upload-options">
+      <label class="checkbox-row">
+        <input type="checkbox" v-model="autoTagUploads" />
+        <span>Auto-tag new uploads</span>
+      </label>
+    </div>
+
     <!-- Upload Progress Banner -->
     <div v-if="uploadProgress.total > 0" class="progress-banner" :class="{ done: uploadProgress.done }">
       <div class="progress-bar">
@@ -148,6 +155,7 @@ const successMessage = ref('')
 const fetchingUrl = ref(false)
 const fetchingVideo = ref(false)
 const fetchingFediverse = ref(false)
+const autoTagUploads = ref(false)
 let uploadIdCounter = 0
 
 // Paste event handler
@@ -547,6 +555,7 @@ async function uploadAll() {
         tags: upload.tags,
         safety: upload.safety,
         source: upload.source || null,
+        autoTag: autoTagUploads.value,
       })
 
       upload.completed = true
@@ -657,6 +666,22 @@ async function uploadAll() {
 .paste-hint {
   font-size: 0.8rem;
   color: var(--text-secondary);
+}
+
+.upload-options {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-primary);
+  font-size: 0.9rem;
 }
 
 @media (max-width: 480px) {

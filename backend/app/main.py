@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 
 from .config import settings, get_bundle_dir
 from .database import init_db
-from .routers import uploads, posts, tags, pools, notes, comments, sync, settings as settings_router
+from .routers import uploads, posts, tags, pools, notes, comments, sync, auto_tags, settings as settings_router
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +25,9 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     # Initialize database
     await init_db()
+    from .services import ytdlp_manager
+
+    await ytdlp_manager.maybe_update_on_startup()
     yield
 
 
@@ -35,11 +38,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
+# CORS middleware. Restricted to local origins by default (see
+# settings.cors_origins). The app uses no cookies/auth, so credentials are not
+# allowed; widen NEKO_CORS_ORIGINS only if you deliberately serve the web UI to
+# another device's browser.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict this
-    allow_credentials=True,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -52,6 +58,7 @@ app.include_router(pools.router)
 app.include_router(notes.router)
 app.include_router(comments.router)
 app.include_router(sync.router)
+app.include_router(auto_tags.router)
 app.include_router(settings_router.router)
 
 
@@ -113,8 +120,9 @@ def find_frontend_path():
     bundle_dir = get_bundle_dir()
 
     possible_paths = [
-        bundle_dir / "frontend",                                     # PyInstaller bundle or build distribution
         Path(__file__).parent.parent.parent / "frontend" / "dist",   # Development: backend/../frontend/dist
+        bundle_dir / "frontend" / "dist",                            # PyInstaller/dev bundle with dist nested
+        bundle_dir / "frontend",                                     # PyInstaller bundle or build distribution
         Path(__file__).parent.parent.parent / "frontend",            # Build: nekobooru-windows/frontend
         Path(__file__).parent.parent / "frontend",                   # Alternative build path
         Path(__file__).parent.parent / "frontend" / "dist",          # Alternative dev path

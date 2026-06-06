@@ -24,8 +24,8 @@ if not exist "node_modules" (
 echo.
 echo Starting Vue.js dev server...
 echo.
-echo   Frontend: http://localhost:3000
-echo   (API proxied to http://localhost:8000)
+echo   Frontend: http://localhost:5173
+echo   (API proxied to http://localhost:8772)
 echo.
 echo   Press Ctrl+C to stop
 echo.

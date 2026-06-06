@@ -9,3 +9,6 @@ pydantic>=2.5.0
 pydantic-settings>=2.1.0
 httpx>=0.27.0
 yt-dlp>=2024.0.0
+
+# AI auto-tagging runtime. This pulls in larger ML packages such as torch.
+-r requirements-tagger.txt

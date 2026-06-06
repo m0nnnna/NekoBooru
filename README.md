@@ -79,8 +79,8 @@ chmod +x start.sh
 ```
 
 ### Access
-- Frontend: http://localhost:3000 (dev) or http://localhost:8000 (prod)
-- API Docs: http://localhost:8000/docs
+- Frontend: http://localhost:5173 (dev) or http://localhost:8772 (prod)
+- API Docs: http://localhost:8772/docs
 
 ## Manual Setup
 
@@ -156,7 +156,7 @@ Full API documentation is available at `/docs` when the server is running.
 
 ### Environment Variables
 ```bash
-NEKO_PORT=8000      # Backend port
+NEKO_PORT=8772      # Backend port
 NEKO_HOST=0.0.0.0   # Backend host
 NEKO_DEBUG=True     # Debug mode
 ```

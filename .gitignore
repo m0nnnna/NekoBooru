@@ -12,6 +12,10 @@ node_modules/
 npm-debug.log*
 yarn-error.log*
 
+# Local env overrides (machine-specific, e.g. dev proxy backend port)
+.env.local
+.env.*.local
+
 # PyInstaller build intermediates (root)
 /build/
 
@@ -20,6 +24,8 @@ yarn-error.log*
 
 # Runtime data: database, uploads, thumbnails, posts
 /data/
+/config/
+/logs/
 
 # OS / editor cruft
 .DS_Store

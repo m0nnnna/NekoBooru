@@ -5,8 +5,8 @@ echo ========================================
 echo.
 echo This will start both backend and frontend servers.
 echo.
-echo   Backend API: http://localhost:8000
-echo   Frontend:    http://localhost:3000
+echo   Backend API: http://localhost:8772
+echo   Frontend:    http://localhost:5173
 echo.
 echo Press Ctrl+C to stop both servers
 echo.
@@ -44,8 +44,8 @@ start "NekoBooru Frontend" cmd /k "start-frontend.bat"
 echo.
 echo Both servers are starting in separate windows.
 echo.
-echo   Backend API: http://localhost:8000
-echo   Frontend:    http://localhost:3000
+echo   Backend API: http://localhost:8772
+echo   Frontend:    http://localhost:5173
 echo.
 echo Close the windows or press Ctrl+C in each to stop the servers.
 echo.
