@@ -142,42 +142,11 @@ function installXButtonStyle() {
       transition: background-color 120ms ease, color 120ms ease;
       vertical-align: middle;
     }
-    .nekobooru-x-download-mark {
+    .nekobooru-x-download svg {
       display: block;
       height: 22px;
-      position: relative;
       width: 22px;
-    }
-    .nekobooru-x-download-mark::before {
-      border-bottom: 2px solid currentColor;
-      border-right: 2px solid currentColor;
-      content: "";
-      height: 7.5px;
-      left: 6.25px;
-      position: absolute;
-      top: 6.5px;
-      transform: rotate(45deg);
-      width: 7.5px;
-    }
-    .nekobooru-x-download-mark::after {
-      border: 2px solid currentColor;
-      border-top: 0;
-      border-radius: 0 0 4px 4px;
-      bottom: 0;
-      content: "";
-      height: 7px;
-      left: 2px;
-      position: absolute;
-      width: 18px;
-    }
-    .nekobooru-x-download-stem {
-      background: currentColor;
-      border-radius: 999px;
-      height: 11px;
-      left: 10px;
-      position: absolute;
-      top: 2px;
-      width: 2px;
+      stroke: currentColor;
     }
     .nekobooru-x-download:hover {
       background: rgba(29, 155, 240, 0.12);
@@ -216,13 +185,12 @@ function injectXButton(article) {
   button.className = 'nekobooru-x-download'
   button.title = 'Download to NekoBooru'
   button.setAttribute('aria-label', 'Download to NekoBooru')
-  const mark = document.createElement('span')
-  mark.className = 'nekobooru-x-download-mark'
-  mark.setAttribute('aria-hidden', 'true')
-  const stem = document.createElement('span')
-  stem.className = 'nekobooru-x-download-stem'
-  mark.appendChild(stem)
-  button.appendChild(mark)
+  button.innerHTML = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12.1 3.4v11.2m0 0-4.8-4.45m4.8 4.45 4.65-4.45"></path>
+      <path d="M4.9 14.7v2.75c0 1.45 1.05 2.55 2.45 2.55h9.35c1.4 0 2.45-1.1 2.45-2.55V14.7"></path>
+    </svg>
+  `
   button.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
