@@ -55,11 +55,26 @@ const PLAYER_OVERLAY_PATTERNS = [
 // yt-dlp.
 let lastCursor = null
 let lastHasVideo = false
+let lastPostUrl = ''
 
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg && msg.type === 'nekobooru-cursor') {
     lastCursor = { x: msg.x, y: msg.y }
     lastHasVideo = !!msg.hasVideo
+    lastPostUrl = typeof msg.postUrl === 'string' ? msg.postUrl : ''
+    return
+  }
+
+  if (msg && msg.type === 'nekobooru-open-upload') {
+    const target = msg.src || msg.page || ''
+    if (!target) return
+    const params = new URLSearchParams({
+      src: target,
+      page: msg.page || target,
+      type: msg.mediaType || 'video',
+      fetch: msg.fetch || 'link',
+    })
+    openPopup('upload.html', params, sender.tab)
   }
 })
 
@@ -117,7 +132,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
   if (useYtdlp) {
     const linked = info.linkUrl && isVideoPlatformUrl(info.linkUrl) ? info.linkUrl : ''
-    const target = linked || pageUrl
+    const contextualPost = lastPostUrl && isVideoPlatformUrl(lastPostUrl) ? lastPostUrl : ''
+    const target = linked || contextualPost || pageUrl
     if (!target) return
     const params = new URLSearchParams({
       src: target,
