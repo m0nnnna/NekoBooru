@@ -475,6 +475,22 @@ function hideModelTooltip() {
   modelTooltip.value.visible = false
 }
 
+function showModelTooltip(event, text) {
+  const rect = event.currentTarget.getBoundingClientRect()
+  const tooltipWidth = 300
+  const gap = 10
+  modelTooltip.value = {
+    visible: true,
+    text,
+    top: Math.max(12, rect.top - 8),
+    left: Math.max(12, Math.min(window.innerWidth - tooltipWidth - 12, rect.left - tooltipWidth - gap)),
+  }
+}
+
+function hideModelTooltip() {
+  modelTooltip.value.visible = false
+}
+
 function evidenceRows(model) {
   const evidence = model.evidence || {}
   const rows = []
