@@ -333,7 +333,7 @@ select:focus {
 
 .upload-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.72fr);
+  grid-template-columns: minmax(150px, 0.72fr) minmax(0, 1fr);
   gap: 0.6rem;
   margin-bottom: 0.75rem;
 }
@@ -351,13 +351,34 @@ select:focus {
 
 .ai-model-picker summary {
   display: grid;
-  gap: 0.15rem;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 0.15rem 0.4rem;
+  align-items: center;
   padding: 0.75rem;
   cursor: pointer;
   font-weight: 700;
+  list-style: none;
+}
+
+.ai-model-picker summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary-chevron {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-right: 2px solid var(--text-secondary);
+  border-bottom: 2px solid var(--text-secondary);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.ai-model-picker[open] .summary-chevron {
+  transform: rotate(45deg);
 }
 
 .ai-model-picker summary small {
+  grid-column: 2;
   color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 400;

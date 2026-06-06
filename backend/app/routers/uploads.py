@@ -28,6 +28,12 @@ class UrlFetchRequest(BaseModel):
 class FediverseRequest(BaseModel):
     url: str
 
+
+class UploadAutoTagPreviewRequest(BaseModel):
+    tags: list[str] = []
+    safety: str = "safe"
+    settings: dict = {}
+
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
 # In-memory store for upload tokens (maps token -> temp file path)
@@ -114,6 +120,32 @@ async def auto_tags_for_upload(token: str):
         "characterTags": result.character_tags,
         "rating": result.rating,
         "safety": result.safety,
+        "error": result.error,
+    }
+
+
+@router.post("/{token}/auto-tags/preview")
+async def preview_auto_tags_for_upload(token: str, request: UploadAutoTagPreviewRequest):
+    """Preview AI tag suggestions for a temporary upload token without creating a post."""
+    temp_path = get_upload_path(token)
+    if not temp_path or not temp_path.exists():
+        raise HTTPException(status_code=404, detail="Invalid or expired content token")
+
+    from ..services.auto_tag_jobs import _tag_media_async
+    from ..services.auto_tagger import load_options, merge_with_existing, promote_safety, validate_options
+
+    opts = validate_options({**load_options().__dict__, **(request.settings or {})})
+    result = await _tag_media_async(temp_path, opts)
+    merged_tags, categories = merge_with_existing(request.tags or [], result, opts)
+
+    return {
+        "postId": None,
+        "existingTags": request.tags or [],
+        "suggestedTags": merged_tags,
+        "suggestedSafety": promote_safety(request.safety or "safe", result.safety, opts),
+        "categories": categories,
+        "evidence": result.evidence,
+        "model": result.model,
         "error": result.error,
     }
 

@@ -45,8 +45,8 @@
       </div>
 
       <div class="upload-actions">
-        <button id="submit" class="btn">Upload to NekoBooru</button>
         <button id="ai-tag" class="btn btn-secondary">Preview AI Tags</button>
+        <button id="submit" class="btn">Upload to NekoBooru</button>
       </div>
 
       <div id="ai-preview" class="ai-preview-card hidden">
@@ -63,14 +63,15 @@
 
       <div id="ai-review" class="ai-review hidden">
         <div>
-          <strong>Ready to apply</strong>
-          <small>Review the tags, rating, and evidence above before writing them to the created post.</small>
+          <strong>Ready to use</strong>
+          <small>Apply these suggestions to this upload form. The post is only created when you press Upload.</small>
         </div>
-        <button id="apply-ai" class="btn">Apply AI Tags</button>
+        <button id="apply-ai" class="btn">Use AI Tags</button>
       </div>
 
       <details id="ai-model-picker" class="ai-model-picker">
         <summary>
+          <span class="summary-chevron" aria-hidden="true"></span>
           <span>Advanced AI model settings</span>
           <small>Choose which models run during AI preview and manage loaded weights.</small>
         </summary>

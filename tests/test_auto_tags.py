@@ -31,6 +31,20 @@ class AutoTagApiTests(unittest.TestCase):
         cls.tmp.cleanup()
 
     def _upload_image_post(self, tags=None, safety="safe"):
+        token = self._upload_image_token()
+        created = self.client.post(
+            "/api/posts",
+            json={
+                "contentToken": token,
+                "tags": tags or [],
+                "safety": safety,
+                "autoTag": False,
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        return created.json()
+
+    def _upload_image_token(self):
         from PIL import Image
 
         stamp = time.time_ns()
@@ -43,18 +57,7 @@ class AutoTagApiTests(unittest.TestCase):
                 files={"content": (image_path.name, fh, "image/png")},
             )
         self.assertEqual(upload.status_code, 200, upload.text)
-        token = upload.json()["token"]
-        created = self.client.post(
-            "/api/posts",
-            json={
-                "contentToken": token,
-                "tags": tags or [],
-                "safety": safety,
-                "autoTag": False,
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        return created.json()
+        return upload.json()["token"]
 
     def _enable_auto_tags(self):
         settings = self.client.get("/api/auto-tags/settings").json()
@@ -119,6 +122,25 @@ class AutoTagApiTests(unittest.TestCase):
         tag = self.client.get("/api/tags/hatsune_miku")
         self.assertEqual(tag.status_code, 200, tag.text)
         self.assertEqual(tag.json()["category"], "character")
+
+    def test_upload_token_preview_does_not_create_post(self):
+        self._enable_auto_tags()
+        token = self._upload_image_token()
+        before_total = self.client.get("/api/posts").json()["total"]
+
+        with patch("app.services.auto_tag_jobs.tag_media", return_value=self._fake_result()):
+            preview = self.client.post(
+                f"/api/uploads/{token}/auto-tags/preview",
+                json={"tags": ["manual_tag"], "safety": "safe", "settings": {}},
+            )
+
+        self.assertEqual(preview.status_code, 200, preview.text)
+        body = preview.json()
+        self.assertIsNone(body["postId"])
+        self.assertIn("manual_tag", body["suggestedTags"])
+        self.assertIn("red_eyes", body["suggestedTags"])
+        self.assertEqual(body["suggestedSafety"], "unsafe")
+        self.assertEqual(self.client.get("/api/posts").json()["total"], before_total)
 
     def test_bulk_preview_job_can_apply_saved_suggestions(self):
         self._enable_auto_tags()

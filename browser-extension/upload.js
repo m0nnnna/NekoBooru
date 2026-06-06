@@ -300,18 +300,14 @@ async function doUpload() {
   setStatus('Fetching media...', 'working')
 
   try {
-    const post = createdPost
-      ? await updateCreatedPost()
-      : await createPostFromPopup({})
+    const post = await createPostFromPopup({})
 
     await chrome.storage.sync.set({ lastSafety: els.safety.value })
 
-    setStatus('Uploaded to NekoBooru! Nyaa~', 'success')
+    setStatus('Uploaded to NekoBooru.', 'success')
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
 
     appendViewPostLink(post)
-
-    setTimeout(() => window.close(), 2500)
   } catch (e) {
     setStatus('Upload failed: ' + e.message, 'error')
     notify('NekoBooru upload failed', e.message)
@@ -375,9 +371,7 @@ async function runAiTag() {
 
   try {
     setStatus('Preparing media for AI tagging...', 'working')
-    if (!createdPost) {
-      await createPostFromPopup({ autoTag: false })
-    }
+    const token = await getContentToken()
 
     await loadAutoTagControls()
     if (!autoTagStatus.enabled) {
@@ -393,10 +387,14 @@ async function runAiTag() {
     await loadEnabledAutoTagModels()
 
     setStatus('Analyzing media...', 'working')
-    const res = await fetch(`${instanceUrl}/api/posts/${createdPost.id}/auto-tags/preview`, {
+    const res = await fetch(`${instanceUrl}/api/uploads/${encodeURIComponent(token)}/auto-tags/preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ settings: autoTagRunSettings() }),
+      body: JSON.stringify({
+        tags: parseTags(),
+        safety: els.safety.value,
+        settings: autoTagRunSettings(),
+      }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
@@ -410,7 +408,7 @@ async function runAiTag() {
     els.safety.value = autoTagSuggestion.suggestedSafety || els.safety.value || 'safe'
     renderAiPreview(autoTagSuggestion)
     els.aiReview.classList.remove('hidden')
-    setStatus('AI tag preview ready. Review tags and rating, then apply.', 'success')
+    setStatus('AI tag preview ready. Use the suggestions or keep editing before upload.', 'success')
   } catch (e) {
     setStatus('AI tag failed: ' + e.message, 'error')
     notify('NekoBooru AI tag failed', e.message)
@@ -503,33 +501,18 @@ function formatScoreMap(map) {
 }
 
 async function applyAiTags() {
-  if (!createdPost?.id || !autoTagSuggestion) return
+  if (!autoTagSuggestion) return
   els.applyAi.disabled = true
   els.aiTag.disabled = true
   els.submit.disabled = true
-  setStatus('Applying AI tags...', 'working')
 
   try {
-    const res = await fetch(`${instanceUrl}/api/posts/${createdPost.id}/auto-tags/apply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tags: parseTags(),
-        safety: els.safety.value,
-        categories: autoTagSuggestion.categories || {},
-        settings: autoTagRunSettings(),
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
-    createdPost = await res.json()
-    setStatus('AI tags applied to NekoBooru!', 'success')
-    notify('AI tags applied', 'Your NekoBooru post was updated.')
-    appendViewPostLink(createdPost)
+    setTags(autoTagSuggestion.suggestedTags || tags)
+    els.safety.value = autoTagSuggestion.suggestedSafety || els.safety.value || 'safe'
+    els.aiReview.classList.add('hidden')
+    setStatus('AI suggestions are in the form. Press Upload to create the post.', 'success')
   } catch (e) {
-    setStatus('Failed to apply AI tags: ' + e.message, 'error')
+    setStatus('Failed to use AI tags: ' + e.message, 'error')
   } finally {
     els.applyAi.disabled = false
     els.aiTag.disabled = false
@@ -539,10 +522,12 @@ async function applyAiTags() {
 
 function appendViewPostLink(post) {
   if (!post?.id) return
+  const existing = els.status.querySelector('.view-link')
+  if (existing) existing.remove()
   const link = document.createElement('a')
   link.href = `${instanceUrl}/post/${post.id}`
   link.target = '_blank'
-  link.textContent = 'View post'
+  link.textContent = 'Visit post'
   link.className = 'view-link'
   els.status.appendChild(document.createElement('br'))
   els.status.appendChild(link)
