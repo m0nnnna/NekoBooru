@@ -12,7 +12,9 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        // Backend address. Defaults to :8000; override with VITE_BACKEND
+        // (e.g. when :8000 is taken) — must match the backend's NEKO_PORT.
+        target: process.env.VITE_BACKEND || 'http://127.0.0.1:8000',
         changeOrigin: false,
         secure: false,
         ws: true,
