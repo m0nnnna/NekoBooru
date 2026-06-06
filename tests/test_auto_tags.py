@@ -307,6 +307,22 @@ class AutoTagUnitTests(unittest.TestCase):
 
         self.assertGreaterEqual(job["estimatedSeconds"], 90)
 
+    def test_torch_device_setting_validates_to_auto(self):
+        from app.services.auto_tagger import validate_options
+
+        opts = validate_options({"torchDevice": "space_laser"})
+
+        self.assertEqual(opts.torchDevice, "auto")
+
+    def test_qwen_device_map_respects_cpu_and_gpu_availability(self):
+        from app.services.auto_tagger import _qwen_device_map
+
+        self.assertEqual(_qwen_device_map("cpu"), "cpu")
+        with patch("app.services.auto_tagger._torch_runtime_info", return_value={"cudaAvailable": False}):
+            self.assertEqual(_qwen_device_map("auto"), "cpu")
+            with self.assertRaises(RuntimeError):
+                _qwen_device_map("gpu")
+
     def test_tag_media_async_offloads_blocking_work(self):
         from app.services.auto_tag_jobs import _tag_media_async
         from app.services.auto_tagger import AutoTagOptions, AutoTagResult

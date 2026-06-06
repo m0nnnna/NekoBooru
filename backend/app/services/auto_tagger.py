@@ -119,6 +119,7 @@ class AutoTagOptions:
     whisperEnabled: bool = False
     qwenEnabled: bool = False
     characterModelEnabled: bool = False
+    torchDevice: str = "auto"
     excludedTags: list[str] = field(default_factory=list)
     keywordRules: list[dict] = field(default_factory=list)
 
@@ -503,6 +504,7 @@ class QwenSemanticTagger:
         self._loaded = False
         self._processor = None
         self._model = None
+        self._device_preference = None
 
     def is_loaded(self) -> bool:
         return self._loaded
@@ -513,27 +515,39 @@ class QwenSemanticTagger:
             self._processor = None
             self._model = None
             self._loaded = False
+            self._device_preference = None
             _clear_torch_cache()
             return was_loaded
 
-    def ensure_loaded(self) -> bool:
+    def ensure_loaded(self, device_preference: str = "auto") -> bool:
         with self._lock:
-            if self._loaded:
+            device_preference = _normalize_torch_device(device_preference)
+            if self._loaded and self._device_preference == device_preference:
                 return True
+            if self._loaded:
+                self._processor = None
+                self._model = None
+                self._loaded = False
+                self._device_preference = None
+                _clear_torch_cache()
             from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration  # type: ignore
 
             repo_id = MODEL_REGISTRY["qwen"]["repoId"]
+            device_map = _qwen_device_map(device_preference)
             self._processor = AutoProcessor.from_pretrained(repo_id, token=huggingface_token())
             self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                 repo_id,
                 token=huggingface_token(),
-                device_map="auto",
+                device_map=device_map,
+                torch_dtype="auto",
             )
             self._loaded = True
+            self._device_preference = device_preference
             return True
 
-    def analyze_image(self, path: Path, context: dict | None = None) -> AutoTagResult:
-        self.ensure_loaded()
+    def analyze_image(self, path: Path, context: dict | None = None, opts: AutoTagOptions | None = None) -> AutoTagResult:
+        opts = opts or load_options()
+        self.ensure_loaded(opts.torchDevice)
         from qwen_vl_utils import process_vision_info  # type: ignore
 
         prompt = (
@@ -569,6 +583,27 @@ class QwenSemanticTagger:
             enabled=True,
         )
 
+    def device_info(self) -> dict:
+        info = {
+            "preference": self._device_preference,
+            "loaded": self._loaded,
+            "device": None,
+            "deviceMap": None,
+        }
+        if not self._model:
+            return info
+        try:
+            info["device"] = str(getattr(self._model, "device", None))
+        except Exception:
+            pass
+        try:
+            device_map = getattr(self._model, "hf_device_map", None)
+            if device_map:
+                info["deviceMap"] = {str(k): str(v) for k, v in device_map.items()}
+        except Exception:
+            pass
+        return info
+
 
 _camie_tagger = CamieTagger()
 _ocr_tagger = OcrTagger()
@@ -586,6 +621,61 @@ def _clear_torch_cache() -> None:
             torch.cuda.ipc_collect()
     except Exception:
         pass
+
+
+def _normalize_torch_device(value: str | None) -> str:
+    value = str(value or "auto").lower().strip()
+    if value not in {"auto", "gpu", "cpu"}:
+        return "auto"
+    return value
+
+
+def _torch_runtime_info() -> dict:
+    info = {
+        "available": find_spec("torch") is not None,
+        "version": None,
+        "cudaAvailable": False,
+        "cudaVersion": None,
+        "deviceCount": 0,
+        "devices": [],
+    }
+    if not info["available"]:
+        return info
+    try:
+        import torch  # type: ignore
+
+        info["version"] = str(getattr(torch, "__version__", "unknown"))
+        info["cudaAvailable"] = bool(torch.cuda.is_available())
+        info["cudaVersion"] = str(getattr(torch.version, "cuda", None))
+        info["deviceCount"] = int(torch.cuda.device_count()) if info["cudaAvailable"] else 0
+        devices = []
+        for idx in range(int(info["deviceCount"])):
+            props = torch.cuda.get_device_properties(idx)
+            devices.append({
+                "index": idx,
+                "name": torch.cuda.get_device_name(idx),
+                "totalMemoryGb": round(float(props.total_memory) / 1024**3, 2),
+                "allocatedGb": round(float(torch.cuda.memory_allocated(idx)) / 1024**3, 2),
+                "reservedGb": round(float(torch.cuda.memory_reserved(idx)) / 1024**3, 2),
+            })
+        info["devices"] = devices
+    except Exception as exc:  # noqa: BLE001
+        info["error"] = str(exc)
+    return info
+
+
+def _qwen_device_map(device_preference: str):
+    device_preference = _normalize_torch_device(device_preference)
+    torch_info = _torch_runtime_info()
+    if device_preference == "gpu":
+        if not torch_info.get("cudaAvailable"):
+            raise RuntimeError("GPU was selected, but this Python environment has CPU-only torch or CUDA is unavailable.")
+        return {"": 0}
+    if device_preference == "cpu":
+        return "cpu"
+    if torch_info.get("cudaAvailable"):
+        return "auto"
+    return "cpu"
 
 
 def default_options() -> AutoTagOptions:
@@ -642,6 +732,7 @@ def validate_options(raw: dict) -> AutoTagOptions:
         data["mergeMode"] = "append_new"
     if data["defaultBackfillMode"] not in {"untagged", "lightly_tagged", "all", "images", "videos", "selected"}:
         data["defaultBackfillMode"] = "lightly_tagged"
+    data["torchDevice"] = _normalize_torch_device(data.get("torchDevice"))
     if not isinstance(data["excludedTags"], list):
         data["excludedTags"] = []
     if not isinstance(data["keywordRules"], list):
@@ -651,8 +742,9 @@ def validate_options(raw: dict) -> AutoTagOptions:
 
 def status() -> dict:
     model_cache = model_cache_status()
+    opts = load_options()
     return {
-        "enabled": load_options().enabled,
+        "enabled": opts.enabled,
         "model": _wd_tagger.name,
         "modelId": WD_MODEL_ID,
         "modelLoaded": _wd_tagger.is_loaded(),
@@ -661,6 +753,9 @@ def status() -> dict:
         "models": model_statuses(),
         "downloadJob": current_download_job(),
         "loadJob": current_model_load_job(),
+        "torch": _torch_runtime_info(),
+        "torchDevice": opts.torchDevice,
+        "qwenDevice": _qwen_tagger.device_info(),
         "huggingFaceTokenConfigured": bool(huggingface_token()),
         "dependencies": {
             "huggingface_hub": find_spec("huggingface_hub") is not None,
@@ -675,7 +770,7 @@ def status() -> dict:
         "supportedImages": sorted(SUPPORTED_IMAGE_EXTS),
         "supportedVideos": sorted(SUPPORTED_VIDEO_EXTS),
         "characterModel": {
-            "enabled": load_options().characterModelEnabled,
+            "enabled": opts.characterModelEnabled,
             "model": "Camie Tagger v2",
             "available": model_cache_status("camie")["downloaded"] and find_spec("onnxruntime") is not None,
         },
@@ -776,7 +871,10 @@ def _run_model_load_job(job_id: str, model_id: str) -> None:
             _wd_tagger.ensure_loaded(progress=progress)
         else:
             progress("load_weights", 15, f"Loading {MODEL_REGISTRY[model_id]['name']} weights into memory")
-            _tagger_for_model(model_id).ensure_loaded()
+            if model_id == "qwen":
+                _qwen_tagger.ensure_loaded(load_options().torchDevice)
+            else:
+                _tagger_for_model(model_id).ensure_loaded()
             progress("ready", 100, "Model weights loaded")
         with _load_lock:
             if _load_job and _load_job.get("id") == job_id:
@@ -1190,7 +1288,7 @@ def _optional_image_results(path: Path, opts: AutoTagOptions, context: dict | No
         if context is not None and ocr.evidence.get("text"):
             context["ocrText"] = ocr.evidence.get("text")
     if opts.qwenEnabled or opts.semanticPoliticalEnabled:
-        results.append(_run_optional("qwen", lambda: _qwen_tagger.analyze_image(path, context=context)))
+        results.append(_run_optional("qwen", lambda: _qwen_tagger.analyze_image(path, context=context, opts=opts)))
     return results
 
 

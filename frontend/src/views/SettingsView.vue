@@ -214,6 +214,12 @@
             </strong>
           </div>
           <div>
+            <span>Compute</span>
+            <strong :class="autoTagStatus.torch?.cudaAvailable ? 'model-ok' : 'model-missing'">
+              {{ torchSummary }}
+            </strong>
+          </div>
+          <div>
             <span>Video support</span>
             <strong :class="autoTagStatus.ffmpeg ? 'model-ok' : 'model-missing'">
               {{ autoTagStatus.ffmpeg ? 'ffmpeg ready' : 'ffmpeg missing' }}
@@ -233,6 +239,9 @@
         </p>
         <p v-if="missingRuntimeModels.length" class="status-note warning">
           Missing runtime packages: {{ missingRuntimeModels.map(model => model.name).join(', ') }}
+        </p>
+        <p class="status-note">
+          Torch {{ autoTagStatus.torch?.version || 'unknown' }} · {{ torchDeviceDetail }}
         </p>
       </div>
 
@@ -353,6 +362,30 @@
                 {{ model.loaded ? 'Unload' : 'Load' }}
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="config-panel">
+        <div class="config-panel-head">
+          <h3>Compute Runtime</h3>
+          <p>Choose where large torch models run. Auto prefers GPU when CUDA torch is installed.</p>
+        </div>
+        <div class="numeric-grid">
+          <label class="field-row">
+            <span class="label-with-help">
+              Torch device
+              <button type="button" class="info-icon" :title="torchDeviceHelp">?</button>
+            </span>
+            <select v-model="autoTagSettings.torchDevice">
+              <option value="auto">Auto</option>
+              <option value="gpu">GPU only</option>
+              <option value="cpu">CPU only</option>
+            </select>
+          </label>
+          <div class="runtime-card">
+            <strong>{{ torchSummary }}</strong>
+            <small>{{ torchDeviceDetail }}</small>
           </div>
         </div>
       </div>
@@ -555,6 +588,7 @@ const thresholdHelp = {
   videoFrames: 'Number of sampled video frames for visual tagging. More frames improve AMV/edit coverage but take longer. 3-4 is a good default; use 1 for fast middle-frame tagging.',
   lightCutoff: 'Posts with this many tags or fewer count as lightly tagged for bulk jobs. Increase to retag sparse libraries; decrease to only target nearly empty posts.',
 }
+const torchDeviceHelp = 'Auto uses CUDA/GPU when the installed torch build can see it, otherwise CPU. GPU only forces CUDA and reports an error if this venv has CPU-only torch. CPU only is slower but useful when you need VRAM free.'
 let autoTagPollTimer = null
 let modelDownloadPollTimer = null
 
@@ -669,6 +703,26 @@ const enabledModelsMissingDownloads = computed(() =>
   enabledModels.value.filter((model) => !model.downloaded)
 )
 
+const torchSummary = computed(() => {
+  const torch = autoTagStatus.value.torch || {}
+  if (!torch.available) return 'Torch missing'
+  if (!torch.cudaAvailable) return 'CPU only'
+  const first = torch.devices?.[0]
+  return first ? `GPU: ${first.name}` : 'CUDA ready'
+})
+
+const torchDeviceDetail = computed(() => {
+  const torch = autoTagStatus.value.torch || {}
+  const qwen = autoTagStatus.value.qwenDevice || {}
+  if (!torch.available) return 'Install torch before using Qwen, OCR, or Whisper.'
+  if (!torch.cudaAvailable) return 'CUDA is not available to this venv. Qwen will load on CPU unless you install a CUDA torch wheel.'
+  const devices = (torch.devices || [])
+    .map((device) => `${device.name} ${device.totalMemoryGb} GB VRAM`)
+    .join(', ')
+  const loaded = qwen.loaded ? `Qwen loaded via ${qwen.device || 'device map'}.` : 'Qwen is not loaded.'
+  return `${devices || 'CUDA device detected'}. ${loaded}`
+})
+
 function modelSettingKey(id) {
   return {
     wd: 'wdEnabled',
@@ -761,6 +815,7 @@ async function loadAutoTags() {
     autoTagSettings.value = {
       ...settingsResult,
       wdEnabled: settingsResult.wdEnabled !== false,
+      torchDevice: settingsResult.torchDevice || 'auto',
     }
     autoTagStatus.value = statusResult
     autoTagJob.value = currentJob
@@ -1735,6 +1790,26 @@ async function deleteCookiesFile() {
 .field-row input,
 .field-row select {
   width: 100%;
+}
+
+.runtime-card {
+  display: grid;
+  gap: 0.35rem;
+  align-self: end;
+  min-height: 72px;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+}
+
+.runtime-card strong {
+  color: var(--text-primary);
+}
+
+.runtime-card small {
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .bulk-toolbar {

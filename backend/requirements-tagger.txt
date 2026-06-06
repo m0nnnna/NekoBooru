@@ -8,7 +8,13 @@ huggingface-hub>=0.27,<1.0
 onnxruntime>=1.20,<2.0
 numpy>=2.0,<3.0
 transformers>=4.51,<5.0
-torch>=2.4,<3.0
-torchvision>=0.19,<1.0
+# Windows/NVIDIA builds should use CUDA wheels; otherwise PyPI may install
+# CPU-only torch and Qwen/OCR/Whisper will not see the GPU.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0+cu128; platform_system == "Windows"
+torchvision==0.26.0+cu128; platform_system == "Windows"
+torchaudio==2.11.0+cu128; platform_system == "Windows"
+torch>=2.4,<3.0; platform_system != "Windows"
+torchvision>=0.19,<1.0; platform_system != "Windows"
 accelerate>=1.0,<2.0
 qwen-vl-utils>=0.0.8,<1.0
