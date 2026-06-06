@@ -59,6 +59,66 @@ function statusUrlFromStack(stack) {
   return ''
 }
 
+function normalizedXImageUrl(raw) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw, location.origin)
+    const host = url.hostname.toLowerCase()
+    if (host !== 'pbs.twimg.com') return ''
+    if (!url.pathname.includes('/media/')) return ''
+    if (url.searchParams.has('format')) url.searchParams.set('name', 'orig')
+    url.hash = ''
+    return url.href
+  } catch {
+    return ''
+  }
+}
+
+function imageUrlFromArticle(article) {
+  if (!article) return ''
+  const candidates = Array.from(article.querySelectorAll('img'))
+    .map((img) => {
+      const src = normalizedXImageUrl(img.currentSrc || img.src)
+      if (!src) return null
+      const area = (img.naturalWidth || img.clientWidth || 0) * (img.naturalHeight || img.clientHeight || 0)
+      return { src, area }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.area - a.area)
+  return candidates[0]?.src || ''
+}
+
+function uploadTargetFromArticle(article) {
+  const statusUrl = statusUrlFromArticle(article)
+  if (!statusUrl) return null
+
+  if (article.querySelector('video')) {
+    return {
+      src: statusUrl,
+      page: statusUrl,
+      mediaType: 'video',
+      fetch: 'link',
+    }
+  }
+
+  const imageUrl = imageUrlFromArticle(article)
+  if (imageUrl) {
+    return {
+      src: imageUrl,
+      page: statusUrl,
+      mediaType: 'image',
+      fetch: 'direct',
+    }
+  }
+
+  return {
+    src: statusUrl,
+    page: statusUrl,
+    mediaType: 'video',
+    fetch: 'link',
+  }
+}
+
 function installXButtonStyle() {
   if (document.getElementById('nekobooru-x-button-style')) return
   const style = document.createElement('style')
@@ -96,14 +156,15 @@ function installXButtonStyle() {
   document.documentElement.appendChild(style)
 }
 
-function openUploadForStatusUrl(statusUrl) {
+function openUploadForTarget(target) {
+  if (!target?.src) return
   try {
     chrome.runtime.sendMessage({
       type: 'nekobooru-open-upload',
-      src: statusUrl,
-      page: statusUrl,
-      mediaType: 'video',
-      fetch: 'link',
+      src: target.src,
+      page: target.page || target.src,
+      mediaType: target.mediaType || 'image',
+      fetch: target.fetch || 'direct',
     })
   } catch {
     // Extension context may be reloading; ignore.
@@ -134,7 +195,7 @@ function injectXButton(article) {
   button.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
-    openUploadForStatusUrl(statusUrl)
+    openUploadForTarget(uploadTargetFromArticle(article))
   })
 
   actionGroup.appendChild(button)
