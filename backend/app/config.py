@@ -40,11 +40,33 @@ class Settings(BaseSettings):
     allowed_extensions: set = {".jpg", ".jpeg", ".png", ".gif", ".webm", ".webp", ".mp4"}
 
     # Server settings
-    host: str = "0.0.0.0"
+    # Bind to loopback by default so the API is reachable only from this
+    # machine. The app has no authentication, so exposing it on a network gives
+    # anyone who can reach the port full read/write access. To intentionally
+    # serve other devices on your LAN, set NEKO_HOST=0.0.0.0 (and ideally put it
+    # behind a reverse proxy with auth).
+    host: str = "127.0.0.1"
     port: int = 8000
+
+    # Browser origins allowed to call the API (CORS). Local-only by default:
+    # the web UI is served same-origin and the extension/Android app aren't
+    # subject to CORS, so nothing here is needed for normal use. Restricting it
+    # stops arbitrary websites you visit from scripting requests to your
+    # instance. Override with NEKO_CORS_ORIGINS as a comma-separated list to
+    # allow the web UI from another device's browser, e.g.
+    # NEKO_CORS_ORIGINS="http://192.168.1.50:8000".
+    cors_origins: str = (
+        "http://localhost:8000,http://127.0.0.1:8000,"
+        "http://localhost:3000,http://127.0.0.1:3000"
+    )
 
     class Config:
         env_prefix = "NEKO_"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """Parse ``cors_origins`` into a clean list of allowed origins."""
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
     
     @property
     def data_dir(self) -> Path:

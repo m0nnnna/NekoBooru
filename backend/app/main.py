@@ -35,11 +35,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
+# CORS middleware. Restricted to local origins by default (see
+# settings.cors_origins). The app uses no cookies/auth, so credentials are not
+# allowed; widen NEKO_CORS_ORIGINS only if you deliberately serve the web UI to
+# another device's browser.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict this
-    allow_credentials=True,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
