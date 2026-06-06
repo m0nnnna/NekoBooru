@@ -6,6 +6,7 @@ import importlib
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from pathlib import Path
 
 from ..config import settings
 from .settings import SettingsManager
@@ -28,6 +29,17 @@ class YtdlpUpdateJob:
 
 _job = YtdlpUpdateJob()
 _lock = asyncio.Lock()
+
+
+def display_path(raw_path: str) -> str:
+    if not raw_path:
+        return ""
+    try:
+        path = Path(raw_path).resolve()
+        base = settings.base_dir.resolve()
+        return str(path.relative_to(base))
+    except Exception:
+        return raw_path
 
 
 def load_settings() -> dict:
@@ -61,14 +73,18 @@ def installed_info() -> dict:
             "installed": True,
             "version": getattr(yt_dlp.version, "__version__", "unknown"),
             "path": getattr(yt_dlp, "__file__", ""),
+            "pathDisplay": display_path(getattr(yt_dlp, "__file__", "")),
             "python": sys.executable,
+            "pythonDisplay": display_path(sys.executable),
         }
     except Exception as exc:
         return {
             "installed": False,
             "version": None,
             "path": "",
+            "pathDisplay": "",
             "python": sys.executable,
+            "pythonDisplay": display_path(sys.executable),
             "error": str(exc),
         }
 

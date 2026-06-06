@@ -133,10 +133,10 @@
           </div>
         </div>
         <p class="help-text">
-          Python: <code>{{ ytdlpStatus.python || 'unknown' }}</code>
+          Python: <code :title="ytdlpStatus.python || ''">{{ ytdlpStatus.pythonDisplay || ytdlpStatus.python || 'unknown' }}</code>
         </p>
         <p class="help-text">
-          Import path: <code>{{ ytdlpStatus.path || 'not found' }}</code>
+          Import path: <code :title="ytdlpStatus.path || ''">{{ ytdlpStatus.pathDisplay || ytdlpStatus.path || 'not found' }}</code>
         </p>
 
         <div class="ytdlp-controls">
