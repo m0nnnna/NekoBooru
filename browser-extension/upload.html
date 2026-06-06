@@ -45,16 +45,9 @@
       </div>
 
       <div class="upload-actions">
-        <button id="ai-tag" class="btn btn-secondary">AI Tag</button>
         <button id="submit" class="btn">Upload to NekoBooru</button>
+        <button id="ai-tag" class="btn btn-secondary">Preview AI Tags</button>
       </div>
-
-      <details id="ai-model-picker" class="ai-model-picker">
-        <summary>AI models</summary>
-        <div id="ai-model-list" class="ai-model-list">
-          <div class="picker-note">Loading model status...</div>
-        </div>
-      </details>
 
       <div id="ai-preview" class="ai-preview-card hidden">
         <div class="ai-preview-head">
@@ -75,6 +68,16 @@
         </div>
         <button id="apply-ai" class="btn">Apply AI Tags</button>
       </div>
+
+      <details id="ai-model-picker" class="ai-model-picker">
+        <summary>
+          <span>Advanced AI model settings</span>
+          <small>Choose which models run during AI preview and manage loaded weights.</small>
+        </summary>
+        <div id="ai-model-list" class="ai-model-list">
+          <div class="picker-note">Loading model status...</div>
+        </div>
+      </details>
 
       <div id="status" class="status hidden"></div>
     </div>

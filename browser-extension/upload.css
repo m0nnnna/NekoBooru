@@ -333,8 +333,9 @@ select:focus {
 
 .upload-actions {
   display: grid;
-  grid-template-columns: minmax(110px, 0.7fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.72fr);
   gap: 0.6rem;
+  margin-bottom: 0.75rem;
 }
 
 .upload-actions .btn {
@@ -349,29 +350,50 @@ select:focus {
 }
 
 .ai-model-picker summary {
-  padding: 0.65rem 0.75rem;
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.75rem;
   cursor: pointer;
   font-weight: 700;
 }
 
+.ai-model-picker summary small {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
 .ai-model-list {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.55rem;
   padding: 0 0.75rem 0.75rem;
 }
 
 .ai-model-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  gap: 0.55rem;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  gap: 0.65rem;
   align-items: center;
+  padding: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--bg-secondary);
 }
 
-.ai-model-row input {
+.ai-model-enabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.ai-model-enabled input {
   margin: 0;
 }
 
-.ai-model-row span {
+.ai-model-main {
   min-width: 0;
 }
 

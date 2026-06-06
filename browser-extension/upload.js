@@ -580,17 +580,24 @@ function renderAiModelPicker() {
   }
 
   models.forEach((model) => {
-    const row = document.createElement('label')
+    const row = document.createElement('div')
     row.className = 'ai-model-row'
 
+    const enabled = document.createElement('label')
+    enabled.className = 'ai-model-enabled'
     const checkbox = document.createElement('input')
     checkbox.type = 'checkbox'
+    checkbox.id = `ai-model-${model.id}`
     checkbox.checked = Boolean(autoTagSettings[modelSettingKey(model.id)])
     checkbox.addEventListener('change', () => {
       autoTagSettings[modelSettingKey(model.id)] = checkbox.checked
     })
+    const enabledText = document.createElement('span')
+    enabledText.textContent = 'Use'
+    enabled.append(checkbox, enabledText)
 
-    const text = document.createElement('span')
+    const text = document.createElement('div')
+    text.className = 'ai-model-main'
     const title = document.createElement('strong')
     const name = document.createElement('span')
     name.textContent = model.name
@@ -600,7 +607,7 @@ function renderAiModelPicker() {
     info.textContent = 'i'
     title.append(name, info)
     const meta = document.createElement('small')
-    meta.textContent = `${model.downloaded ? 'downloaded' : 'not downloaded'} · ${model.loaded ? 'loaded' : 'not loaded'}`
+    meta.textContent = `${model.downloaded ? 'Downloaded' : 'Not downloaded'} · ${model.loaded ? 'Loaded in memory' : 'Not loaded'}`
     text.append(title, meta)
 
     const load = document.createElement('button')
@@ -617,7 +624,7 @@ function renderAiModelPicker() {
       }
     })
 
-    row.append(checkbox, text, load)
+    row.append(enabled, text, load)
     els.aiModelList.appendChild(row)
   })
 }
