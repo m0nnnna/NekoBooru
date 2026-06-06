@@ -401,6 +401,24 @@ export const api = {
       method: 'DELETE',
     })
   },
+
+  async getYtdlpStatus() {
+    return request('/settings/ytdlp')
+  },
+
+  async updateYtdlpSettings(data) {
+    return request('/settings/ytdlp', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async updateYtdlp(target = 'latest') {
+    return request('/settings/ytdlp/update', {
+      method: 'POST',
+      body: JSON.stringify({ target }),
+    })
+  },
 }
 
 export default api

@@ -57,6 +57,17 @@ class SettingsManager:
         settings["auto_tagging"] = auto_tagging
         self.save_settings(settings)
 
+    def get_ytdlp_settings(self) -> dict:
+        """Get persisted yt-dlp update settings."""
+        settings = self.load_settings()
+        return dict(settings.get("ytdlp") or {})
+
+    def set_ytdlp_settings(self, ytdlp: dict) -> None:
+        """Persist yt-dlp update settings without disturbing other settings."""
+        settings = self.load_settings()
+        settings["ytdlp"] = ytdlp
+        self.save_settings(settings)
+
     def get_huggingface_token(self) -> Optional[str]:
         """Get the locally stored Hugging Face token, if configured."""
         settings = self.load_settings()

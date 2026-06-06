@@ -116,6 +116,74 @@
           Delete
         </button>
       </div>
+
+      <div class="ytdlp-panel">
+        <div class="config-panel-head">
+          <h3>yt-dlp Runtime</h3>
+          <p>Control the backend yt-dlp version used by extension and URL video downloads.</p>
+        </div>
+        <div class="ytdlp-status-grid">
+          <div>
+            <span>Installed</span>
+            <strong>{{ ytdlpStatus.version || 'Not installed' }}</strong>
+          </div>
+          <div>
+            <span>Update job</span>
+            <strong>{{ ytdlpStatus.job?.status || 'idle' }}</strong>
+          </div>
+        </div>
+        <p class="help-text">
+          Python: <code>{{ ytdlpStatus.python || 'unknown' }}</code>
+        </p>
+        <p class="help-text">
+          Import path: <code>{{ ytdlpStatus.path || 'not found' }}</code>
+        </p>
+
+        <div class="ytdlp-controls">
+          <label class="field-row">
+            <span>Startup update policy</span>
+            <select v-model="ytdlpSettings.updatePolicy">
+              <option value="manual">Manual only</option>
+              <option value="startup_latest">Update to latest on backend start</option>
+              <option value="startup_pinned">Install pinned version on backend start</option>
+            </select>
+          </label>
+          <label class="field-row">
+            <span>Pinned version</span>
+            <input v-model="ytdlpSettings.pinnedVersion" type="text" placeholder="Example: 2026.03.17" />
+          </label>
+        </div>
+
+        <div v-if="ytdlpMessage.show" class="cookies-status" :class="ytdlpMessage.success ? 'success' : 'error'">
+          <p><strong>{{ ytdlpMessage.message }}</strong></p>
+        </div>
+
+        <div v-if="ytdlpStatus.job?.output" class="ytdlp-output">
+          <details>
+            <summary>Last pip output</summary>
+            <pre>{{ ytdlpStatus.job.output }}</pre>
+          </details>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn" @click="saveYtdlpSettings" :disabled="ytdlpBusy">
+            Save yt-dlp Settings
+          </button>
+          <button class="btn btn-secondary" @click="refreshYtdlpStatus" :disabled="ytdlpBusy">
+            Refresh
+          </button>
+          <button class="btn btn-secondary" @click="startYtdlpUpdate('latest')" :disabled="ytdlpBusy">
+            Update Latest
+          </button>
+          <button
+            class="btn btn-secondary"
+            @click="startYtdlpUpdate(ytdlpSettings.pinnedVersion)"
+            :disabled="ytdlpBusy || !ytdlpSettings.pinnedVersion.trim()"
+          >
+            Install Pinned
+          </button>
+        </div>
+      </div>
     </div>
 
     <div class="settings-section">
@@ -619,6 +687,17 @@ const cookiesStatus = ref({
   success: false,
   message: '',
 })
+const ytdlpStatus = ref({})
+const ytdlpSettings = ref({
+  updatePolicy: 'manual',
+  pinnedVersion: '',
+})
+const ytdlpBusy = ref(false)
+const ytdlpMessage = ref({
+  show: false,
+  success: false,
+  message: '',
+})
 
 const stats = ref({})
 const statsLoading = ref(true)
@@ -662,6 +741,7 @@ const bulkActionHelp = {
 }
 let autoTagPollTimer = null
 let modelDownloadPollTimer = null
+let ytdlpPollTimer = null
 
 const migrationPrompt = ref({
   show: false,
@@ -677,12 +757,13 @@ const migrationStatus = ref({
 })
 
 onMounted(async () => {
-  await Promise.all([loadSettings(), loadStats(), loadAutoTags()])
+  await Promise.all([loadSettings(), loadStats(), loadAutoTags(), refreshYtdlpStatus()])
 })
 
 onUnmounted(() => {
   if (autoTagPollTimer) clearInterval(autoTagPollTimer)
   if (modelDownloadPollTimer) clearInterval(modelDownloadPollTimer)
+  if (ytdlpPollTimer) clearInterval(ytdlpPollTimer)
 })
 
 const autoTagJobRunning = computed(() =>
@@ -1476,6 +1557,99 @@ async function deleteCookiesFile() {
     savingCookies.value = false
   }
 }
+
+async function refreshYtdlpStatus() {
+  try {
+    const result = await api.getYtdlpStatus()
+    ytdlpStatus.value = result || {}
+    ytdlpSettings.value = {
+      updatePolicy: result.updatePolicy || 'manual',
+      pinnedVersion: result.pinnedVersion || '',
+    }
+    ytdlpBusy.value = ['queued', 'running'].includes(result.job?.status)
+    if (ytdlpBusy.value) startYtdlpPolling()
+  } catch (e) {
+    ytdlpMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to load yt-dlp status: ' + e.message,
+    }
+  }
+}
+
+async function saveYtdlpSettings() {
+  ytdlpMessage.value.show = false
+  try {
+    ytdlpSettings.value = await api.updateYtdlpSettings(ytdlpSettings.value)
+    ytdlpMessage.value = {
+      show: true,
+      success: true,
+      message: 'yt-dlp settings saved.',
+    }
+  } catch (e) {
+    ytdlpMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to save yt-dlp settings: ' + e.message,
+    }
+  }
+}
+
+async function startYtdlpUpdate(target) {
+  const cleanTarget = target === 'latest' ? 'latest' : String(target || '').trim()
+  if (!cleanTarget) return
+  ytdlpBusy.value = true
+  ytdlpMessage.value = {
+    show: true,
+    success: true,
+    message: cleanTarget === 'latest' ? 'Started yt-dlp update to latest.' : `Started yt-dlp install for ${cleanTarget}.`,
+  }
+  try {
+    ytdlpStatus.value = {
+      ...ytdlpStatus.value,
+      job: await api.updateYtdlp(cleanTarget),
+    }
+    startYtdlpPolling()
+  } catch (e) {
+    ytdlpBusy.value = false
+    ytdlpMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to start yt-dlp update: ' + e.message,
+    }
+  }
+}
+
+function startYtdlpPolling() {
+  if (ytdlpPollTimer) clearInterval(ytdlpPollTimer)
+  ytdlpPollTimer = setInterval(async () => {
+    try {
+      const result = await api.getYtdlpStatus()
+      ytdlpStatus.value = result || {}
+      ytdlpBusy.value = ['queued', 'running'].includes(result.job?.status)
+      if (!ytdlpBusy.value) {
+        clearInterval(ytdlpPollTimer)
+        ytdlpPollTimer = null
+        ytdlpMessage.value = {
+          show: true,
+          success: result.job?.status === 'completed',
+          message: result.job?.status === 'completed'
+            ? `yt-dlp is now ${result.version || 'updated'}. Restart the backend if a downloader was already mid-run.`
+            : `yt-dlp update failed: ${result.job?.error || 'unknown error'}`,
+        }
+      }
+    } catch (e) {
+      clearInterval(ytdlpPollTimer)
+      ytdlpPollTimer = null
+      ytdlpBusy.value = false
+      ytdlpMessage.value = {
+        show: true,
+        success: false,
+        message: 'Failed to poll yt-dlp update: ' + e.message,
+      }
+    }
+  }, 1200)
+}
 </script>
 
 <style scoped>
@@ -1634,6 +1808,60 @@ async function deleteCookiesFile() {
 
 .cookies-status-icon.success {
   color: var(--success);
+}
+
+.ytdlp-panel {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--bg-secondary);
+}
+
+.ytdlp-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.ytdlp-status-grid div {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+}
+
+.ytdlp-status-grid span {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.ytdlp-status-grid strong {
+  color: var(--text-primary);
+}
+
+.ytdlp-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.ytdlp-output pre {
+  max-height: 220px;
+  overflow: auto;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .migration-details {
@@ -2435,6 +2663,11 @@ async function deleteCookiesFile() {
 
   .bulk-action-group .btn {
     flex: 1 1 140px;
+  }
+
+  .ytdlp-status-grid,
+  .ytdlp-controls {
+    grid-template-columns: 1fr;
   }
 
   .modal-head {

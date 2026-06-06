@@ -11,6 +11,7 @@ from ..config import settings
 from ..database import get_db
 from ..models import Post
 from ..services.settings import SettingsManager, migrate_data_directory
+from ..services import ytdlp_manager
 
 # Fixed path for cookies file in config directory
 COOKIES_FILENAME = "ytdlp_cookies.txt"
@@ -30,6 +31,15 @@ class SettingsResponse(BaseModel):
 class UpdateDataDirRequest(BaseModel):
     data_dir: str
     migrate: bool = False
+
+
+class YtdlpSettingsRequest(BaseModel):
+    updatePolicy: str = "manual"
+    pinnedVersion: str = ""
+
+
+class YtdlpUpdateRequest(BaseModel):
+    target: str = "latest"
 
 
 class MigrationResponse(BaseModel):
@@ -220,6 +230,27 @@ async def delete_ytdlp_cookies():
         "success": True,
         "message": "Cookies file deleted successfully",
     }
+
+
+@router.get("/ytdlp")
+async def get_ytdlp_status():
+    """Get yt-dlp version, import path, update policy, and update job state."""
+    return ytdlp_manager.status()
+
+
+@router.put("/ytdlp")
+async def update_ytdlp_settings(request: YtdlpSettingsRequest):
+    """Persist yt-dlp update policy."""
+    return ytdlp_manager.save_settings(request.model_dump())
+
+
+@router.post("/ytdlp/update")
+async def update_ytdlp(request: YtdlpUpdateRequest):
+    """Start a background yt-dlp pip update in the backend Python environment."""
+    try:
+        return await ytdlp_manager.start_update(request.target)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/stats")

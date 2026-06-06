@@ -25,6 +25,9 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     # Initialize database
     await init_db()
+    from .services import ytdlp_manager
+
+    await ytdlp_manager.maybe_update_on_startup()
     yield
 
 
