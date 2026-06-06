@@ -190,6 +190,11 @@ export const api = {
     return request(`/auto-tags/jobs/${id}`)
   },
 
+  async getAutoTagJobSuggestions(id, params = {}) {
+    const query = new URLSearchParams(params).toString()
+    return request(`/auto-tags/jobs/${id}/suggestions${query ? `?${query}` : ''}`)
+  },
+
   async cancelAutoTagJob(id) {
     return request(`/auto-tags/jobs/${id}/cancel`, { method: 'POST' })
   },

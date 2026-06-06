@@ -164,7 +164,7 @@ async def current_auto_tag_job():
     async with async_session() as db:
         result = await db.execute(
             select(AutoTagJob)
-            .where(AutoTagJob.status.in_(["queued", "running"]))
+            .where(AutoTagJob.status.in_(["queued", "running", "cancelling"]))
             .order_by(desc(AutoTagJob.created_at))
             .limit(1)
         )

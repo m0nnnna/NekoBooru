@@ -500,27 +500,44 @@
             </select>
           </label>
           <div class="bulk-actions">
-            <button class="btn action-tooltip" :data-tooltip="bulkActionHelp.save" @click="saveAutoTagSettings" :disabled="savingAutoTags">
-              {{ savingAutoTags ? 'Saving...' : 'Save Settings' }}
-            </button>
-            <button class="btn btn-secondary action-tooltip" :data-tooltip="bulkActionHelp.estimate" @click="estimateAutoTags">Estimate</button>
-            <button class="btn btn-secondary action-tooltip" :data-tooltip="bulkActionHelp.preview" @click="startAutoTagJob(true)" :disabled="autoTagJobRunning">
-              Preview Job
-            </button>
-            <button class="btn action-tooltip" :data-tooltip="bulkActionHelp.applyJob" @click="startAutoTagJob(false)" :disabled="autoTagJobRunning">
-              Apply Job
-            </button>
-            <button
-              class="btn action-tooltip"
-              :data-tooltip="bulkActionHelp.applyPreview"
-              @click="applyPreviewedJob"
-              :disabled="autoTagJobRunning || !autoTagJob || !autoTagJob.dryRun || autoTagJob.status !== 'completed'"
-            >
-              Apply Preview
-            </button>
-            <button class="btn btn-danger action-tooltip" :data-tooltip="bulkActionHelp.cancel" @click="cancelAutoTagJob" :disabled="!autoTagJobRunning || autoTagJob?.status === 'cancelling'">
-              {{ autoTagJob?.status === 'cancelling' ? 'Cancelling...' : 'Cancel' }}
-            </button>
+            <div class="bulk-action-group">
+              <span>Setup</span>
+              <button class="btn action-tooltip" :data-tooltip="bulkActionHelp.save" @click="saveAutoTagSettings" :disabled="savingAutoTags">
+                {{ savingAutoTags ? 'Saving...' : 'Save Settings' }}
+              </button>
+              <button class="btn btn-secondary action-tooltip" :data-tooltip="bulkActionHelp.estimate" @click="estimateAutoTags">Estimate</button>
+            </div>
+            <div class="bulk-action-group">
+              <span>Review first</span>
+              <button class="btn btn-secondary action-tooltip" :data-tooltip="bulkActionHelp.preview" @click="startAutoTagJob(true)" :disabled="autoTagJobRunning">
+                Preview Job
+              </button>
+              <button
+                class="btn btn-secondary action-tooltip"
+                :data-tooltip="bulkActionHelp.viewPreview"
+                @click="viewPreviewedJob"
+                :disabled="!canViewPreview"
+              >
+                View Preview
+              </button>
+              <button
+                class="btn action-tooltip"
+                :data-tooltip="bulkActionHelp.applyPreview"
+                @click="applyPreviewedJob"
+                :disabled="!canApplyPreview"
+              >
+                Apply Preview
+              </button>
+            </div>
+            <div class="bulk-action-group danger-zone">
+              <span>Direct write</span>
+              <button class="btn action-tooltip" :data-tooltip="bulkActionHelp.applyJob" @click="startAutoTagJob(false)" :disabled="autoTagJobRunning">
+                Run & Apply
+              </button>
+              <button class="btn btn-danger action-tooltip" :data-tooltip="bulkActionHelp.cancel" @click="cancelAutoTagJob" :disabled="!autoTagJobRunning || autoTagJob?.status === 'cancelling'">
+                {{ autoTagJob?.status === 'cancelling' ? 'Cancelling...' : 'Cancel' }}
+              </button>
+            </div>
           </div>
         </div>
         <div class="bulk-defaults-note">
@@ -548,6 +565,38 @@
             failed {{ autoTagJob.failed }}
           </p>
           <p v-if="autoTagJob.error" class="stats-error">{{ autoTagJob.error }}</p>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showPreviewModal" class="modal-overlay" @click.self="showPreviewModal = false">
+      <div class="preview-modal">
+        <div class="modal-head">
+          <div>
+            <h2>Preview Suggestions</h2>
+            <p>{{ previewSuggestions.length }} suggestion{{ previewSuggestions.length === 1 ? '' : 's' }} from job #{{ autoTagJob?.id }}</p>
+          </div>
+          <button class="btn btn-secondary" @click="showPreviewModal = false">Close</button>
+        </div>
+        <div v-if="previewLoading" class="stats-loading">Loading suggestions...</div>
+        <div v-else-if="!previewSuggestions.length" class="empty-preview">
+          No saved suggestions found for this preview job.
+        </div>
+        <div v-else class="preview-list">
+          <div v-for="suggestion in previewSuggestions" :key="suggestion.id" class="preview-row">
+            <div class="preview-row-head">
+              <strong>Post #{{ suggestion.postId }}</strong>
+              <span :class="suggestion.error ? 'model-missing' : 'model-ok'">{{ suggestion.error ? 'error' : suggestion.status }}</span>
+            </div>
+            <div class="preview-tags">
+              <span v-for="tag in suggestion.suggestedTags.slice(0, 18)" :key="tag">{{ tag }}</span>
+              <em v-if="suggestion.suggestedTags.length > 18">+{{ suggestion.suggestedTags.length - 18 }} more</em>
+            </div>
+            <p>
+              Safety: <strong>{{ suggestion.suggestedSafety || 'unchanged' }}</strong>
+              <span v-if="suggestion.error"> · {{ suggestion.error }}</span>
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -579,6 +628,9 @@ const autoTagStatus = ref({})
 const autoTagMode = ref('lightly_tagged')
 const autoTagEstimate = ref(null)
 const autoTagJob = ref(null)
+const showPreviewModal = ref(false)
+const previewSuggestions = ref([])
+const previewLoading = ref(false)
 const savingAutoTags = ref(false)
 const huggingFaceToken = ref('')
 const savingToken = ref(false)
@@ -603,8 +655,9 @@ const bulkActionHelp = {
   save: 'Save the default model choices, thresholds, compute setting, and safety options used by imports, per-post AI Tag, and bulk jobs.',
   estimate: 'Count how many posts match the selected target mode before starting a bulk job. This does not run any models.',
   preview: 'Run the saved enabled default models and save suggestions only. Existing tags and safety ratings are not changed until you click Apply Preview.',
+  viewPreview: 'Open saved suggestions from the completed Preview Job so you can inspect tags, errors, and safety before applying them.',
   applyJob: 'Run the saved enabled default models and write tags/safety directly as each post finishes. This skips the review step.',
-  applyPreview: 'Apply the suggestions from the last completed Preview Job. Use this after reviewing a dry-run preview.',
+  applyPreview: 'Apply only the saved suggestions from a completed Preview Job. Disabled until a preview finishes successfully.',
   cancel: 'Request the current bulk job to stop. The current model call may finish first, then the job moves to cancelled.',
 }
 let autoTagPollTimer = null
@@ -634,6 +687,14 @@ onUnmounted(() => {
 
 const autoTagJobRunning = computed(() =>
   autoTagJob.value && ['queued', 'running', 'cancelling'].includes(autoTagJob.value.status)
+)
+
+const canViewPreview = computed(() =>
+  !!autoTagJob.value?.dryRun && ['completed', 'cancelled', 'failed'].includes(autoTagJob.value.status)
+)
+
+const canApplyPreview = computed(() =>
+  !!autoTagJob.value?.dryRun && autoTagJob.value.status === 'completed' && !autoTagJobRunning.value
 )
 
 const autoTagProgressPercent = computed(() => {
@@ -1191,6 +1252,8 @@ async function estimateAutoTags() {
 async function startAutoTagJob(dryRun) {
   try {
     await saveAutoTagSettings()
+    previewSuggestions.value = []
+    showPreviewModal.value = false
     autoTagJob.value = await api.createAutoTagJob({
       mode: autoTagMode.value,
       dryRun,
@@ -1227,12 +1290,49 @@ async function cancelAutoTagJob() {
   }
 }
 
-async function applyPreviewedJob() {
+async function viewPreviewedJob() {
   if (!autoTagJob.value?.id) return
+
+  showPreviewModal.value = true
+  previewLoading.value = true
+
   try {
+    previewSuggestions.value = await api.getAutoTagJobSuggestions(autoTagJob.value.id, {
+      page: 1,
+      limit: 100,
+    })
+  } catch (e) {
+    alert('Failed to load preview suggestions: ' + e.message)
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+async function applyPreviewedJob() {
+  if (!autoTagJob.value?.id || !canApplyPreview.value) {
+    alert('Run Preview Job first, wait for it to complete, then use View Preview or Apply Preview.')
+    return
+  }
+
+  try {
+    const suggestions = previewSuggestions.value.length
+      ? previewSuggestions.value
+      : await api.getAutoTagJobSuggestions(autoTagJob.value.id, { page: 1, limit: 100 })
+    const applicableSuggestions = suggestions.filter((suggestion) =>
+      suggestion.status === 'suggested' && !suggestion.error
+    )
+
+    if (!applicableSuggestions.length) {
+      alert('This preview job has no successful suggestions to apply. Open View Preview to inspect skipped posts or errors.')
+      return
+    }
+
     const result = await api.applyAutoTagJob(autoTagJob.value.id)
     alert(`Applied ${result.applied} suggestion${result.applied === 1 ? '' : 's'}`)
     autoTagJob.value = await api.getAutoTagJob(autoTagJob.value.id)
+    if (showPreviewModal.value) {
+      await viewPreviewedJob()
+    }
   } catch (e) {
     alert('Failed to apply previewed job: ' + e.message)
   }
@@ -1913,10 +2013,41 @@ async function deleteCookiesFile() {
 }
 
 .bulk-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.bulk-action-group {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  justify-content: flex-end;
+  align-content: flex-start;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+}
+
+.bulk-action-group > span {
+  flex: 0 0 100%;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.bulk-action-group .btn {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.bulk-action-group.danger-zone {
+  border-color: rgba(248, 113, 113, 0.35);
 }
 
 .action-tooltip {
@@ -1985,6 +2116,98 @@ async function deleteCookiesFile() {
   background: var(--bg-primary);
   color: var(--text-secondary);
   font-size: 0.85rem;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(5, 8, 13, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.preview-modal {
+  width: min(920px, calc(100vw - 2rem));
+  max-height: min(760px, calc(100vh - 2rem));
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--bg-secondary);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+}
+
+.modal-head {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.modal-head h2 {
+  margin: 0 0 0.25rem;
+}
+
+.modal-head p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.empty-preview {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
+
+.preview-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.preview-row {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+}
+
+.preview-row-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.preview-tags span,
+.preview-tags em {
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.35rem;
+  background: rgba(96, 165, 250, 0.12);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-style: normal;
+  line-height: 1.2;
+}
+
+.preview-row p {
+  margin: 0;
+  color: var(--text-secondary);
 }
 
 .estimate-strip strong {
@@ -2207,11 +2430,15 @@ async function deleteCookiesFile() {
   }
 
   .bulk-actions {
-    justify-content: stretch;
+    grid-template-columns: 1fr;
   }
 
-  .bulk-actions .btn {
+  .bulk-action-group .btn {
     flex: 1 1 140px;
+  }
+
+  .modal-head {
+    flex-direction: column;
   }
 }
 </style>
