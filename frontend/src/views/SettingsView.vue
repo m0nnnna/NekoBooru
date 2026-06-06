@@ -500,25 +500,26 @@
             </select>
           </label>
           <div class="bulk-actions">
-            <button class="btn" @click="saveAutoTagSettings" :disabled="savingAutoTags">
+            <button class="btn action-tooltip" :data-tooltip="bulkActionHelp.save" @click="saveAutoTagSettings" :disabled="savingAutoTags">
               {{ savingAutoTags ? 'Saving...' : 'Save Settings' }}
             </button>
-            <button class="btn btn-secondary" @click="estimateAutoTags">Estimate</button>
-            <button class="btn btn-secondary" @click="startAutoTagJob(true)" :disabled="autoTagJobRunning">
+            <button class="btn btn-secondary action-tooltip" :data-tooltip="bulkActionHelp.estimate" @click="estimateAutoTags">Estimate</button>
+            <button class="btn btn-secondary action-tooltip" :data-tooltip="bulkActionHelp.preview" @click="startAutoTagJob(true)" :disabled="autoTagJobRunning">
               Preview Job
             </button>
-            <button class="btn" @click="startAutoTagJob(false)" :disabled="autoTagJobRunning">
+            <button class="btn action-tooltip" :data-tooltip="bulkActionHelp.applyJob" @click="startAutoTagJob(false)" :disabled="autoTagJobRunning">
               Apply Job
             </button>
             <button
-              class="btn"
+              class="btn action-tooltip"
+              :data-tooltip="bulkActionHelp.applyPreview"
               @click="applyPreviewedJob"
               :disabled="autoTagJobRunning || !autoTagJob || !autoTagJob.dryRun || autoTagJob.status !== 'completed'"
             >
               Apply Preview
             </button>
-            <button class="btn btn-danger" @click="cancelAutoTagJob" :disabled="!autoTagJobRunning">
-              Cancel
+            <button class="btn btn-danger action-tooltip" :data-tooltip="bulkActionHelp.cancel" @click="cancelAutoTagJob" :disabled="!autoTagJobRunning || autoTagJob?.status === 'cancelling'">
+              {{ autoTagJob?.status === 'cancelling' ? 'Cancelling...' : 'Cancel' }}
             </button>
           </div>
         </div>
@@ -598,6 +599,14 @@ const thresholdHelp = {
   lightCutoff: 'Posts with this many tags or fewer count as lightly tagged for bulk jobs. Increase to retag sparse libraries; decrease to only target nearly empty posts.',
 }
 const torchDeviceHelp = 'Auto uses CUDA/GPU when the installed torch build can see it, otherwise CPU. GPU only forces CUDA and reports an error if this venv has CPU-only torch. CPU only is slower but useful when you need VRAM free.'
+const bulkActionHelp = {
+  save: 'Save the default model choices, thresholds, compute setting, and safety options used by imports, per-post AI Tag, and bulk jobs.',
+  estimate: 'Count how many posts match the selected target mode before starting a bulk job. This does not run any models.',
+  preview: 'Run the saved enabled default models and save suggestions only. Existing tags and safety ratings are not changed until you click Apply Preview.',
+  applyJob: 'Run the saved enabled default models and write tags/safety directly as each post finishes. This skips the review step.',
+  applyPreview: 'Apply the suggestions from the last completed Preview Job. Use this after reviewing a dry-run preview.',
+  cancel: 'Request the current bulk job to stop. The current model call may finish first, then the job moves to cancelled.',
+}
 let autoTagPollTimer = null
 let modelDownloadPollTimer = null
 
@@ -624,7 +633,7 @@ onUnmounted(() => {
 })
 
 const autoTagJobRunning = computed(() =>
-  autoTagJob.value && ['queued', 'running'].includes(autoTagJob.value.status)
+  autoTagJob.value && ['queued', 'running', 'cancelling'].includes(autoTagJob.value.status)
 )
 
 const autoTagProgressPercent = computed(() => {
@@ -786,7 +795,8 @@ function modelInfoTitle(model) {
     `VRAM: ${model.vramRequirement || 'Unknown'}`,
     `Runtime: ${model.runtimeAvailable ? 'ready' : 'missing'}`,
     `Memory: ${model.loaded ? 'loaded' : 'not loaded'}`,
-  ].join('\n')
+    model.providers?.length ? `Provider: ${model.providers.join(', ')}` : null,
+  ].filter(Boolean).join('\n')
 }
 
 function isModelEnabled(id) {
@@ -1907,6 +1917,42 @@ async function deleteCookiesFile() {
   flex-wrap: wrap;
   gap: 0.5rem;
   justify-content: flex-end;
+}
+
+.action-tooltip {
+  position: relative;
+}
+
+.action-tooltip::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  display: block;
+  width: max-content;
+  max-width: min(360px, 72vw);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: #111827;
+  color: #f8fafc;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+  content: attr(data-tooltip);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.action-tooltip:hover::after,
+.action-tooltip:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .bulk-defaults-note {

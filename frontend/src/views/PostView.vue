@@ -453,7 +453,8 @@ function postModelInfoTitle(model) {
     `VRAM: ${model.vramRequirement || 'Unknown'}`,
     `Runtime: ${model.runtimeAvailable ? 'ready' : 'missing'}`,
     `Memory: ${model.loaded ? 'loaded' : 'not loaded'}`,
-  ].join('\n')
+    model.providers?.length ? `Provider: ${model.providers.join(', ')}` : null,
+  ].filter(Boolean).join('\n')
 }
 
 function showModelTooltip(event, text) {

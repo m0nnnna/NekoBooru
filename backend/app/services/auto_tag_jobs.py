@@ -117,7 +117,7 @@ async def run_job(job_id: int, candidates: list[int]) -> None:
     for post_id in candidates:
         async with async_session() as db:
             job = await db.get(AutoTagJob, job_id)
-            if not job or job.cancel_requested:
+            if not job or job.cancel_requested or job.status == "cancelling":
                 if job:
                     job.status = "cancelled"
                     job.finished_at = datetime.utcnow()
@@ -136,6 +136,12 @@ async def run_job(job_id: int, candidates: list[int]) -> None:
                     job.skipped += 1
                 else:
                     changed = await analyze_and_maybe_apply(db, post, opts=opts, job=job, dry_run=bool(job.dry_run))
+                    await db.refresh(job)
+                    if job.cancel_requested or job.status == "cancelling":
+                        job.status = "cancelled"
+                        job.finished_at = datetime.utcnow()
+                        await db.commit()
+                        return
                     if changed:
                         job.tagged += 1
                     else:
@@ -245,6 +251,8 @@ async def cancel_job(job_id: int) -> dict:
         if not job:
             raise ValueError("job not found")
         job.cancel_requested = True
+        if job.status in {"queued", "running"}:
+            job.status = "cancelling"
         await db.commit()
         await db.refresh(job)
         return job.to_dict()

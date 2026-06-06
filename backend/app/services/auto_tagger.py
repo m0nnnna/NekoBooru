@@ -159,6 +159,7 @@ class WdTagger:
         self._loaded = False
         self._session = None
         self._tag_rows: list[tuple[str, int]] = []
+        self._providers: list[str] = []
 
     def is_loaded(self) -> bool:
         return self._loaded
@@ -168,6 +169,7 @@ class WdTagger:
             was_loaded = self._loaded
             self._session = None
             self._tag_rows = []
+            self._providers = []
             self._loaded = False
             gc.collect()
             return was_loaded
@@ -199,8 +201,9 @@ class WdTagger:
             progress("load_weights", 35, "Loading ONNX weights into memory")
         self._session = ort.InferenceSession(
             model_path,
-            providers=["CPUExecutionProvider"],
+            providers=_onnx_providers(ort),
         )
+        self._providers = list(self._session.get_providers())
         if progress:
             progress("read_tags", 85, "Reading tag metadata")
         rows: list[tuple[str, int]] = []
@@ -272,6 +275,7 @@ class CamieTagger:
         self._idx_to_tag: dict[str, str] = {}
         self._tag_to_category: dict[str, str] = {}
         self._image_size = 512
+        self._providers: list[str] = []
 
     def is_loaded(self) -> bool:
         return self._loaded
@@ -282,6 +286,7 @@ class CamieTagger:
             self._session = None
             self._idx_to_tag = {}
             self._tag_to_category = {}
+            self._providers = []
             self._loaded = False
             gc.collect()
             return was_loaded
@@ -311,7 +316,8 @@ class CamieTagger:
         self._image_size = int(info.get("img_size") or 512)
         self._idx_to_tag = {str(k): str(v) for k, v in (mapping.get("idx_to_tag") or {}).items()}
         self._tag_to_category = {str(k): str(v) for k, v in (mapping.get("tag_to_category") or {}).items()}
-        self._session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        self._session = ort.InferenceSession(model_path, providers=_onnx_providers(ort))
+        self._providers = list(self._session.get_providers())
 
     def tag_image(self, path: Path, opts: AutoTagOptions) -> AutoTagResult:
         self.ensure_loaded()
@@ -666,6 +672,35 @@ def _torch_runtime_info() -> dict:
     return info
 
 
+def _onnx_runtime_info() -> dict:
+    info = {
+        "available": find_spec("onnxruntime") is not None,
+        "availableProviders": [],
+        "preferredProviders": [],
+        "wdProviders": list(_wd_tagger._providers),
+        "camieProviders": list(_camie_tagger._providers),
+    }
+    if not info["available"]:
+        return info
+    try:
+        import onnxruntime as ort  # type: ignore
+
+        info["availableProviders"] = list(ort.get_available_providers())
+        info["preferredProviders"] = _onnx_providers(ort)
+    except Exception as exc:  # noqa: BLE001
+        info["error"] = str(exc)
+    return info
+
+
+def _onnx_providers(ort) -> list[str]:
+    available = set(ort.get_available_providers())
+    providers = []
+    if "CUDAExecutionProvider" in available:
+        providers.append("CUDAExecutionProvider")
+    providers.append("CPUExecutionProvider")
+    return providers
+
+
 def _qwen_device_map(device_preference: str):
     device_preference = _normalize_torch_device(device_preference)
     torch_info = _torch_runtime_info()
@@ -756,6 +791,7 @@ def status() -> dict:
         "downloadJob": current_download_job(),
         "loadJob": current_model_load_job(),
         "torch": _torch_runtime_info(),
+        "onnx": _onnx_runtime_info(),
         "torchDevice": opts.torchDevice,
         "qwenDevice": _qwen_tagger.device_info(),
         "huggingFaceTokenConfigured": bool(huggingface_token()),
@@ -977,8 +1013,17 @@ def model_statuses() -> list[dict]:
             "files": cache["files"],
             "runtimeAvailable": runtime_available(model_id),
             "loaded": loaded,
+            "providers": _model_runtime_providers(model_id),
         })
     return rows
+
+
+def _model_runtime_providers(model_id: str) -> list[str]:
+    if model_id == "wd":
+        return list(_wd_tagger._providers)
+    if model_id == "camie":
+        return list(_camie_tagger._providers)
+    return []
 
 
 def runtime_available(model_id: str) -> bool:

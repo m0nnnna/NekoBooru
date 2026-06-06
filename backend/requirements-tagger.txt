@@ -5,7 +5,8 @@
 #   NEKO_AUTO_TAGGER_ENABLED=true
 
 huggingface-hub>=0.27,<1.0
-onnxruntime>=1.20,<2.0
+onnxruntime-gpu==1.26.0; platform_system == "Windows"
+onnxruntime>=1.20,<2.0; platform_system != "Windows"
 numpy>=2.0,<3.0
 transformers>=4.51,<5.0
 # Windows/NVIDIA builds should use CUDA wheels; otherwise PyPI may install

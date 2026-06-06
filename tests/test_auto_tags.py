@@ -323,6 +323,16 @@ class AutoTagUnitTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 _qwen_device_map("gpu")
 
+    def test_onnx_providers_prefer_cuda_with_cpu_fallback(self):
+        from app.services.auto_tagger import _onnx_providers
+
+        class Ort:
+            @staticmethod
+            def get_available_providers():
+                return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+        self.assertEqual(_onnx_providers(Ort), ["CUDAExecutionProvider", "CPUExecutionProvider"])
+
     def test_whisper_audio_seconds_is_capped_to_model_window(self):
         from app.services.auto_tagger import AutoTagOptions, _whisper_audio_seconds
 
