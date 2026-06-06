@@ -58,6 +58,18 @@ def normalize_tag(raw: str) -> str:
     return re.sub(r"_+", "_", tag).strip("_")
 
 
+# Twitter Media Harvest names files "<handle>-<tweetId>-<serial>.<ext>".
+TWITTER_NAME = re.compile(r"^([A-Za-z0-9_]+)-(\d{6,})(?:-\d+)?$")
+
+
+def twitter_tags(path: Path) -> list[str] | None:
+    """[handle, tweet_<id>] parsed from a Twitter Media Harvest filename, or None."""
+    m = TWITTER_NAME.match(path.stem)
+    if not m:
+        return None
+    return [m.group(1), f"tweet_{m.group(2)}"]
+
+
 def auto_tags(path: Path) -> list[str]:
     """Hook for future auto-tagging (e.g. DeepDanbooru via Ollama).
 
@@ -69,9 +81,19 @@ def auto_tags(path: Path) -> list[str]:
 
 
 def derive_tags(path: Path, args) -> list[str]:
-    """Folder-name tag (+ any --extra-tags, + auto_tags), normalised & deduped."""
+    """Tags for a file (+ any --extra-tags, + auto_tags), normalised & deduped.
+
+    --twitter: parse <handle>-<tweetid> filenames into [account, tweet_<id>];
+    files that don't match fall back to the filename itself. Otherwise the tag
+    is the source folder name (unless --no-folder-tag).
+    """
     raw: list[str] = []
-    if args.folder_tag and path.parent.name:
+    handled = False
+    if getattr(args, "twitter", False):
+        tw = twitter_tags(path)
+        raw.extend(tw if tw else [path.stem])  # fallback: the filename
+        handled = True
+    if not handled and args.folder_tag and path.parent.name:
         raw.append(path.parent.name)
     raw.extend(args.extra_tags)
     raw.extend(auto_tags(path))
@@ -154,6 +176,10 @@ def parse_args(argv=None):
                     help="Safety rating for imported posts (default: safe).")
     ap.add_argument("--no-folder-tag", dest="folder_tag", action="store_false",
                     help="Do not tag posts with their source folder name.")
+    ap.add_argument("--twitter", action="store_true",
+                    help="Tag from Twitter Media Harvest filenames "
+                         "(<handle>-<tweetid> -> account tag + tweet_<id> tag); "
+                         "files that don't match fall back to the filename.")
     ap.add_argument("--extra-tags", default="",
                     help="Comma-separated tags added to every imported post.")
     ap.add_argument("--workers", type=int, default=4, help="Concurrent uploads (default: 4).")
