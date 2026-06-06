@@ -78,7 +78,16 @@
                 :disabled="!model.canToggle"
               />
               <span>
-                <strong>{{ model.name }}</strong>
+                <strong class="ai-model-name">
+                  {{ model.name }}
+                  <button
+                    type="button"
+                    class="ai-info-icon"
+                    :data-tooltip="postModelInfoTitle(model)"
+                    :aria-label="postModelInfoTitle(model)"
+                    @click.prevent
+                  >i</button>
+                </strong>
                 <small>
                   {{ model.downloaded ? 'downloaded' : 'not downloaded' }}
                   · {{ model.loaded ? 'loaded' : 'not loaded' }}
@@ -403,6 +412,28 @@ function modelSettingKey(id) {
     whisper: 'whisperEnabled',
     qwen: 'qwenEnabled',
   }[id] || `${id}Enabled`
+}
+
+function modelPipelineDescription(id) {
+  return {
+    wd: 'Runs on images and sampled video frames. Best baseline for visual library tags.',
+    camie: 'Adds anime characters, copyright/source tags, artist tags, and rating evidence.',
+    ocr: 'Reads visible captions, subtitles, and meme text from representative frames.',
+    whisper: 'Extracts speech from video audio for AMVs, edits, narration, and spoken context.',
+    qwen: 'Uses image plus OCR/transcript context for higher-level edit and scene meaning.',
+  }[id] || 'Use this model in the per-post auto-tagging pipeline.'
+}
+
+function postModelInfoTitle(model) {
+  return [
+    model.name,
+    model.purpose,
+    modelPipelineDescription(model.id),
+    `Download size: ${model.downloadSize || 'Unknown'}`,
+    `VRAM: ${model.vramRequirement || 'Unknown'}`,
+    `Runtime: ${model.runtimeAvailable ? 'ready' : 'missing'}`,
+    `Memory: ${model.loaded ? 'loaded' : 'not loaded'}`,
+  ].join('\n')
 }
 
 function evidenceRows(model) {
@@ -916,6 +947,91 @@ function formatDate(dateStr) {
   color: var(--text-secondary);
   font-size: 0.72rem;
   margin-top: 0.1rem;
+}
+
+.ai-model-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.ai-info-icon {
+  position: relative;
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: help;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.ai-info-icon:hover,
+.ai-info-icon:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.ai-info-icon::after {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 25;
+  display: block;
+  width: 280px;
+  max-width: min(320px, 72vw);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: #111827;
+  color: #f8fafc;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+  content: attr(data-tooltip);
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  white-space: pre-line;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.ai-info-icon::before {
+  position: absolute;
+  right: 4px;
+  bottom: calc(100% + 4px);
+  z-index: 26;
+  width: 10px;
+  height: 10px;
+  background: #111827;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px) rotate(45deg);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.ai-info-icon:hover::after,
+.ai-info-icon:focus-visible::after,
+.ai-info-icon:hover::before,
+.ai-info-icon:focus-visible::before {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.ai-info-icon:hover::before,
+.ai-info-icon:focus-visible::before {
+  transform: translateY(0) rotate(45deg);
 }
 
 .ai-load-btn {
