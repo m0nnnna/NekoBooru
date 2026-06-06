@@ -85,6 +85,10 @@
                     class="ai-info-icon"
                     :data-tooltip="postModelInfoTitle(model)"
                     :aria-label="postModelInfoTitle(model)"
+                    @mouseenter="showModelTooltip($event, postModelInfoTitle(model))"
+                    @focus="showModelTooltip($event, postModelInfoTitle(model))"
+                    @mouseleave="hideModelTooltip"
+                    @blur="hideModelTooltip"
                     @click.prevent
                   >i</button>
                 </strong>
@@ -124,6 +128,16 @@
 
       <CommentSection :post-id="post.id" />
     </aside>
+
+    <Teleport to="body">
+      <div
+        v-if="modelTooltip.visible"
+        class="ai-model-tooltip-layer"
+        :style="{ top: modelTooltip.top + 'px', left: modelTooltip.left + 'px' }"
+      >
+        {{ modelTooltip.text }}
+      </div>
+    </Teleport>
 
     <!-- Tag Editor Modal -->
     <div v-if="showTagEditor" class="modal-overlay" @click.self="showTagEditor = false">
@@ -294,6 +308,12 @@ const autoTagStageMessage = ref('')
 const autoTagRunStartedAt = ref(0)
 const autoTagRunElapsed = ref(0)
 const autoLoadJob = ref(null)
+const modelTooltip = ref({
+  visible: false,
+  text: '',
+  top: 0,
+  left: 0,
+})
 let autoLoadPollTimer = null
 let autoTagTickTimer = null
 const pools = ref([])
@@ -434,6 +454,22 @@ function postModelInfoTitle(model) {
     `Runtime: ${model.runtimeAvailable ? 'ready' : 'missing'}`,
     `Memory: ${model.loaded ? 'loaded' : 'not loaded'}`,
   ].join('\n')
+}
+
+function showModelTooltip(event, text) {
+  const rect = event.currentTarget.getBoundingClientRect()
+  const tooltipWidth = 300
+  const gap = 10
+  modelTooltip.value = {
+    visible: true,
+    text,
+    top: Math.max(12, rect.top - 8),
+    left: Math.max(12, Math.min(window.innerWidth - tooltipWidth - 12, rect.left - tooltipWidth - gap)),
+  }
+}
+
+function hideModelTooltip() {
+  modelTooltip.value.visible = false
 }
 
 function evidenceRows(model) {
@@ -978,66 +1014,29 @@ function formatDate(dateStr) {
   border-color: var(--accent);
 }
 
-.ai-info-icon::after {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
-  z-index: 25;
-  display: block;
-  width: 280px;
-  max-width: min(320px, 72vw);
+.ai-load-btn {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.78rem;
+  min-width: 58px;
+}
+
+.ai-model-tooltip-layer {
+  position: fixed;
+  z-index: 5000;
+  width: 300px;
+  max-width: calc(100vw - 24px);
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
   background: #111827;
   color: #f8fafc;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
-  content: attr(data-tooltip);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45);
   font-size: 0.76rem;
   font-weight: 500;
   line-height: 1.4;
   text-align: left;
   white-space: pre-line;
-  opacity: 0;
   pointer-events: none;
-  transform: translateY(4px);
-  transition: opacity 0.12s ease, transform 0.12s ease;
-}
-
-.ai-info-icon::before {
-  position: absolute;
-  right: 4px;
-  bottom: calc(100% + 4px);
-  z-index: 26;
-  width: 10px;
-  height: 10px;
-  background: #111827;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  content: '';
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(4px) rotate(45deg);
-  transition: opacity 0.12s ease, transform 0.12s ease;
-}
-
-.ai-info-icon:hover::after,
-.ai-info-icon:focus-visible::after,
-.ai-info-icon:hover::before,
-.ai-info-icon:focus-visible::before {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.ai-info-icon:hover::before,
-.ai-info-icon:focus-visible::before {
-  transform: translateY(0) rotate(45deg);
-}
-
-.ai-load-btn {
-  padding: 0.35rem 0.55rem;
-  font-size: 0.78rem;
-  min-width: 58px;
 }
 
 .actions {
