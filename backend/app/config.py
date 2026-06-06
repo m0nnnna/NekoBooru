@@ -21,7 +21,10 @@ def get_bundle_dir() -> Path:
 
 class Settings(BaseSettings):
     app_name: str = "NekoBooru"
-    debug: bool = True
+    # Only toggles SQLAlchemy echo (logs every SQL statement). That's very
+    # noisy and adds per-query overhead, so it's off by default. Set
+    # NEKO_DEBUG=true to re-enable query logging while troubleshooting.
+    debug: bool = False
 
     # Paths - base_dir is where data/config live (next to exe when frozen)
     base_dir: Path = get_base_dir()
