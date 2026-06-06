@@ -19,11 +19,26 @@ const els = {
   suggestions: document.getElementById('suggestions'),
   safety: document.getElementById('safety'),
   includeSource: document.getElementById('include-source'),
+  aiTag: document.getElementById('ai-tag'),
   submit: document.getElementById('submit'),
+  aiModelPicker: document.getElementById('ai-model-picker'),
+  aiModelList: document.getElementById('ai-model-list'),
+  aiReview: document.getElementById('ai-review'),
+  applyAi: document.getElementById('apply-ai'),
+  aiPreview: document.getElementById('ai-preview'),
+  aiPreviewSafety: document.getElementById('ai-preview-safety'),
+  aiPreviewTags: document.getElementById('ai-preview-tags'),
+  aiEvidenceList: document.getElementById('ai-evidence-list'),
   status: document.getElementById('status'),
 }
 
 let instanceUrl = ''
+let contentToken = ''
+let createdPost = null
+let autoTagSettings = {}
+let autoTagStatus = {}
+let autoTagSuggestion = null
+let modelLoadPollTimer = null
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -47,8 +62,11 @@ async function init() {
 
   renderPreview()
   setupTagAutocomplete()
+  loadAutoTagControls()
 
   els.submit.addEventListener('click', doUpload)
+  els.aiTag.addEventListener('click', runAiTag)
+  els.applyAi.addEventListener('click', applyAiTags)
 }
 
 function renderPreview() {
@@ -138,6 +156,11 @@ function renderPills() {
     pill.appendChild(remove)
     els.tagPills.appendChild(pill)
   })
+}
+
+function setTags(nextTags) {
+  tags = [...new Set((nextTags || []).map(normalizeTag).filter(Boolean))]
+  renderPills()
 }
 
 function removeTag(tag) {
@@ -273,52 +296,439 @@ function setStatus(message, kind) {
 
 async function doUpload() {
   els.submit.disabled = true
+  els.aiTag.disabled = true
   setStatus('Fetching media...', 'working')
 
   try {
-    const token = await getContentToken()
+    const post = createdPost
+      ? await updateCreatedPost()
+      : await createPostFromPopup({})
 
-    setStatus('Creating post...', 'working')
-    const safety = els.safety.value
-    const body = {
-      contentToken: token,
-      safety,
-      tags: parseTags(),
-    }
-    if (els.includeSource.checked && pageUrl) body.source = pageUrl
+    await chrome.storage.sync.set({ lastSafety: els.safety.value })
 
-    const res = await fetch(`${instanceUrl}/api/posts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
-
-    await chrome.storage.sync.set({ lastSafety: safety })
-
-    const post = await res.json().catch(() => null)
     setStatus('Uploaded to NekoBooru! Nyaa~', 'success')
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
 
-    if (post && post.id) {
-      const link = document.createElement('a')
-      link.href = `${instanceUrl}/post/${post.id}`
-      link.target = '_blank'
-      link.textContent = 'View post'
-      link.className = 'view-link'
-      els.status.appendChild(document.createElement('br'))
-      els.status.appendChild(link)
-    }
+    appendViewPostLink(post)
 
     setTimeout(() => window.close(), 2500)
   } catch (e) {
     setStatus('Upload failed: ' + e.message, 'error')
     notify('NekoBooru upload failed', e.message)
     els.submit.disabled = false
+    els.aiTag.disabled = false
   }
+}
+
+async function createPostFromPopup(options = {}) {
+  const token = await getContentToken()
+
+  setStatus('Creating post...', 'working')
+  const body = {
+    contentToken: token,
+    safety: els.safety.value,
+    tags: parseTags(),
+  }
+  if (Object.prototype.hasOwnProperty.call(options, 'autoTag')) body.autoTag = options.autoTag
+  if (els.includeSource.checked && pageUrl) body.source = pageUrl
+
+  const res = await fetch(`${instanceUrl}/api/posts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${res.status}`)
+  }
+  createdPost = await res.json()
+  return createdPost
+}
+
+async function updateCreatedPost() {
+  if (!createdPost?.id) throw new Error('no created post to update')
+  setStatus('Updating post...', 'working')
+  const body = {
+    safety: els.safety.value,
+    tags: parseTags(),
+  }
+  if (els.includeSource.checked && pageUrl) body.source = pageUrl
+  const res = await fetch(`${instanceUrl}/api/posts/${createdPost.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${res.status}`)
+  }
+  createdPost = await res.json()
+  return createdPost
+}
+
+async function runAiTag() {
+  els.aiTag.disabled = true
+  els.submit.disabled = true
+  els.aiReview.classList.add('hidden')
+  els.aiPreview.classList.add('hidden')
+  autoTagSuggestion = null
+
+  try {
+    setStatus('Preparing media for AI tagging...', 'working')
+    if (!createdPost) {
+      await createPostFromPopup({ autoTag: false })
+    }
+
+    await loadAutoTagControls()
+    if (!autoTagStatus.enabled) {
+      throw new Error('AI tagging is disabled. Enable Auto Tagging in NekoBooru Settings first.')
+    }
+    const missingDeps = Object.entries(autoTagStatus.dependencies || {})
+      .filter(([, available]) => !available)
+      .map(([name]) => name)
+    if (missingDeps.length) {
+      throw new Error(`Missing backend packages: ${missingDeps.join(', ')}`)
+    }
+
+    await loadEnabledAutoTagModels()
+
+    setStatus('Analyzing media...', 'working')
+    const res = await fetch(`${instanceUrl}/api/posts/${createdPost.id}/auto-tags/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: autoTagRunSettings() }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+
+    autoTagSuggestion = await res.json()
+    if (autoTagSuggestion.error) throw new Error(autoTagSuggestion.error)
+
+    setTags(autoTagSuggestion.suggestedTags || tags)
+    els.safety.value = autoTagSuggestion.suggestedSafety || els.safety.value || 'safe'
+    renderAiPreview(autoTagSuggestion)
+    els.aiReview.classList.remove('hidden')
+    setStatus('AI tag preview ready. Review tags and rating, then apply.', 'success')
+  } catch (e) {
+    setStatus('AI tag failed: ' + e.message, 'error')
+    notify('NekoBooru AI tag failed', e.message)
+  } finally {
+    els.aiTag.disabled = false
+    els.submit.disabled = false
+  }
+}
+
+function renderAiPreview(suggestion) {
+  els.aiPreviewSafety.textContent = suggestion.suggestedSafety || 'unchanged'
+  els.aiPreviewTags.innerHTML = ''
+  ;(suggestion.suggestedTags || []).slice(0, 60).forEach((tag) => {
+    const pill = document.createElement('span')
+    pill.textContent = tag
+    els.aiPreviewTags.appendChild(pill)
+  })
+
+  els.aiEvidenceList.innerHTML = ''
+  aiEvidenceModels(suggestion).forEach((model) => {
+    const row = document.createElement('div')
+    row.className = 'ai-evidence-row'
+    const title = document.createElement('strong')
+    title.textContent = model.model || 'Auto tagger'
+    row.appendChild(title)
+
+    const dl = document.createElement('dl')
+    evidenceRows(model).forEach((item) => {
+      const dt = document.createElement('dt')
+      dt.textContent = item.label
+      const dd = document.createElement('dd')
+      dd.textContent = item.value
+      dl.append(dt, dd)
+    })
+    row.appendChild(dl)
+    els.aiEvidenceList.appendChild(row)
+  })
+
+  els.aiPreview.classList.remove('hidden')
+}
+
+function aiEvidenceModels(suggestion) {
+  const evidence = suggestion?.evidence
+  if (!evidence) return []
+  if (Array.isArray(evidence.models)) return evidence.models
+  return [{ model: suggestion.model || 'Auto tagger', evidence }]
+}
+
+function evidenceRows(model) {
+  const evidence = model.evidence || {}
+  const rows = []
+  if (model.error) rows.push({ label: 'Error', value: model.error })
+  if (evidence.kind) rows.push({ label: 'Source', value: evidence.kind })
+  if (Array.isArray(evidence.topTags) && evidence.topTags.length) {
+    rows.push({ label: 'Top tags', value: evidence.topTags.slice(0, 8).map(formatTagScore).join(', ') })
+  }
+  if (Array.isArray(evidence.topCharacters) && evidence.topCharacters.length) {
+    rows.push({ label: 'Characters', value: evidence.topCharacters.slice(0, 8).map(formatTagScore).join(', ') })
+  }
+  if (Array.isArray(evidence.topCopyrights) && evidence.topCopyrights.length) {
+    rows.push({ label: 'Copyrights', value: evidence.topCopyrights.slice(0, 8).map(formatTagScore).join(', ') })
+  }
+  if (evidence.rating && Object.keys(evidence.rating).length) {
+    rows.push({ label: 'Rating', value: formatScoreMap(evidence.rating) })
+  }
+  if (evidence.text) rows.push({ label: 'OCR text', value: String(evidence.text).slice(0, 500) })
+  if (evidence.transcript) rows.push({ label: 'Transcript', value: String(evidence.transcript).slice(0, 500) })
+  if (evidence.parsed?.tags?.length) rows.push({ label: 'Semantic', value: evidence.parsed.tags.join(', ') })
+  if (evidence.parsed?.safety) rows.push({ label: 'Safety', value: evidence.parsed.safety })
+  if (evidence.raw && !rows.some((row) => row.label === 'Semantic')) {
+    rows.push({ label: 'Output', value: String(evidence.raw).slice(0, 500) })
+  }
+  if (!rows.length) rows.push({ label: 'Details', value: 'No structured evidence returned.' })
+  return rows
+}
+
+function formatTagScore(item) {
+  const tag = item.tag || item.name || String(item)
+  const confidence = Number(item.confidence ?? item.score)
+  if (!Number.isFinite(confidence)) return tag
+  return `${tag} ${Math.round(confidence * 100)}%`
+}
+
+function formatScoreMap(map) {
+  return Object.entries(map)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 6)
+    .map(([key, value]) => `${key} ${Math.round(Number(value) * 100)}%`)
+    .join(', ')
+}
+
+async function applyAiTags() {
+  if (!createdPost?.id || !autoTagSuggestion) return
+  els.applyAi.disabled = true
+  els.aiTag.disabled = true
+  els.submit.disabled = true
+  setStatus('Applying AI tags...', 'working')
+
+  try {
+    const res = await fetch(`${instanceUrl}/api/posts/${createdPost.id}/auto-tags/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tags: parseTags(),
+        safety: els.safety.value,
+        categories: autoTagSuggestion.categories || {},
+        settings: autoTagRunSettings(),
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    createdPost = await res.json()
+    setStatus('AI tags applied to NekoBooru!', 'success')
+    notify('AI tags applied', 'Your NekoBooru post was updated.')
+    appendViewPostLink(createdPost)
+  } catch (e) {
+    setStatus('Failed to apply AI tags: ' + e.message, 'error')
+  } finally {
+    els.applyAi.disabled = false
+    els.aiTag.disabled = false
+    els.submit.disabled = false
+  }
+}
+
+function appendViewPostLink(post) {
+  if (!post?.id) return
+  const link = document.createElement('a')
+  link.href = `${instanceUrl}/post/${post.id}`
+  link.target = '_blank'
+  link.textContent = 'View post'
+  link.className = 'view-link'
+  els.status.appendChild(document.createElement('br'))
+  els.status.appendChild(link)
+}
+
+async function loadAutoTagControls() {
+  try {
+    const [settingsRes, statusRes] = await Promise.all([
+      fetch(`${instanceUrl}/api/auto-tags/settings`),
+      fetch(`${instanceUrl}/api/auto-tags/status`),
+    ])
+    if (!settingsRes.ok || !statusRes.ok) throw new Error('AI tag status unavailable')
+    autoTagSettings = await settingsRes.json()
+    autoTagSettings.wdEnabled = autoTagSettings.wdEnabled !== false
+    autoTagStatus = await statusRes.json()
+    renderAiModelPicker()
+  } catch (e) {
+    els.aiModelList.innerHTML = ''
+    const note = document.createElement('div')
+    note.className = 'picker-note'
+    note.textContent = 'AI model status unavailable.'
+    els.aiModelList.appendChild(note)
+  }
+}
+
+function renderAiModelPicker() {
+  els.aiModelList.innerHTML = ''
+  const models = autoTagStatus.models || []
+  if (!models.length) {
+    const note = document.createElement('div')
+    note.className = 'picker-note'
+    note.textContent = 'No models reported by the backend.'
+    els.aiModelList.appendChild(note)
+    return
+  }
+
+  models.forEach((model) => {
+    const row = document.createElement('label')
+    row.className = 'ai-model-row'
+
+    const checkbox = document.createElement('input')
+    checkbox.type = 'checkbox'
+    checkbox.checked = Boolean(autoTagSettings[modelSettingKey(model.id)])
+    checkbox.addEventListener('change', () => {
+      autoTagSettings[modelSettingKey(model.id)] = checkbox.checked
+    })
+
+    const text = document.createElement('span')
+    const title = document.createElement('strong')
+    const name = document.createElement('span')
+    name.textContent = model.name
+    const info = document.createElement('span')
+    info.className = 'ai-info'
+    info.title = modelInfoTitle(model)
+    info.textContent = 'i'
+    title.append(name, info)
+    const meta = document.createElement('small')
+    meta.textContent = `${model.downloaded ? 'downloaded' : 'not downloaded'} · ${model.loaded ? 'loaded' : 'not loaded'}`
+    text.append(title, meta)
+
+    const load = document.createElement('button')
+    load.type = 'button'
+    load.className = 'btn btn-secondary ai-load-btn'
+    load.textContent = model.loaded ? 'Unload' : 'Load'
+    load.disabled = !model.downloaded || !model.runtimeAvailable
+    load.addEventListener('click', async (event) => {
+      event.preventDefault()
+      if (model.loaded) {
+        await unloadAutoTagModel(model.id)
+      } else {
+        await loadAutoTagModel(model.id)
+      }
+    })
+
+    row.append(checkbox, text, load)
+    els.aiModelList.appendChild(row)
+  })
+}
+
+function modelSettingKey(id) {
+  return {
+    wd: 'wdEnabled',
+    camie: 'characterModelEnabled',
+    ocr: 'ocrEnabled',
+    whisper: 'whisperEnabled',
+    qwen: 'qwenEnabled',
+  }[id] || `${id}Enabled`
+}
+
+function modelPipelineDescription(id) {
+  return {
+    wd: 'Runs on images and sampled video frames. Best baseline for visual library tags.',
+    camie: 'Adds anime characters, copyright/source tags, artist tags, and rating evidence.',
+    ocr: 'Reads visible captions, subtitles, and meme text from representative frames.',
+    whisper: 'Extracts speech from video audio for AMVs, edits, narration, and spoken context.',
+    qwen: 'Uses image plus OCR/transcript context for higher-level edit and scene meaning.',
+  }[id] || 'Use this model in the auto-tagging pipeline.'
+}
+
+function modelInfoTitle(model) {
+  return [
+    model.name,
+    model.purpose,
+    modelPipelineDescription(model.id),
+    `Download size: ${model.downloadSize || 'Unknown'}`,
+    `VRAM: ${model.vramRequirement || 'Unknown'}`,
+    `Runtime: ${model.runtimeAvailable ? 'ready' : 'missing'}`,
+    `Memory: ${model.loaded ? 'loaded' : 'not loaded'}`,
+    model.providers?.length ? `Provider: ${model.providers.join(', ')}` : null,
+  ].filter(Boolean).join('\n')
+}
+
+function autoTagRunSettings() {
+  return {
+    ...autoTagSettings,
+    enabled: true,
+  }
+}
+
+function enabledModels() {
+  return (autoTagStatus.models || []).filter((model) => Boolean(autoTagSettings[modelSettingKey(model.id)]))
+}
+
+async function loadEnabledAutoTagModels() {
+  for (const model of enabledModels()) {
+    if (!model.downloaded || !model.runtimeAvailable || model.loaded) continue
+    await loadAutoTagModel(model.id, { keepStatus: true })
+  }
+}
+
+async function loadAutoTagModel(modelId, options = {}) {
+  const model = (autoTagStatus.models || []).find((item) => item.id === modelId)
+  setStatus(`Loading ${model?.name || 'AI'} model weights...`, 'working')
+  const res = await fetch(`${instanceUrl}/api/auto-tags/models/${encodeURIComponent(modelId)}/load`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${res.status}`)
+  }
+  await pollModelLoad()
+  await loadAutoTagControls()
+  if (!options.keepStatus) setStatus(`${model?.name || 'AI'} model loaded.`, 'success')
+}
+
+async function unloadAutoTagModel(modelId) {
+  const model = (autoTagStatus.models || []).find((item) => item.id === modelId)
+  setStatus(`Unloading ${model?.name || 'AI'} model...`, 'working')
+  const res = await fetch(`${instanceUrl}/api/auto-tags/models/${encodeURIComponent(modelId)}/unload`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    setStatus('Unload failed: ' + (err.detail || `HTTP ${res.status}`), 'error')
+    return
+  }
+  autoTagStatus = await res.json()
+  renderAiModelPicker()
+  setStatus(`${model?.name || 'AI'} model unloaded.`, 'success')
+}
+
+function pollModelLoad() {
+  return new Promise((resolve, reject) => {
+    if (modelLoadPollTimer) clearInterval(modelLoadPollTimer)
+    modelLoadPollTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`${instanceUrl}/api/auto-tags/models/load-job`)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const job = await res.json()
+        if (job?.message) setStatus(job.message, 'working')
+        if (!job || !['queued', 'running'].includes(job.status)) {
+          clearInterval(modelLoadPollTimer)
+          modelLoadPollTimer = null
+          if (job?.status === 'failed') {
+            reject(new Error(job.error || 'Model load failed'))
+          } else {
+            resolve()
+          }
+        }
+      } catch (e) {
+        clearInterval(modelLoadPollTimer)
+        modelLoadPollTimer = null
+        reject(e)
+      }
+    }, 700)
+  })
 }
 
 // Video-platform hosts the server can grab with yt-dlp (RedGifs, X, YouTube,
@@ -359,6 +769,7 @@ function videoPlatformUrl(url) {
 // proper Referer, which works for most boorus/CDNs). If both fail, fall back to
 // fetching the bytes here in the browser and uploading them directly.
 async function getContentToken() {
+  if (contentToken) return contentToken
   // RedGifs/X/YouTube/etc.: the watch page (or a video element's page) is what
   // yt-dlp understands, not the blob/CDN src the browser exposes. In link-fetch
   // mode the src already *is* that page URL, so use it directly. In direct mode
@@ -376,7 +787,10 @@ async function getContentToken() {
       })
       if (res.ok) {
         const data = await res.json()
-        if (data.token) return data.token
+        if (data.token) {
+          contentToken = data.token
+          return contentToken
+        }
       }
     } catch {
       // fall through to direct-URL / client-side fetch
@@ -391,7 +805,10 @@ async function getContentToken() {
     })
     if (res.ok) {
       const data = await res.json()
-      if (data.token) return data.token
+      if (data.token) {
+        contentToken = data.token
+        return contentToken
+      }
     }
   } catch {
     // fall through to client-side fetch
@@ -415,7 +832,8 @@ async function getContentToken() {
   }
   const data = await upRes.json()
   if (!data.token) throw new Error('no upload token returned')
-  return data.token
+  contentToken = data.token
+  return contentToken
 }
 
 function filenameFromUrl(url, mime) {

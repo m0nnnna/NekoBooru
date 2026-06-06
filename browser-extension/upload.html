@@ -44,7 +44,37 @@
         <label><input type="checkbox" id="include-source" checked /> Save source page URL</label>
       </div>
 
-      <button id="submit" class="btn btn-block">Upload to NekoBooru</button>
+      <div class="upload-actions">
+        <button id="ai-tag" class="btn btn-secondary">AI Tag</button>
+        <button id="submit" class="btn">Upload to NekoBooru</button>
+      </div>
+
+      <details id="ai-model-picker" class="ai-model-picker">
+        <summary>AI models</summary>
+        <div id="ai-model-list" class="ai-model-list">
+          <div class="picker-note">Loading model status...</div>
+        </div>
+      </details>
+
+      <div id="ai-preview" class="ai-preview-card hidden">
+        <div class="ai-preview-head">
+          <strong>AI Preview</strong>
+          <span id="ai-preview-safety"></span>
+        </div>
+        <div id="ai-preview-tags" class="ai-preview-tags"></div>
+        <details id="ai-preview-evidence" class="ai-preview-evidence">
+          <summary>Model evidence</summary>
+          <div id="ai-evidence-list"></div>
+        </details>
+      </div>
+
+      <div id="ai-review" class="ai-review hidden">
+        <div>
+          <strong>Ready to apply</strong>
+          <small>Review the tags, rating, and evidence above before writing them to the created post.</small>
+        </div>
+        <button id="apply-ai" class="btn">Apply AI Tags</button>
+      </div>
 
       <div id="status" class="status hidden"></div>
     </div>
