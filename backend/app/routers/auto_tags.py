@@ -1,25 +1,35 @@
+import json
+import tempfile
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 
+from ..config import settings
 from ..database import async_session
 from ..models import AutoTagJob, AutoTagSuggestion
 from ..services import auto_tag_jobs
 from ..services.auto_tagger import (
+    _infer_local,
     delete_huggingface_token,
+    delete_tagger_worker_token,
     download_model,
     load_options,
     current_download_job,
     current_model_load_job,
     model_statuses,
+    result_to_json,
     save_huggingface_token,
     save_options,
+    save_tagger_worker_token,
     start_model_load,
     start_model_download,
     status as tagger_status,
+    tagger_worker_token,
     unload_model,
+    validate_options,
 )
 
 router = APIRouter(prefix="/api/auto-tags", tags=["auto-tags"])
@@ -45,6 +55,18 @@ class ApplyPostBody(BaseModel):
 
 class HuggingFaceTokenBody(BaseModel):
     token: str
+
+
+class WorkerTokenBody(BaseModel):
+    token: str
+
+
+def _require_worker_token(x_tagger_token: Optional[str]) -> None:
+    """Authenticate inbound worker calls. If this instance has a token
+    configured, callers must match it; otherwise allow (LAN/no-auth posture)."""
+    expected = tagger_worker_token()
+    if expected and x_tagger_token != expected:
+        raise HTTPException(status_code=401, detail="Invalid or missing tagger worker token")
 
 
 @router.get("/settings")
@@ -138,6 +160,63 @@ async def put_huggingface_token(body: HuggingFaceTokenBody):
 async def delete_huggingface_token_endpoint():
     delete_huggingface_token()
     return tagger_status()
+
+
+@router.put("/worker-token")
+async def put_worker_token(body: WorkerTokenBody):
+    try:
+        save_tagger_worker_token(body.token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return tagger_status()
+
+
+@router.delete("/worker-token")
+async def delete_worker_token_endpoint():
+    delete_tagger_worker_token()
+    return tagger_status()
+
+
+@router.post("/infer")
+async def infer_media(
+    file: UploadFile = File(...),
+    options: str = Form("{}"),
+    x_tagger_token: Optional[str] = Header(None),
+):
+    """Stateless inference endpoint served by a GPU worker instance.
+
+    Accepts a media file plus JSON options, runs the model pipeline locally in
+    this process, and returns the tag result. Used by another NekoBooru instance
+    that has remote inference enabled.
+    """
+    _require_worker_token(x_tagger_token)
+
+    try:
+        parsed = json.loads(options or "{}")
+        if not isinstance(parsed, dict):
+            parsed = {}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="options must be valid JSON")
+
+    # Force local inference so a misconfigured worker can't bounce the request on.
+    opts = validate_options({**load_options().__dict__, **parsed, "remoteEnabled": False, "enabled": True})
+
+    suffix = Path(file.filename or "").suffix or ".bin"
+    infer_dir = settings.cache_dir / "infer"
+    infer_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(suffix=suffix, dir=infer_dir)
+    tmp_path = Path(tmp_name)
+    try:
+        with open(fd, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+        result = _infer_local(tmp_path, opts)
+        return json.loads(result_to_json(result))
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 @router.get("/estimate")

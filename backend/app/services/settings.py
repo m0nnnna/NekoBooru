@@ -86,6 +86,24 @@ class SettingsManager:
         settings.pop("huggingface_token", None)
         self.save_settings(settings)
 
+    def get_tagger_worker_token(self) -> Optional[str]:
+        """Get the shared token used to authenticate remote tagger-worker calls."""
+        settings = self.load_settings()
+        token = settings.get("tagger_worker_token")
+        return str(token) if token else None
+
+    def set_tagger_worker_token(self, token: str) -> None:
+        """Persist the tagger-worker token locally."""
+        settings = self.load_settings()
+        settings["tagger_worker_token"] = token.strip()
+        self.save_settings(settings)
+
+    def delete_tagger_worker_token(self) -> None:
+        """Remove the locally stored tagger-worker token."""
+        settings = self.load_settings()
+        settings.pop("tagger_worker_token", None)
+        self.save_settings(settings)
+
     def normalize_path(self, path_str: str) -> str:
         """Normalize path for cross-platform compatibility."""
         # Convert to Path object to handle both Windows and Unix paths

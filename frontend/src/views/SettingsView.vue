@@ -260,8 +260,61 @@
     <div class="settings-section">
       <h2>Auto Tagging</h2>
       <p class="section-description">
-        Configure optional AI tagging for imports, individual posts, and your existing library.
+        Optional local AI tagging for imports, individual posts, and your existing library.
+        It is disabled by default and not bundled with the app — turn it on here to set it up.
       </p>
+
+      <label class="toggle-card ai-master-toggle">
+        <input type="checkbox" v-model="autoTagSettings.enabled" @change="saveAutoTagSettings" />
+        <span>
+          <strong>Enable AI features</strong>
+          <small>Reveals model setup, the per-post AI Tag button, and auto-tagging on uploads.</small>
+        </span>
+      </label>
+
+      <div v-if="autoTagSettings.enabled" class="ai-config-body">
+      <div v-if="aiRuntimeMissing" class="ai-setup-panel">
+        <div class="config-panel-head">
+          <h3>Set up the AI runtime</h3>
+          <p>
+            AI tagging needs an extra ML runtime that is not bundled with NekoBooru. Pick your
+            hardware, run the command below in your NekoBooru Python environment, then re-check.
+            The packaged executable cannot install this into itself — run NekoBooru from source
+            (or your own Python env) to use AI features.
+          </p>
+        </div>
+        <div class="ai-setup-target">
+          <label class="radio-row">
+            <input type="radio" value="cuda" v-model="aiSetupTarget" />
+            <span>
+              <strong>NVIDIA GPU (CUDA)</strong>
+              <small>Fastest. Requires an NVIDIA GPU with recent drivers.</small>
+            </span>
+          </label>
+          <label class="radio-row">
+            <input type="radio" value="cpu" v-model="aiSetupTarget" />
+            <span>
+              <strong>CPU only</strong>
+              <small>Works anywhere, but much slower. The largest models may be impractical.</small>
+            </span>
+          </label>
+        </div>
+        <div class="ai-setup-command">
+          <code>{{ aiSetupCommand }}</code>
+          <button class="btn btn-secondary" @click="copyAiSetupCommand">
+            {{ aiSetupCopied ? 'Copied!' : 'Copy' }}
+          </button>
+        </div>
+        <div class="form-actions">
+          <button class="btn" @click="recheckAiRuntime" :disabled="recheckingRuntime">
+            {{ recheckingRuntime ? 'Checking...' : 'Re-check runtime' }}
+          </button>
+          <span class="status-note">
+            Torch {{ autoTagStatus.torch?.version || 'not installed' }} ·
+            ONNX runtime {{ autoTagStatus.dependencies?.onnxruntime ? 'ready' : 'missing' }}
+          </span>
+        </div>
+      </div>
 
       <div class="auto-status">
         <div class="pipeline-head">
@@ -450,6 +503,62 @@
 
       <div class="config-panel">
         <div class="config-panel-head">
+          <h3>Compute location</h3>
+          <p>Run models in this server, or offload to a GPU machine on your LAN.</p>
+        </div>
+        <label class="toggle-card">
+          <input type="checkbox" v-model="autoTagSettings.remoteEnabled" @change="saveAutoTagSettings" />
+          <span>
+            <strong>Run AI on a remote GPU worker</strong>
+            <small>Forwards tagging to another NekoBooru instance that has the AI stack installed. This server stays light.</small>
+          </span>
+        </label>
+        <div v-if="autoTagSettings.remoteEnabled" class="remote-worker-config">
+          <div class="form-group">
+            <label>Worker URL</label>
+            <input
+              v-model="autoTagSettings.remoteUrl"
+              type="text"
+              placeholder="http://192.168.1.50:8772"
+              autocomplete="off"
+              class="path-input"
+            />
+            <p class="help-text">The base URL of the GPU machine's NekoBooru (no trailing path).</p>
+          </div>
+          <div class="form-group">
+            <label>Worker token</label>
+            <div class="path-input-group">
+              <input
+                v-model="workerToken"
+                type="password"
+                placeholder="Shared secret (recommended)"
+                autocomplete="off"
+                class="path-input"
+              />
+              <button class="btn btn-secondary" @click="saveWorkerToken" :disabled="savingWorkerToken || !workerToken.trim()">
+                {{ savingWorkerToken ? 'Saving...' : 'Save Token' }}
+              </button>
+              <button class="btn btn-secondary" @click="deleteWorkerToken" :disabled="savingWorkerToken || !autoTagStatus.remote?.tokenConfigured">
+                Forget
+              </button>
+            </div>
+            <p class="help-text">
+              Must match <code>NEKO_TAGGER_WORKER_TOKEN</code> on the worker. Stored locally; sent as a header on each call.
+            </p>
+          </div>
+          <div class="form-actions">
+            <button class="btn" @click="testWorker" :disabled="testingWorker || !autoTagSettings.remoteUrl">
+              {{ testingWorker ? 'Testing...' : 'Test connection' }}
+            </button>
+            <span class="status-note" :class="autoTagStatus.remote?.reachable ? 'model-ok' : 'model-missing'">
+              {{ remoteWorkerSummary }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="!autoTagSettings.remoteEnabled" class="config-panel">
+        <div class="config-panel-head">
           <h3>Compute Runtime</h3>
           <p>Choose where large torch models run. Auto prefers GPU when CUDA torch is installed.</p>
         </div>
@@ -478,13 +587,6 @@
           <p>Choose where automatic tagging is allowed to run and what metadata it may update.</p>
         </div>
         <div class="toggle-grid">
-          <label class="toggle-card">
-            <input type="checkbox" v-model="autoTagSettings.enabled" />
-            <span>
-              <strong>Enable auto-tagging</strong>
-              <small>Allows AI tagging on imports, posts, and bulk library jobs.</small>
-            </span>
-          </label>
           <label class="toggle-card">
             <input type="checkbox" v-model="autoTagSettings.tagImages" />
             <span>
@@ -644,6 +746,7 @@
           <p v-if="autoTagJob.error" class="stats-error">{{ autoTagJob.error }}</p>
         </div>
       </div>
+      </div>
     </div>
 
     <div v-if="showPreviewModal" class="modal-overlay" @click.self="showPreviewModal = false">
@@ -725,6 +828,12 @@ const savingToken = ref(false)
 const modelCatalog = ref([])
 const modelDownloadJob = ref(null)
 const modelMemoryBusy = ref(false)
+const workerToken = ref('')
+const savingWorkerToken = ref(false)
+const testingWorker = ref(false)
+const aiSetupTarget = ref('cuda')
+const aiSetupCopied = ref(false)
+const recheckingRuntime = ref(false)
 const modelStatusMessage = ref({
   show: false,
   success: false,
@@ -915,6 +1024,35 @@ const bulkPipelineSummary = computed(() => {
   return `Bulk jobs process ${target} using saved enabled defaults only: ${modelText}. Downloaded but unchecked models are skipped.`
 })
 
+const aiRuntimeMissing = computed(() => {
+  // When offloading to a remote worker, the runtime lives on the worker, not here.
+  if (autoTagSettings.value.remoteEnabled) return false
+  const deps = autoTagStatus.value.dependencies || {}
+  // Nothing can run without at least an inference runtime. ONNX powers the
+  // baseline WD/Camie taggers; torch powers OCR/Whisper/Qwen.
+  return !deps.onnxruntime && !deps.torch
+})
+
+const remoteWorkerSummary = computed(() => {
+  const remote = autoTagStatus.value.remote || {}
+  if (!autoTagSettings.value.remoteEnabled) return 'Local inference'
+  if (!remote.url) return 'Enter the worker URL'
+  if (remote.reachable) {
+    const torch = remote.worker?.torch || {}
+    const where = torch.cudaAvailable
+      ? `GPU: ${torch.devices?.[0]?.name || 'CUDA'}`
+      : (torch.available ? 'worker on CPU' : 'worker has no torch')
+    return `Connected · ${where}`
+  }
+  return remote.error ? `Unreachable (${remote.error})` : 'Not connected — Test connection'
+})
+
+const aiSetupCommand = computed(() =>
+  aiSetupTarget.value === 'cpu'
+    ? 'pip install -r backend/requirements-tagger-cpu.txt'
+    : 'pip install -r backend/requirements-tagger.txt'
+)
+
 const torchSummary = computed(() => {
   const torch = autoTagStatus.value.torch || {}
   if (!torch.available) return 'Torch missing'
@@ -1067,6 +1205,26 @@ async function refreshAutoTagStatus() {
   }
 }
 
+async function recheckAiRuntime() {
+  recheckingRuntime.value = true
+  try {
+    await refreshAutoTagStatus()
+  } finally {
+    recheckingRuntime.value = false
+  }
+}
+
+async function copyAiSetupCommand() {
+  try {
+    await navigator.clipboard.writeText(aiSetupCommand.value)
+    aiSetupCopied.value = true
+    setTimeout(() => { aiSetupCopied.value = false }, 1500)
+  } catch (e) {
+    // Clipboard may be unavailable (e.g. non-secure context); leave the command
+    // visible for manual copy.
+  }
+}
+
 async function saveHuggingFaceToken() {
   if (!huggingFaceToken.value.trim()) return
   savingToken.value = true
@@ -1108,6 +1266,41 @@ async function deleteHuggingFaceToken() {
     }
   } finally {
     savingToken.value = false
+  }
+}
+
+async function saveWorkerToken() {
+  if (!workerToken.value.trim()) return
+  savingWorkerToken.value = true
+  try {
+    autoTagStatus.value = await api.saveTaggerWorkerToken(workerToken.value.trim())
+    workerToken.value = ''
+  } catch (e) {
+    alert('Failed to save worker token: ' + e.message)
+  } finally {
+    savingWorkerToken.value = false
+  }
+}
+
+async function deleteWorkerToken() {
+  savingWorkerToken.value = true
+  try {
+    autoTagStatus.value = await api.deleteTaggerWorkerToken()
+  } catch (e) {
+    alert('Failed to remove worker token: ' + e.message)
+  } finally {
+    savingWorkerToken.value = false
+  }
+}
+
+async function testWorker() {
+  testingWorker.value = true
+  try {
+    // Persist URL/enabled first so the backend probes the right worker.
+    await saveAutoTagSettings()
+    await refreshAutoTagStatus()
+  } finally {
+    testingWorker.value = false
   }
 }
 
@@ -2126,6 +2319,77 @@ function startYtdlpPolling() {
   color: var(--text-secondary);
   font-size: 0.78rem;
   line-height: 1.35;
+}
+
+.ai-master-toggle {
+  max-width: 520px;
+  margin-bottom: 1rem;
+}
+
+.ai-config-body {
+  display: contents;
+}
+
+.ai-setup-panel {
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent, var(--border));
+  border-radius: 0.5rem;
+}
+
+.ai-setup-target {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.radio-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  cursor: pointer;
+}
+
+.radio-row input {
+  margin-top: 0.15rem;
+}
+
+.radio-row strong {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.radio-row small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.ai-setup-command {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.ai-setup-command code {
+  flex: 1;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  font-family: monospace;
+  font-size: 0.82rem;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .model-toggle-list {

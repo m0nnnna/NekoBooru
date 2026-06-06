@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     description="A lightweight, local booru-style image/video gallery",
-    version="1.0.0",
+    version="4.0.0",
     lifespan=lifespan,
 )
 
@@ -73,7 +73,7 @@ async def get_info():
     """Get server information."""
     return {
         "name": settings.app_name,
-        "version": "1.0.0",
+        "version": "4.0.0",
     }
 
 

@@ -109,6 +109,23 @@ a = Analysis(
         'pandas',
         'test',
         'unittest',
+        # Optional AI auto-tagging stack. These are large (torch/CUDA alone is
+        # ~4 GB) and intentionally NOT shipped in the binary. The taggers import
+        # them lazily inside functions guarded by find_spec(), so excluding them
+        # here keeps the bundle small and fast even when they are present in the
+        # build venv. Users install them on demand (see backend/requirements.txt)
+        # and enable AI from the web UI.
+        'torch',
+        'torchvision',
+        'torchaudio',
+        'onnxruntime',
+        'onnxruntime_gpu',
+        'transformers',
+        'accelerate',
+        'qwen_vl_utils',
+        'huggingface_hub',
+        'safetensors',
+        'tokenizers',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -128,7 +145,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX is disabled: it compresses every bundled DLL serially (which made the
+    # build appear to hang for many minutes on large binaries) and is known to
+    # corrupt some native DLLs. The size win is negligible for this bundle.
+    upx=False,
     upx_exclude=[],
     console=True,
     icon=os.path.join('frontend', 'public', 'favicon.ico')

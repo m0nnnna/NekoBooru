@@ -121,6 +121,12 @@ class AutoTagOptions:
     qwenEnabled: bool = False
     characterModelEnabled: bool = False
     torchDevice: str = "auto"
+    # Offload inference to a remote GPU worker (another NekoBooru instance with
+    # the AI stack installed). When enabled, tag_media() forwards media to the
+    # worker's /api/auto-tags/infer instead of running models in this process.
+    remoteEnabled: bool = False
+    remoteUrl: str = ""
+    remoteTimeoutSeconds: int = 120
     excludedTags: list[str] = field(default_factory=list)
     keywordRules: list[dict] = field(default_factory=list)
 
@@ -756,6 +762,25 @@ def delete_huggingface_token() -> None:
     SettingsManager(settings.config_file).delete_huggingface_token()
 
 
+def tagger_worker_token() -> str | None:
+    """Shared token for remote tagger-worker auth (config value or env)."""
+    return (
+        SettingsManager(settings.config_file).get_tagger_worker_token()
+        or os.environ.get("NEKO_TAGGER_WORKER_TOKEN")
+    )
+
+
+def save_tagger_worker_token(token: str) -> None:
+    token = str(token or "").strip()
+    if not token:
+        raise ValueError("Tagger worker token cannot be empty")
+    SettingsManager(settings.config_file).set_tagger_worker_token(token)
+
+
+def delete_tagger_worker_token() -> None:
+    SettingsManager(settings.config_file).delete_tagger_worker_token()
+
+
 def validate_options(raw: dict) -> AutoTagOptions:
     data = asdict(default_options())
     data.update({k: v for k, v in (raw or {}).items() if k in data})
@@ -770,11 +795,55 @@ def validate_options(raw: dict) -> AutoTagOptions:
     if data["defaultBackfillMode"] not in {"untagged", "lightly_tagged", "all", "images", "videos", "selected"}:
         data["defaultBackfillMode"] = "lightly_tagged"
     data["torchDevice"] = _normalize_torch_device(data.get("torchDevice"))
+    data["remoteEnabled"] = bool(data.get("remoteEnabled"))
+    data["remoteUrl"] = str(data.get("remoteUrl") or "").strip().rstrip("/")
+    data["remoteTimeoutSeconds"] = min(1800, max(5, int(data.get("remoteTimeoutSeconds") or 120)))
     if not isinstance(data["excludedTags"], list):
         data["excludedTags"] = []
     if not isinstance(data["keywordRules"], list):
         data["keywordRules"] = []
     return AutoTagOptions(**data)
+
+
+def _remote_worker_status(opts: AutoTagOptions) -> dict:
+    """Report remote-worker config and live reachability (used by the UI)."""
+    info = {
+        "enabled": bool(opts.remoteEnabled),
+        "url": opts.remoteUrl,
+        "tokenConfigured": bool(tagger_worker_token()),
+        "reachable": False,
+        "worker": None,
+        "error": None,
+    }
+    if not (opts.remoteEnabled and opts.remoteUrl):
+        return info
+    import httpx  # base dependency
+
+    try:
+        headers = {}
+        token = tagger_worker_token()
+        if token:
+            headers["X-Tagger-Token"] = token
+        response = httpx.get(
+            f"{opts.remoteUrl.rstrip('/')}/api/auto-tags/status",
+            headers=headers,
+            timeout=5.0,
+        )
+        if response.status_code == 200:
+            worker = response.json()
+            info["reachable"] = True
+            info["worker"] = {
+                "torch": worker.get("torch"),
+                "onnx": worker.get("onnx"),
+                "torchDevice": worker.get("torchDevice"),
+                "models": worker.get("models"),
+                "ffmpeg": worker.get("ffmpeg"),
+            }
+        else:
+            info["error"] = f"worker_error_{response.status_code}"
+    except Exception as exc:  # noqa: BLE001
+        info["error"] = f"worker_unreachable: {exc}"
+    return info
 
 
 def status() -> dict:
@@ -794,6 +863,7 @@ def status() -> dict:
         "onnx": _onnx_runtime_info(),
         "torchDevice": opts.torchDevice,
         "qwenDevice": _qwen_tagger.device_info(),
+        "remote": _remote_worker_status(opts),
         "huggingFaceTokenConfigured": bool(huggingface_token()),
         "dependencies": {
             "huggingface_hub": find_spec("huggingface_hub") is not None,
@@ -1297,6 +1367,14 @@ def tag_media(path: Path, opts: AutoTagOptions | None = None) -> AutoTagResult:
     path = Path(path)
     if not opts.enabled:
         return AutoTagResult(enabled=False, error="disabled")
+    if opts.remoteEnabled and opts.remoteUrl:
+        return _tag_media_remote(path, opts)
+    return _infer_local(path, opts)
+
+
+def _infer_local(path: Path, opts: AutoTagOptions) -> AutoTagResult:
+    """Run the model pipeline in this process (the worker side / local mode)."""
+    path = Path(path)
     try:
         if path.suffix.lower() in SUPPORTED_IMAGE_EXTS:
             if not opts.tagImages:
@@ -1313,6 +1391,52 @@ def tag_media(path: Path, opts: AutoTagOptions | None = None) -> AutoTagResult:
     except Exception as exc:  # noqa: BLE001
         logger.warning("auto tagger failed for %s: %s", path, exc)
         return AutoTagResult(enabled=True, model=_wd_tagger.name, error=str(exc))
+
+
+def _tag_media_remote(path: Path, opts: AutoTagOptions) -> AutoTagResult:
+    """Forward inference to a remote GPU worker. Never raises: an unreachable
+    worker returns a soft error so the caller (e.g. upload) still succeeds."""
+    import httpx  # base dependency
+
+    url = f"{opts.remoteUrl.rstrip('/')}/api/auto-tags/infer"
+    # The worker must run models locally; never let it bounce the request onward.
+    payload = asdict(opts)
+    payload["remoteEnabled"] = False
+    payload["remoteUrl"] = ""
+    headers = {}
+    token = tagger_worker_token()
+    if token:
+        headers["X-Tagger-Token"] = token
+    try:
+        with open(path, "rb") as fh:
+            files = {"file": (path.name, fh)}
+            data = {"options": json.dumps(payload)}
+            response = httpx.post(
+                url,
+                files=files,
+                data=data,
+                headers=headers,
+                timeout=float(opts.remoteTimeoutSeconds),
+            )
+        if response.status_code != 200:
+            detail = response.text[:200]
+            return AutoTagResult(enabled=True, model="remote", error=f"worker_error_{response.status_code}: {detail}")
+        body = response.json()
+        return AutoTagResult(
+            tags=list(body.get("tags") or []),
+            character_tags=list(body.get("characterTags") or []),
+            copyright_tags=list(body.get("copyrightTags") or []),
+            rating=dict(body.get("rating") or {}),
+            safety=body.get("safety"),
+            categories=dict(body.get("categories") or {}),
+            evidence=dict(body.get("evidence") or {}),
+            model=body.get("model") or "remote",
+            enabled=bool(body.get("enabled", True)),
+            error=body.get("error"),
+        )
+    except Exception as exc:  # noqa: BLE001 - connection/timeout/parse all degrade softly
+        logger.warning("remote tagger worker unreachable at %s: %s", url, exc)
+        return AutoTagResult(enabled=True, model="remote", error=f"worker_unreachable: {exc}")
 
 
 def _tag_image(path: Path, opts: AutoTagOptions) -> AutoTagResult:

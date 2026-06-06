@@ -16,8 +16,8 @@ android {
         applicationId = "com.nekobooru.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "3.30.0"
+        versionCode = 3
+        versionName = "4.0.0"
     }
 
     signingConfigs {

@@ -171,6 +171,17 @@ export const api = {
     return request('/auto-tags/huggingface-token', { method: 'DELETE' })
   },
 
+  async saveTaggerWorkerToken(token) {
+    return request('/auto-tags/worker-token', {
+      method: 'PUT',
+      body: JSON.stringify({ token }),
+    })
+  },
+
+  async deleteTaggerWorkerToken() {
+    return request('/auto-tags/worker-token', { method: 'DELETE' })
+  },
+
   async estimateAutoTagJob(mode = 'lightly_tagged') {
     return request(`/auto-tags/estimate?mode=${encodeURIComponent(mode)}`)
   },

@@ -152,6 +152,15 @@ function installXButtonStyle() {
       background: rgba(29, 155, 240, 0.12);
       color: rgb(29, 155, 240);
     }
+    /* The share action's slot can lay its children out stacked/wrapped; force a
+       single inline row so our button sits to the right of the share icon. */
+    .nekobooru-x-slot {
+      display: flex !important;
+      flex-direction: row !important;
+      flex-wrap: nowrap !important;
+      align-items: center !important;
+      width: auto !important;
+    }
   `
   document.documentElement.appendChild(style)
 }
@@ -197,7 +206,19 @@ function injectXButton(article) {
     openUploadForTarget(uploadTargetFromArticle(article))
   })
 
-  actionGroup.appendChild(button)
+  // Put the button beside the last native action (the share icon). Appending to
+  // the group makes it a `justify-content: space-between` sibling that floats to
+  // the far edge on a full-width standalone post; the share slot on its own lays
+  // children out stacked. So nest it in the share slot AND force that slot to a
+  // single inline row (see `.nekobooru-x-slot`), so the button sits immediately
+  // to the right of share — hugging it identically on every page.
+  const slot = actionGroup.lastElementChild
+  if (slot) {
+    slot.classList.add('nekobooru-x-slot')
+    slot.appendChild(button)
+  } else {
+    actionGroup.appendChild(button)
+  }
 }
 
 function scanXPosts(root = document) {
