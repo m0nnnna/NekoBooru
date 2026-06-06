@@ -307,6 +307,17 @@ class AutoTagUnitTests(unittest.TestCase):
 
         self.assertGreaterEqual(job["estimatedSeconds"], 90)
 
+    def test_tag_media_async_offloads_blocking_work(self):
+        from app.services.auto_tag_jobs import _tag_media_async
+        from app.services.auto_tagger import AutoTagOptions, AutoTagResult
+
+        expected = AutoTagResult(tags=["offloaded"], enabled=True)
+        with patch("app.services.auto_tag_jobs.asyncio.to_thread", return_value=expected) as to_thread:
+            result = asyncio.run(_tag_media_async(Path("sample.png"), AutoTagOptions()))
+
+        self.assertIs(result, expected)
+        self.assertEqual(to_thread.call_args.args[0].__name__, "tag_media")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,10 @@ def active_task_running() -> bool:
     return _active_task is not None and not _active_task.done()
 
 
+async def _tag_media_async(path: Path, opts: AutoTagOptions):
+    return await asyncio.to_thread(tag_media, path, opts)
+
+
 async def create_job(
     *,
     mode: str,
@@ -159,7 +163,7 @@ async def analyze_and_maybe_apply(db, post: Post, *, opts: AutoTagOptions, job: 
     # Post.content_path is storage-relative; resolve under settings.posts_dir.
     from ..config import settings
     full_path = settings.posts_dir / post.content_path
-    result = tag_media(full_path, opts)
+    result = await _tag_media_async(full_path, opts)
     existing_tags = [tag.name for tag in (post.tags or [])]
     merged_tags, categories = merge_with_existing(existing_tags, result, opts)
     suggested_safety = promote_safety(post.safety or "safe", result.safety, opts)
@@ -197,7 +201,7 @@ async def preview_post(post_id: int, overrides: dict | None = None) -> dict:
         if not post:
             raise ValueError("post not found")
         from ..config import settings
-        result = tag_media(settings.posts_dir / post.content_path, opts)
+        result = await _tag_media_async(settings.posts_dir / post.content_path, opts)
         existing_tags = [tag.name for tag in (post.tags or [])]
         merged_tags, categories = merge_with_existing(existing_tags, result, opts)
         return {
