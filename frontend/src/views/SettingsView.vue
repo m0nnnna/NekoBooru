@@ -2634,6 +2634,25 @@ function startYtdlpPolling() {
   color: var(--text-primary);
 }
 
+.bulk-defaults-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  margin-top: 0.85rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.83rem;
+  line-height: 1.45;
+}
+
+.bulk-defaults-note strong {
+  color: var(--text-primary);
+}
+
 .estimate-strip {
   display: flex;
   flex-wrap: wrap;
