@@ -5,7 +5,7 @@ import time
 import unittest
 import asyncio
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 class AutoTagApiTests(unittest.TestCase):
@@ -322,6 +322,33 @@ class AutoTagUnitTests(unittest.TestCase):
             self.assertEqual(_qwen_device_map("auto"), "cpu")
             with self.assertRaises(RuntimeError):
                 _qwen_device_map("gpu")
+
+    def test_whisper_audio_seconds_is_capped_to_model_window(self):
+        from app.services.auto_tagger import AutoTagOptions, _whisper_audio_seconds
+
+        self.assertEqual(_whisper_audio_seconds(AutoTagOptions(videoMaxDurationSeconds=900)), 30)
+        self.assertEqual(_whisper_audio_seconds(AutoTagOptions(videoMaxDurationSeconds=12)), 12)
+
+    def test_whisper_transcribe_uses_short_audio_window(self):
+        from app.services.auto_tagger import AutoTagOptions, _whisper_tagger
+
+        old_pipeline = _whisper_tagger._pipeline
+        old_loaded = _whisper_tagger._loaded
+        pipeline = Mock(return_value={"text": "vote campaign"})
+        _whisper_tagger._pipeline = pipeline
+        _whisper_tagger._loaded = True
+        try:
+            with patch("app.services.auto_tagger._extract_audio", return_value=True) as extract_audio:
+                result = _whisper_tagger.transcribe_video(Path("sample.mp4"), AutoTagOptions(videoMaxDurationSeconds=900))
+        finally:
+            _whisper_tagger._pipeline = old_pipeline
+            _whisper_tagger._loaded = old_loaded
+
+        extract_audio.assert_called_once()
+        self.assertEqual(extract_audio.call_args.args[2], 30)
+        pipeline.assert_called_once_with(str(extract_audio.call_args.args[1]), return_timestamps=False)
+        self.assertIn("has_speech", result.tags)
+        self.assertIn("political_audio", result.tags)
 
     def test_tag_media_async_offloads_blocking_work(self):
         from app.services.auto_tag_jobs import _tag_media_async

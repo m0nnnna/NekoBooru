@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 SUPPORTED_VIDEO_EXTS = {".webm", ".mp4"}
 WD_MODEL_ID = "SmilingWolf/wd-eva02-large-tagger-v3"
+WHISPER_MAX_AUDIO_SECONDS = 30
 
 MODEL_REGISTRY = {
     "wd": {
@@ -476,9 +477,10 @@ class WhisperTagger:
         cache_root.mkdir(parents=True, exist_ok=True)
         wav_path = cache_root / f"audio-{uuid.uuid4()}.wav"
         try:
-            if not _extract_audio(path, wav_path, opts.videoMaxDurationSeconds):
+            audio_seconds = _whisper_audio_seconds(opts)
+            if not _extract_audio(path, wav_path, audio_seconds):
                 return AutoTagResult(enabled=True, model=self.name, error="audio_extract_failed")
-            result = self._pipeline(str(wav_path))
+            result = self._pipeline(str(wav_path), return_timestamps=False)
             text = str(result.get("text") if isinstance(result, dict) else result).strip()
         finally:
             wav_path.unlink(missing_ok=True)
@@ -1493,6 +1495,10 @@ def _extract_audio(source: Path, dest: Path, max_seconds: int) -> bool:
         return proc.returncode == 0 and dest.exists()
     except Exception:
         return False
+
+
+def _whisper_audio_seconds(opts: AutoTagOptions) -> int:
+    return max(1, min(WHISPER_MAX_AUDIO_SECONDS, int(opts.videoMaxDurationSeconds or WHISPER_MAX_AUDIO_SECONDS)))
 
 
 def _representative_frame(path: Path, opts: AutoTagOptions) -> Path | None:
