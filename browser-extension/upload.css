@@ -342,7 +342,7 @@ select:focus {
 
 .upload-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.72fr);
+  grid-template-columns: minmax(150px, 0.72fr) minmax(0, 1fr);
   gap: 0.6rem;
   margin-bottom: 0.75rem;
 }

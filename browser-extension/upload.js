@@ -9,10 +9,6 @@ const mediaType = params.get('type') || 'image'
 // media to preview inline (e.g. an X tweet whose <video> is a blob URL).
 const fetchMode = params.get('fetch') || ''
 
-// How long to keep the popup up after a successful upload before auto-closing.
-// Short enough to feel instant, long enough to show the success state.
-const UPLOAD_CLOSE_DELAY_MS = 450
-
 const els = {
   needsSetup: document.getElementById('needs-setup'),
   formWrap: document.getElementById('form-wrap'),
@@ -310,15 +306,14 @@ async function doUpload() {
   setStatus('Fetching media...', 'working')
 
   try {
-    await createPostFromPopup({})
+    const post = await createPostFromPopup({})
 
     await chrome.storage.sync.set({ lastSafety: els.safety.value })
 
     setStatus('Uploaded to NekoBooru.', 'success')
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
-    // Success: close the popup quickly so uploading feels one-click. On failure
-    // (the catch below) we keep the window open so the error stays visible.
-    setTimeout(() => window.close(), UPLOAD_CLOSE_DELAY_MS)
+
+    appendViewPostLink(post)
   } catch (e) {
     setStatus('Upload failed: ' + e.message, 'error')
     notify('NekoBooru upload failed', e.message)
@@ -516,6 +511,19 @@ function applyAiVisibility(enabled) {
   els.aiTag.classList.toggle('hidden', !enabled)
   els.aiModelPicker.classList.toggle('hidden', !enabled)
   if (!enabled) els.aiPreview.classList.add('hidden')
+}
+
+function appendViewPostLink(post) {
+  if (!post?.id) return
+  const existing = els.status.querySelector('.view-link')
+  if (existing) existing.remove()
+  const link = document.createElement('a')
+  link.href = `${instanceUrl}/post/${post.id}`
+  link.target = '_blank'
+  link.textContent = 'Visit post'
+  link.className = 'view-link'
+  els.status.appendChild(document.createElement('br'))
+  els.status.appendChild(link)
 }
 
 async function loadAutoTagControls() {
