@@ -152,31 +152,31 @@ function installXButtonStyle() {
       border-bottom: 2px solid currentColor;
       border-right: 2px solid currentColor;
       content: "";
-      height: 7px;
-      left: 6.5px;
+      height: 7.5px;
+      left: 6.25px;
       position: absolute;
-      top: 8px;
+      top: 6.5px;
       transform: rotate(45deg);
-      width: 7px;
+      width: 7.5px;
     }
     .nekobooru-x-download-mark::after {
       border: 2px solid currentColor;
       border-top: 0;
       border-radius: 0 0 4px 4px;
-      bottom: 1px;
+      bottom: 0;
       content: "";
-      height: 6px;
-      left: 2.5px;
+      height: 7px;
+      left: 2px;
       position: absolute;
-      width: 17px;
+      width: 18px;
     }
     .nekobooru-x-download-stem {
       background: currentColor;
       border-radius: 999px;
-      height: 12px;
+      height: 11px;
       left: 10px;
       position: absolute;
-      top: 3px;
+      top: 2px;
       width: 2px;
     }
     .nekobooru-x-download:hover {
