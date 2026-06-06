@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -133,13 +134,16 @@ async def _run_update(target: str) -> None:
     package = "yt-dlp" if target == "latest" else f"yt-dlp=={target}"
     cmd = [sys.executable, "-m", "pip", "install", "--upgrade", package]
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+            check=False,
         )
-        out, _ = await proc.communicate()
-        _job.output = out.decode("utf-8", errors="replace")[-12000:]
+        _job.output = (proc.stdout or "")[-12000:]
         if proc.returncode != 0:
             _job.status = "failed"
             _job.error = f"pip exited with code {proc.returncode}"

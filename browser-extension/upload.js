@@ -794,7 +794,7 @@ async function getContentToken() {
         }
       } else {
         const err = await res.json().catch(() => ({}))
-        ytdlpError = err.detail || `HTTP ${res.status}`
+        ytdlpError = formatBackendError(err.detail || `HTTP ${res.status}`)
       }
     } catch (e) {
       ytdlpError = e.message
@@ -857,6 +857,18 @@ function filenameFromUrl(url, mime) {
     if (ext) name += '.' + ext.replace('jpeg', 'jpg')
   }
   return name
+}
+
+function formatBackendError(detail) {
+  if (!detail || typeof detail === 'string') return detail || ''
+  const parts = []
+  if (detail.message) parts.push(detail.message)
+  if (detail.host) parts.push(`host: ${detail.host}`)
+  if (detail.path) parts.push(`path: ${detail.path}`)
+  if (detail.ytDlpVersion) parts.push(`yt-dlp: ${detail.ytDlpVersion}`)
+  if (detail.hint) parts.push(detail.hint)
+  if (!parts.length) return JSON.stringify(detail)
+  return parts.join(' · ')
 }
 
 function notify(title, message) {

@@ -1,6 +1,7 @@
 import re
 import uuid
 import asyncio
+import logging
 import aiofiles
 import httpx
 import html as html_module
@@ -10,6 +11,8 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from pydantic import BaseModel
 
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 # Fixed path for cookies file in config directory (matches settings.py)
 COOKIES_FILENAME = "ytdlp_cookies.txt"
@@ -75,6 +78,24 @@ def get_upload_path(token: str) -> Path | None:
 def remove_upload_token(token: str):
     """Remove an upload token after processing."""
     upload_tokens.pop(token, None)
+
+
+def ytdlp_error_detail(message: str, url: str, raw_error: str = "") -> dict:
+    parsed = urlparse(url)
+    try:
+        import yt_dlp
+
+        version = getattr(yt_dlp.version, "__version__", "unknown")
+    except Exception:
+        version = "not installed"
+    return {
+        "message": message,
+        "host": parsed.netloc,
+        "path": parsed.path or "/",
+        "ytDlpVersion": version,
+        "hint": "Try updating yt-dlp, uploading cookies for login-gated sites, or right-clicking the actual media element instead of the page.",
+        "rawError": raw_error[:1000],
+    }
 
 
 @router.get("/{token}/auto-tags")
@@ -323,14 +344,27 @@ async def upload_from_ytdlp(request: UrlFetchRequest):
                 potential_path.unlink()
 
         error_msg = str(e)
+        logger.warning("yt-dlp failed for host=%s path=%s error=%s", urlparse(url).netloc, urlparse(url).path, error_msg)
         if "Unsupported URL" in error_msg:
-            raise HTTPException(status_code=400, detail="This URL is not supported by yt-dlp")
+            raise HTTPException(
+                status_code=400,
+                detail=ytdlp_error_detail("This URL is not supported by yt-dlp", url, error_msg),
+            )
         elif "Private video" in error_msg or "Video unavailable" in error_msg:
-            raise HTTPException(status_code=400, detail="Video is private or unavailable")
+            raise HTTPException(
+                status_code=400,
+                detail=ytdlp_error_detail("Video is private or unavailable", url, error_msg),
+            )
         elif "Sign in" in error_msg or "login" in error_msg.lower():
-            raise HTTPException(status_code=400, detail="This video requires login to access")
+            raise HTTPException(
+                status_code=400,
+                detail=ytdlp_error_detail("This video requires login to access", url, error_msg),
+            )
         else:
-            raise HTTPException(status_code=500, detail=f"Failed to download video: {error_msg}")
+            raise HTTPException(
+                status_code=500,
+                detail=ytdlp_error_detail(f"Failed to download video: {error_msg}", url, error_msg),
+            )
 
 
 # ---------------------------------------------------------------------------
