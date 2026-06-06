@@ -2634,6 +2634,42 @@ function startYtdlpPolling() {
   color: var(--text-primary);
 }
 
+.action-tooltip {
+  position: relative;
+}
+
+.action-tooltip::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  display: block;
+  width: max-content;
+  max-width: min(360px, 72vw);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: #111827;
+  color: #f8fafc;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+  content: attr(data-tooltip);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.action-tooltip:hover::after,
+.action-tooltip:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 .bulk-defaults-note {
   display: flex;
   flex-wrap: wrap;
