@@ -98,6 +98,7 @@ let autoTagSuggestion = null
 let autoTagModelOverrides = {}
 let modelLoadPollTimer = null
 let bootPromise = null
+let viewportTooltip = null
 
 class BackendOfflineError extends Error {
   constructor() {
@@ -132,6 +133,7 @@ async function init() {
 
   renderPreview()
   setupTagAutocomplete()
+  setupViewportTooltips()
   els.startLocalApp.addEventListener('click', startLocalApp)
   if (await checkBackendHealth()) loadAutoTagControls()
 
@@ -227,6 +229,71 @@ function setAiProfileButtonsDisabled(disabled) {
   els.aiProfileButtons.forEach((button) => {
     button.disabled = disabled
   })
+}
+
+function setupViewportTooltips() {
+  document.addEventListener('mouseenter', handleTooltipEnter, true)
+  document.addEventListener('focusin', handleTooltipEnter, true)
+  document.addEventListener('mouseleave', handleTooltipLeave, true)
+  document.addEventListener('focusout', handleTooltipLeave, true)
+  window.addEventListener('scroll', hideViewportTooltip, true)
+  window.addEventListener('resize', hideViewportTooltip)
+}
+
+function handleTooltipEnter(event) {
+  const target = event.target?.closest?.('[data-tooltip]')
+  if (!target) return
+  showViewportTooltip(target)
+}
+
+function handleTooltipLeave(event) {
+  if (!event.target?.closest?.('[data-tooltip]')) return
+  hideViewportTooltip()
+}
+
+function showViewportTooltip(target) {
+  const text = target.dataset.tooltip
+  if (!text) return
+
+  if (!viewportTooltip) {
+    viewportTooltip = document.createElement('div')
+    viewportTooltip.className = 'viewport-tooltip'
+    document.body.appendChild(viewportTooltip)
+  }
+
+  viewportTooltip.textContent = text
+  viewportTooltip.style.visibility = 'hidden'
+  viewportTooltip.style.top = '0px'
+  viewportTooltip.style.left = '0px'
+  viewportTooltip.hidden = false
+
+  const rect = target.getBoundingClientRect()
+  const tooltipRect = viewportTooltip.getBoundingClientRect()
+  const gap = 8
+  const margin = 12
+  const viewportWidth = document.documentElement.clientWidth
+  const viewportHeight = document.documentElement.clientHeight
+  const left = clamp(
+    rect.left + (rect.width / 2) - (tooltipRect.width / 2),
+    margin,
+    viewportWidth - tooltipRect.width - margin,
+  )
+  const hasRoomAbove = rect.top >= tooltipRect.height + gap + margin
+  const top = hasRoomAbove
+    ? rect.top - tooltipRect.height - gap
+    : Math.min(rect.bottom + gap, viewportHeight - tooltipRect.height - margin)
+
+  viewportTooltip.style.left = `${left}px`
+  viewportTooltip.style.top = `${Math.max(margin, top)}px`
+  viewportTooltip.style.visibility = 'visible'
+}
+
+function hideViewportTooltip() {
+  if (viewportTooltip) viewportTooltip.hidden = true
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value))
 }
 
 function renderPreview() {
@@ -805,7 +872,10 @@ function renderAiModelPicker() {
     name.textContent = model.name
     const info = document.createElement('span')
     info.className = 'ai-info'
-    info.title = modelInfoTitle(model)
+    info.dataset.tooltip = modelInfoTitle(model)
+    info.tabIndex = 0
+    info.setAttribute('role', 'button')
+    info.setAttribute('aria-label', modelInfoTitle(model))
     info.textContent = 'i'
     title.append(name, info)
     const meta = document.createElement('small')
