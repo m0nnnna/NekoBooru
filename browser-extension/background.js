@@ -196,7 +196,63 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     )
     return true
   }
+
+  if (msg && msg.type === 'nekobooru-paste-media-to-tab') {
+    ;(async () => {
+      try {
+        const tabId = Number(msg.tabId)
+        if (!tabId || !msg.url) throw new Error('Missing target tab or media URL.')
+        const response = await fetch(msg.url)
+        if (!response.ok) throw new Error(`Could not fetch media (HTTP ${response.status}).`)
+        const bytes = await response.arrayBuffer()
+        const filename = msg.filename || filenameFromUrl(msg.url, response.headers.get('content-type') || '')
+        const mime = msg.mime || response.headers.get('content-type') || mediaMimeFromFilename(filename)
+        chrome.tabs.sendMessage(
+          tabId,
+          {
+            type: 'nekobooru-paste-media-file',
+            filename,
+            mime,
+            bytes,
+          },
+          { frameId: Number.isInteger(msg.frameId) ? msg.frameId : 0 },
+          (result) => {
+            const error = chrome.runtime.lastError
+            if (error) {
+              sendResponse({ ok: false, error: error.message })
+              return
+            }
+            sendResponse(result || { ok: false, error: 'No paste response from page.' })
+          },
+        )
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message || String(e) })
+      }
+    })()
+    return true
+  }
 })
+
+function filenameFromUrl(raw, mime = '') {
+  try {
+    const name = decodeURIComponent(new URL(raw).pathname.split('/').pop() || '')
+    if (name) return name
+  } catch {
+    // Fall through to a generic media filename.
+  }
+  const ext = mime.includes('mp4') ? '.mp4' : mime.includes('webm') ? '.webm' : mime.includes('gif') ? '.gif' : ''
+  return `nekobooru-media${ext}`
+}
+
+function mediaMimeFromFilename(filename = '') {
+  const lower = filename.toLowerCase()
+  if (lower.endsWith('.mp4')) return 'video/mp4'
+  if (lower.endsWith('.webm')) return 'video/webm'
+  if (lower.endsWith('.gif')) return 'image/gif'
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+  return 'application/octet-stream'
+}
 
 function createMenu() {
   // Remove first so re-installing / updating doesn't throw "duplicate id".
@@ -230,7 +286,10 @@ chrome.runtime.onStartup.addListener(createMenu)
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === INSERT_MENU_ID) {
-    openPopup('picker.html', new URLSearchParams(), tab)
+    const params = new URLSearchParams()
+    if (tab?.id != null) params.set('targetTabId', String(tab.id))
+    if (info.frameId != null) params.set('targetFrameId', String(info.frameId))
+    openPopup('picker.html', params, tab)
     return
   }
 

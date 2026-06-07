@@ -15,6 +15,8 @@
 // Elements stacked under a viewport point, top-first. Uses elementsFromPoint so
 // it still finds media beneath a transparent overlay (exactly how X covers its
 // player) and a touch off the element still counts.
+let lastEditableTarget = null
+
 function elementsUnder(x, y) {
   try {
     return document.elementsFromPoint(x, y)
@@ -22,6 +24,49 @@ function elementsUnder(x, y) {
     return []
   }
 }
+
+function editableTargetFromEvent(event) {
+  const target = event.target
+  if (!target?.closest) return null
+  return target.closest('textarea, input, [contenteditable="true"], [role="textbox"]')
+}
+
+function pasteFileIntoEditable(file) {
+  const target = lastEditableTarget?.isConnected ? lastEditableTarget : document.activeElement
+  if (!target) return { ok: false, error: 'No editable target is active.' }
+
+  try {
+    target.focus?.()
+  } catch {
+    // Some page-controlled elements reject focus; still try the paste event.
+  }
+
+  const data = new DataTransfer()
+  data.items.add(file)
+  const event = new ClipboardEvent('paste', {
+    bubbles: true,
+    cancelable: true,
+    clipboardData: data,
+  })
+  const accepted = target.dispatchEvent(event)
+  return {
+    ok: true,
+    accepted,
+    files: data.files.length,
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type !== 'nekobooru-paste-media-file') return
+  try {
+    const file = new File([msg.bytes], msg.filename || 'nekobooru-media', {
+      type: msg.mime || 'application/octet-stream',
+    })
+    sendResponse(pasteFileIntoEditable(file))
+  } catch (e) {
+    sendResponse({ ok: false, error: e.message || String(e) })
+  }
+})
 
 function isXHost() {
   return /(^|\.)x\.com$|(^|\.)twitter\.com$/.test(location.hostname.toLowerCase())
@@ -405,6 +450,9 @@ function setupXPostButtons() {
 window.addEventListener(
   'contextmenu',
   (e) => {
+    const editableTarget = editableTargetFromEvent(e)
+    if (editableTarget) lastEditableTarget = editableTarget
+
     const stack = elementsUnder(e.clientX, e.clientY)
     const hasVideo = stack.some((el) => el.tagName === 'VIDEO')
     const hasMedia = hasVideo || stack.some((el) => el.tagName === 'IMG')

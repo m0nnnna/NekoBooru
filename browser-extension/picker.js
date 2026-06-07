@@ -17,6 +17,9 @@ const els = {
 }
 
 const PAGE_SIZE = 30
+const params = new URLSearchParams(location.search)
+const targetTabId = Number(params.get('targetTabId') || 0)
+const targetFrameId = Number(params.get('targetFrameId') || 0)
 
 let instanceUrl = ''
 let postsDir = ''
@@ -153,10 +156,12 @@ async function selectPost(post, kind) {
       await copyImageToClipboard(url)
       setStatus('Copied! Paste it into your post. Nyaa~', 'success')
     } else {
-      setStatus(`Copying ${kind} link and downloading…`, 'working')
+      setStatus(`Pasting ${kind} file and downloading…`, 'working')
       await copyMediaReferenceToClipboard(url, kind, localPath)
+      const pasteResult = await pasteMediaFileToSourceTab(post, url, kind)
       await startDownload(url, `nekobooru-${post.id}${post.extension || ''}`)
-      setStatus('Copied link and downloading — paste the link or attach the downloaded file.', 'success')
+      const pasteText = pasteResult.ok ? 'sent to the editor' : 'copied as a path'
+      setStatus(`Video ${pasteText} and downloading — attach the file if X rejects paste.`, 'success')
     }
     // Auto-close so the picker gets out of the way. The clipboard contents and
     // the browser download both live on independently of this popup.
@@ -164,6 +169,31 @@ async function selectPost(post, kind) {
   } catch (e) {
     setStatus('Failed: ' + e.message, 'error')
   }
+}
+
+async function pasteMediaFileToSourceTab(post, url, kind) {
+  if (!targetTabId) return { ok: false, error: 'No target tab.' }
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'nekobooru-paste-media-to-tab',
+      tabId: targetTabId,
+      frameId: targetFrameId,
+      url,
+      filename: `nekobooru-${post.id}${post.extension || ''}`,
+      mime: mimeForPost(post, kind),
+    })
+    return response || { ok: false, error: 'No paste response.' }
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) }
+  }
+}
+
+function mimeForPost(post, kind) {
+  const ext = (post.extension || '').toLowerCase()
+  if (ext === '.mp4') return 'video/mp4'
+  if (ext === '.webm') return 'video/webm'
+  if (ext === '.gif') return 'image/gif'
+  return kind === 'video' ? 'video/mp4' : 'application/octet-stream'
 }
 
 function closeSoon() {
