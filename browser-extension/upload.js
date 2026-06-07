@@ -405,7 +405,6 @@ function setXCookieStatus(message, kind) {
 function getXCookiePermissionSpec() {
   return {
     permissions: ['cookies'],
-    origins: ['https://x.com/*', 'https://twitter.com/*'],
   }
 }
 
