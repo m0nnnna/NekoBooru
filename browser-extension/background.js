@@ -75,6 +75,31 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       fetch: msg.fetch || 'link',
     })
     openPopup('upload.html', params, sender.tab)
+    return
+  }
+
+  if (msg && msg.type === 'nekobooru-start-local-app') {
+    chrome.runtime.sendNativeMessage(
+      'com.nekobooru.launcher',
+      { command: 'start' },
+      (response) => {
+        const error = chrome.runtime.lastError
+        if (error) {
+          chrome.runtime.sendMessage({
+            type: 'nekobooru-start-local-app-result',
+            ok: false,
+            error: error.message || 'Native launcher is not installed.',
+          })
+          return
+        }
+        chrome.runtime.sendMessage({
+          type: 'nekobooru-start-local-app-result',
+          ok: !!response?.ok,
+          response,
+          error: response?.error || '',
+        })
+      },
+    )
   }
 })
 

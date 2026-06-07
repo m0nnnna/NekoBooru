@@ -11,6 +11,9 @@ const fetchMode = params.get('fetch') || ''
 
 const els = {
   needsSetup: document.getElementById('needs-setup'),
+  serverHelper: document.getElementById('server-helper'),
+  startLocalApp: document.getElementById('start-local-app'),
+  serverHelperNote: document.getElementById('server-helper-note'),
   formWrap: document.getElementById('form-wrap'),
   openOptions: document.getElementById('open-options'),
   preview: document.getElementById('preview'),
@@ -64,10 +67,65 @@ async function init() {
 
   renderPreview()
   setupTagAutocomplete()
+  els.startLocalApp.addEventListener('click', startLocalApp)
+  chrome.runtime.onMessage.addListener(onRuntimeMessage)
+  checkBackendHealth()
   loadAutoTagControls()
 
   els.submit.addEventListener('click', doUpload)
   els.aiTag.addEventListener('click', runAiTag)
+}
+
+async function checkBackendHealth() {
+  try {
+    const res = await fetch(`${instanceUrl}/api/health`, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    els.serverHelper.classList.add('hidden')
+    return true
+  } catch {
+    els.serverHelper.classList.remove('hidden')
+    return false
+  }
+}
+
+async function startLocalApp() {
+  els.startLocalApp.disabled = true
+  els.serverHelperNote.textContent = 'Starting local backend and frontend...'
+  setStatus('Starting NekoBooru...', 'working')
+  try {
+    chrome.runtime.sendMessage({ type: 'nekobooru-start-local-app' })
+  } catch (e) {
+    els.startLocalApp.disabled = false
+    els.serverHelperNote.textContent = 'Native launcher is unavailable. Run browser-extension/native-host/install-native-host.ps1 once.'
+    setStatus('Could not contact native launcher: ' + e.message, 'error')
+  }
+}
+
+function onRuntimeMessage(msg) {
+  if (!msg || msg.type !== 'nekobooru-start-local-app-result') return
+  if (!msg.ok) {
+    els.startLocalApp.disabled = false
+    els.serverHelperNote.textContent = msg.error || 'Native launcher is unavailable. Run browser-extension/native-host/install-native-host.ps1 once.'
+    setStatus('Could not start NekoBooru: ' + (msg.error || 'native launcher failed'), 'error')
+    return
+  }
+  els.serverHelperNote.textContent = 'Launcher started. Waiting for the API...'
+  waitForBackend()
+}
+
+async function waitForBackend() {
+  for (let i = 0; i < 30; i += 1) {
+    if (await checkBackendHealth()) {
+      els.startLocalApp.disabled = false
+      setStatus('NekoBooru is running. You can continue.', 'success')
+      loadAutoTagControls()
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  els.startLocalApp.disabled = false
+  els.serverHelperNote.textContent = 'Launcher ran, but the API did not answer yet. Try again in a moment.'
+  setStatus('NekoBooru did not answer after startup.', 'error')
 }
 
 function renderPreview() {

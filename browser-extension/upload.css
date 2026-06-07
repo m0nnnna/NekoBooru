@@ -99,6 +99,21 @@ body {
   align-items: center;
 }
 
+.server-helper {
+  margin-bottom: 1rem;
+  text-align: left;
+  align-items: stretch;
+}
+
+.server-helper p,
+.server-helper small {
+  color: var(--text-secondary);
+}
+
+.server-helper small {
+  font-size: 0.78rem;
+}
+
 /* Preview */
 .preview {
   width: 100%;

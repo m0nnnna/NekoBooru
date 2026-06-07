@@ -3,7 +3,7 @@
   "name": "Download to NekoBooru",
   "version": "4.0.0",
   "description": "Right-click to upload web images/videos to your NekoBooru instance, or browse your instance and insert media into whatever you're posting.",
-  "permissions": ["contextMenus", "storage", "notifications", "clipboardWrite", "downloads"],
+  "permissions": ["contextMenus", "storage", "notifications", "clipboardWrite", "downloads", "nativeMessaging"],
   "host_permissions": ["*://*/*"],
   "background": {
     "service_worker": "background.js",

@@ -19,6 +19,15 @@
       <button id="open-options" class="btn">Open settings</button>
     </div>
 
+    <div id="server-helper" class="card server-helper hidden">
+      <div>
+        <strong>NekoBooru is not running</strong>
+        <p>The extension can start the local backend and frontend if the native launcher helper is installed.</p>
+      </div>
+      <button id="start-local-app" class="btn">Start NekoBooru</button>
+      <small id="server-helper-note">If this fails, run browser-extension/native-host/install-native-host.ps1 once.</small>
+    </div>
+
     <!-- Main upload form -->
     <div id="form-wrap" class="hidden">
       <div class="preview" id="preview"></div>

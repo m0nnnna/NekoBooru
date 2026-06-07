@@ -43,10 +43,30 @@ root — see `README-BUILD.md`.)
 2. Turn on **Developer mode** (top-right).
 3. Click **Load unpacked** and select this `browser-extension` folder.
 4. Click the extension's icon in the toolbar (or open its **Options**) and set
-   your **instance URL**, e.g. `http://localhost:8000`. Use **Test connection**
+   your **instance URL**, e.g. `http://localhost:8772`. Use **Test connection**
    to confirm it can reach the server, then **Save**.
 
 That's it — right-click an image anywhere and pick **Download to NekoBooru**.
+
+### Optional: Start NekoBooru from the extension
+
+Chromium extensions cannot launch local programs directly. To let the upload
+popup start the local backend and frontend when they are down, install the
+native launcher helper once:
+
+1. Open `brave://extensions` or `chrome://extensions`.
+2. Copy this extension's ID.
+3. Run PowerShell from the repo root:
+
+   ```powershell
+   .\browser-extension\native-host\install-native-host.ps1 -ExtensionId YOUR_EXTENSION_ID
+   ```
+
+4. Reload the extension.
+
+After that, the upload popup shows **Start NekoBooru** when it cannot reach the
+API. The helper starts the backend on `127.0.0.1:8772` and the frontend on
+`127.0.0.1:5173`.
 
 ## Install (Firefox)
 
@@ -74,6 +94,8 @@ the extension needs to be signed/packaged.
   from your instance.
 - `downloads` — saves a GIF/video to your download shelf (so it keeps going
   after the picker auto-closes) when you insert one.
+- `nativeMessaging` — optional; lets the extension ask the local launcher
+  helper to start NekoBooru when the API is down.
 - `host_permissions: *://*/*` — needed so the popup can talk to your instance
   (whatever URL you set) and, as a fallback, download media bytes from the page
   you're on.
@@ -94,4 +116,5 @@ the extension needs to be signed/packaged.
 | `upload.html` / `upload.js` / `upload.css` | The upload popup UI + logic (CSS shared with the picker). |
 | `picker.html` / `picker.js` | The "insert from NekoBooru" browse/search popup. |
 | `options.html` / `options.js` | Settings page (instance URL). |
+| `native-host/` | Optional native messaging helper for starting the local app. |
 | `icons/` | Toolbar / store icons. |
