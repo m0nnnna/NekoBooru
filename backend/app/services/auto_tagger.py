@@ -31,6 +31,7 @@ SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 SUPPORTED_VIDEO_EXTS = {".webm", ".mp4"}
 WD_MODEL_ID = "SmilingWolf/wd-eva02-large-tagger-v3"
 WHISPER_MAX_AUDIO_SECONDS = 30
+QWEN_MIN_FREE_VRAM_GB = 18.0
 MEDIA_TYPE_TAGS = {
     ".jpg": "image",
     ".jpeg": "image",
@@ -575,16 +576,19 @@ class QwenSemanticTagger:
                 self._loaded = False
                 self._device_preference = None
                 _clear_torch_cache()
+            import torch  # type: ignore
             from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration  # type: ignore
 
             repo_id = MODEL_REGISTRY["qwen"]["repoId"]
             device_map = _qwen_device_map(device_preference)
+            torch_dtype = torch.float16 if device_map != "cpu" and torch.cuda.is_available() else "auto"
             self._processor = AutoProcessor.from_pretrained(repo_id, token=huggingface_token())
             self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                 repo_id,
                 token=huggingface_token(),
                 device_map=device_map,
-                torch_dtype="auto",
+                torch_dtype=torch_dtype,
+                low_cpu_mem_usage=True,
             )
             self._loaded = True
             self._device_preference = device_preference
@@ -744,12 +748,40 @@ def _qwen_device_map(device_preference: str):
     if device_preference == "gpu":
         if not torch_info.get("cudaAvailable"):
             raise RuntimeError("GPU was selected, but this Python environment has CPU-only torch or CUDA is unavailable.")
+        _ensure_qwen_gpu_headroom()
         return {"": 0}
     if device_preference == "cpu":
         return "cpu"
     if torch_info.get("cudaAvailable"):
-        return "auto"
+        _ensure_qwen_gpu_headroom()
+        return {"": 0}
     return "cpu"
+
+
+def _ensure_qwen_gpu_headroom() -> None:
+    info = _qwen_gpu_memory_info()
+    free_gb = float(info.get("freeGb") or 0.0)
+    if free_gb < QWEN_MIN_FREE_VRAM_GB:
+        raise RuntimeError(
+            f"Qwen needs about {QWEN_MIN_FREE_VRAM_GB:g} GB free VRAM to load safely; "
+            f"only {free_gb:.1f} GB is free. Unload other AI models or use Custom without Qwen."
+        )
+
+
+def _qwen_gpu_memory_info() -> dict:
+    try:
+        import torch  # type: ignore
+
+        if not torch.cuda.is_available():
+            return {"available": False, "freeGb": 0.0, "totalGb": 0.0}
+        free, total = torch.cuda.mem_get_info(0)
+        return {
+            "available": True,
+            "freeGb": round(float(free) / 1024**3, 2),
+            "totalGb": round(float(total) / 1024**3, 2),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "freeGb": 0.0, "totalGb": 0.0, "error": str(exc)}
 
 
 def default_options() -> AutoTagOptions:

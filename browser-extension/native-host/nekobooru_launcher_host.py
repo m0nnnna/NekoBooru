@@ -59,7 +59,7 @@ def start_servers() -> dict:
         python = root / "venv" / "Scripts" / "python.exe"
         if not python.exists():
             python = Path(sys.executable)
-        popen_hidden([str(python), "run.py"], root / "backend", logs / "native-backend.log")
+        popen_hidden([str(python), "run_prod.py"], root / "backend", logs / "native-backend.log")
 
     if not frontend_running:
         npm = "npm.cmd" if os.name == "nt" else "npm"

@@ -419,6 +419,17 @@ class AutoTagUnitTests(unittest.TestCase):
             self.assertEqual(_qwen_device_map("auto"), "cpu")
             with self.assertRaises(RuntimeError):
                 _qwen_device_map("gpu")
+        with patch("app.services.auto_tagger._torch_runtime_info", return_value={"cudaAvailable": True}), \
+             patch("app.services.auto_tagger._ensure_qwen_gpu_headroom") as headroom:
+            self.assertEqual(_qwen_device_map("auto"), {"": 0})
+            headroom.assert_called_once()
+
+    def test_qwen_gpu_headroom_blocks_low_free_vram(self):
+        from app.services.auto_tagger import _ensure_qwen_gpu_headroom
+
+        with patch("app.services.auto_tagger._qwen_gpu_memory_info", return_value={"freeGb": 2.0, "totalGb": 24.0}):
+            with self.assertRaisesRegex(RuntimeError, "free VRAM"):
+                _ensure_qwen_gpu_headroom()
 
     def test_onnx_providers_prefer_cuda_with_cpu_fallback(self):
         from app.services.auto_tagger import _onnx_providers
