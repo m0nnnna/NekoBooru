@@ -92,6 +92,7 @@ let instanceUrl = ''
 let contentToken = ''
 let createdPost = null
 let autoTagSettings = {}
+let autoTagSavedSettings = {}
 let autoTagStatus = {}
 let autoTagSuggestion = null
 let autoTagModelOverrides = {}
@@ -747,8 +748,9 @@ async function loadAutoTagControls() {
       fetch(`${instanceUrl}/api/auto-tags/status`),
     ])
     if (!settingsRes.ok || !statusRes.ok) throw new Error('AI tag status unavailable')
-    autoTagSettings = await settingsRes.json()
-    autoTagSettings.wdEnabled = autoTagSettings.wdEnabled !== false
+    autoTagSavedSettings = await settingsRes.json()
+    autoTagSavedSettings.wdEnabled = autoTagSavedSettings.wdEnabled !== false
+    autoTagSettings = { ...autoTagSavedSettings }
     autoTagSettings = {
       ...autoTagSettings,
       ...autoTagModelOverrides,
@@ -870,7 +872,7 @@ function applyAiTagProfile(profileId) {
     return
   }
   const useSemanticQwen = profileId.startsWith('realistic_')
-    && Boolean(autoTagSettings.qwenEnabled || autoTagSettings.semanticPoliticalEnabled)
+    && Boolean(autoTagSavedSettings.qwenEnabled || autoTagSavedSettings.semanticPoliticalEnabled)
   Object.entries(profile.settings).forEach(([key, value]) => {
     autoTagSettings[key] = value
     autoTagModelOverrides[key] = value
