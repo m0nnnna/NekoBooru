@@ -6,8 +6,7 @@
   "permissions": ["contextMenus", "storage", "notifications", "clipboardWrite", "downloads", "nativeMessaging", "cookies"],
   "host_permissions": ["*://*/*"],
   "background": {
-    "service_worker": "background.js",
-    "scripts": ["background.js"]
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {

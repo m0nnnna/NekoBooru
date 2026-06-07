@@ -26,6 +26,8 @@ const els = {
   submit: document.getElementById('submit'),
   aiModelPicker: document.getElementById('ai-model-picker'),
   aiModelList: document.getElementById('ai-model-list'),
+  testXCookies: document.getElementById('test-x-cookies'),
+  xCookieStatus: document.getElementById('x-cookie-status'),
   aiPreview: document.getElementById('ai-preview'),
   aiPreviewSafety: document.getElementById('ai-preview-safety'),
   aiPreviewTags: document.getElementById('ai-preview-tags'),
@@ -80,6 +82,7 @@ async function init() {
 
   els.submit.addEventListener('click', doUpload)
   els.aiTag.addEventListener('click', runAiTag)
+  els.testXCookies.addEventListener('click', testXCookieAccess)
 }
 
 async function checkBackendHealth() {
@@ -389,6 +392,43 @@ function setStatus(message, kind) {
   els.status.textContent = message
   els.status.className = `status ${kind || ''}`
   els.status.classList.remove('hidden')
+}
+
+function setXCookieStatus(message, kind) {
+  els.xCookieStatus.textContent = message
+  els.xCookieStatus.className = `cookie-status ${kind || ''}`
+  els.xCookieStatus.classList.remove('hidden')
+}
+
+async function testXCookieAccess() {
+  els.testXCookies.disabled = true
+  els.testXCookies.textContent = 'Testing...'
+  setXCookieStatus('Checking Brave X/Twitter cookies from the extension context...', '')
+  try {
+    const diagnostics = await collectXCookieDiagnostics()
+    if (diagnostics.available) {
+      setXCookieStatus(
+        `Ready: found ${diagnostics.count} X/Twitter cookies across ${diagnostics.stores} cookie store(s), including auth_token and ct0.`,
+        'success',
+      )
+    } else if (diagnostics.error) {
+      setXCookieStatus(diagnostics.error, 'error')
+    } else {
+      const missing = diagnostics.missing?.join(', ') || 'auth cookies'
+      setXCookieStatus(
+        `Not ready: found ${diagnostics.count} X/Twitter cookies, but ${missing} is missing. Confirm this Brave profile is logged into X and can view the protected post.`,
+        'error',
+      )
+    }
+  } catch (error) {
+    setXCookieStatus(
+      `Cookie check failed: ${error?.message || error}. Reload the extension and make sure Site access includes x.com/twitter.com.`,
+      'error',
+    )
+  } finally {
+    els.testXCookies.disabled = false
+    els.testXCookies.textContent = 'Test Cookies'
+  }
 }
 
 async function doUpload() {
@@ -878,11 +918,18 @@ function isXUrl(url) {
 }
 
 function getBrowserCookies(details) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     try {
-      chrome.cookies.getAll(details, (cookies) => resolve(cookies || []))
-    } catch {
-      resolve([])
+      chrome.cookies.getAll(details, (cookies) => {
+        const lastError = chrome.runtime?.lastError
+        if (lastError) {
+          reject(new Error(lastError.message || 'Cookie permission denied'))
+          return
+        }
+        resolve(cookies || [])
+      })
+    } catch (error) {
+      reject(error)
     }
   })
 }
@@ -901,8 +948,10 @@ function getCookieStores() {
   })
 }
 
-async function ytdlpCookiesForUrl(url) {
-  if (!isXUrl(url) || !chrome.cookies?.getAll) return ''
+async function collectXCookieDiagnostics() {
+  if (!chrome.cookies?.getAll) {
+    return { available: false, count: 0, names: [], missing: ['cookies_api'], error: 'The extension does not have the cookies API. Reload it and approve the updated permissions.' }
+  }
   const stores = await getCookieStores()
   const queries = []
   for (const store of stores) {
@@ -920,17 +969,25 @@ async function ytdlpCookiesForUrl(url) {
     cookies.push(cookie)
   }
 
-  const hasAuthToken = cookies.some((cookie) => cookie.name === 'auth_token' && cookie.value)
-  if (!hasAuthToken) {
+  const names = [...new Set(cookies.map((cookie) => cookie.name))].sort()
+  const missing = ['auth_token', 'ct0'].filter((name) => !cookies.some((cookie) => cookie.name === name && cookie.value))
+  return { available: missing.length === 0, count: cookies.length, names, missing, cookies, stores: stores.length }
+}
+
+async function ytdlpCookiesForUrl(url) {
+  if (!isXUrl(url)) return ''
+  const diagnostics = await collectXCookieDiagnostics()
+  if (!diagnostics.available) {
+    const missing = diagnostics.missing?.join(', ') || 'auth cookies'
     throw new Error(
-      'X/Twitter auth cookies were not available to the extension. Reload the NekoBooru extension, approve the cookies permission, and make sure this Brave profile is logged into an account that can view the protected post.',
+      `X/Twitter auth cookies are not available to the extension (${missing} missing). Reload the NekoBooru extension, approve cookies/site access, and make sure this Brave profile is logged into an account that can view the protected post.`,
     )
   }
 
   return [
     '# Netscape HTTP Cookie File',
     '# Generated temporarily by the NekoBooru extension for yt-dlp.',
-    ...cookies.map(formatNetscapeCookie),
+    ...diagnostics.cookies.map(formatNetscapeCookie),
     '',
   ].join('\n')
 }
