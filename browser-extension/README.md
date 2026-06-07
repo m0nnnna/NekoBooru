@@ -96,6 +96,9 @@ the extension needs to be signed/packaged.
   after the picker auto-closes) when you insert one.
 - `nativeMessaging` — optional; lets the extension ask the local launcher
   helper to start NekoBooru when the API is down.
+- `cookies` — lets the upload popup pass your local X/Twitter cookies to the
+  local backend for one yt-dlp request, so locked/protected posts you can view
+  in Brave can be downloaded. The cookies are not saved by the extension.
 - `host_permissions: *://*/*` — needed so the popup can talk to your instance
   (whatever URL you set) and, as a fallback, download media bytes from the page
   you're on.
@@ -106,6 +109,8 @@ the extension needs to be signed/packaged.
   can't be uploaded — there's no single downloadable file behind them.
 - The instance must be reachable from your browser and (for the preferred
   server-side fetch) from the server.
+- Locked/protected X posts require the same Brave profile to be logged into an
+  account that can view the post.
 
 ## Files
 

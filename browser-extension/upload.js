@@ -847,6 +847,8 @@ const VIDEO_PLATFORMS = [
   'redgifs.com',
 ]
 
+const X_COOKIE_URLS = ['https://x.com/', 'https://twitter.com/']
+
 // Return the URL if its host is a known video platform, else ''. Instagram only
 // carries video on reels/posts.
 function videoPlatformUrl(url) {
@@ -863,6 +865,57 @@ function videoPlatformUrl(url) {
   } catch {
     return ''
   }
+}
+
+function isXUrl(url) {
+  try {
+    const host = new URL(url).host.toLowerCase()
+    return host === 'x.com' || host.endsWith('.x.com') || host === 'twitter.com' || host.endsWith('.twitter.com')
+  } catch {
+    return false
+  }
+}
+
+function getBrowserCookies(details) {
+  return new Promise((resolve) => {
+    try {
+      chrome.cookies.getAll(details, (cookies) => resolve(cookies || []))
+    } catch {
+      resolve([])
+    }
+  })
+}
+
+async function ytdlpCookiesForUrl(url) {
+  if (!isXUrl(url) || !chrome.cookies?.getAll) return ''
+  const cookieLists = await Promise.all(
+    X_COOKIE_URLS.map((cookieUrl) => getBrowserCookies({ url: cookieUrl })),
+  )
+  const seen = new Set()
+  const cookies = []
+  for (const cookie of cookieLists.flat()) {
+    const key = `${cookie.domain}\t${cookie.path}\t${cookie.name}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    cookies.push(cookie)
+  }
+  if (!cookies.length) return ''
+
+  return [
+    '# Netscape HTTP Cookie File',
+    '# Generated temporarily by the NekoBooru extension for yt-dlp.',
+    ...cookies.map(formatNetscapeCookie),
+    '',
+  ].join('\n')
+}
+
+function formatNetscapeCookie(cookie) {
+  const domain = `${cookie.httpOnly ? '#HttpOnly_' : ''}${cookie.domain || ''}`
+  const includeSubdomains = (cookie.domain || '').startsWith('.') ? 'TRUE' : 'FALSE'
+  const path = cookie.path || '/'
+  const secure = cookie.secure ? 'TRUE' : 'FALSE'
+  const expires = cookie.session ? '0' : String(Math.floor(cookie.expirationDate || 0))
+  return [domain, includeSubdomains, path, secure, expires, cookie.name, cookie.value].join('\t')
 }
 
 // Get an upload token. For known video-platform pages, let the server run yt-dlp
@@ -883,10 +936,11 @@ async function getContentToken() {
   if (ytdlpUrl) {
     let ytdlpError = ''
     try {
+      const cookies = await ytdlpCookiesForUrl(ytdlpUrl)
       const res = await fetch(`${instanceUrl}/api/uploads/from-ytdlp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: ytdlpUrl }),
+        body: JSON.stringify({ url: ytdlpUrl, ...(cookies ? { cookies } : {}) }),
       })
       if (res.ok) {
         const data = await res.json()

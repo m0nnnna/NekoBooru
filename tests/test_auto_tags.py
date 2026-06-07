@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 import asyncio
+import types
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -141,6 +142,50 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertIn("red_eyes", body["suggestedTags"])
         self.assertEqual(body["suggestedSafety"], "unsafe")
         self.assertEqual(self.client.get("/api/posts").json()["total"], before_total)
+
+    def test_ytdlp_accepts_temporary_cookie_payload(self):
+        import app.routers.uploads as uploads
+
+        captured = {}
+        real_import = __import__
+
+        class FakeYoutubeDL:
+            def __init__(self, opts):
+                captured["cookiefile"] = opts.get("cookiefile")
+                self.opts = opts
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def extract_info(self, url, download=False):
+                return {"title": "locked video", "ext": "mp4"}
+
+            def download(self, urls):
+                Path(self.opts["outtmpl"].replace("%(ext)s", "mp4")).write_bytes(b"video")
+
+        def fake_import(name, *args, **kwargs):
+            if name == "yt_dlp":
+                return types.SimpleNamespace(YoutubeDL=FakeYoutubeDL, version=types.SimpleNamespace(__version__="test"))
+            return real_import(name, *args, **kwargs)
+
+        cookies = "# Netscape HTTP Cookie File\n.x.com\tTRUE\t/\tTRUE\t0\tauth_token\tsecret\n"
+        with patch("builtins.__import__", side_effect=fake_import), patch("httpx.AsyncClient.head", side_effect=Exception):
+            response = self.client.post(
+                "/api/uploads/from-ytdlp",
+                json={"url": "https://x.com/user/status/1", "cookies": cookies},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(captured["cookiefile"])
+        self.assertFalse(Path(captured["cookiefile"]).exists())
+        token = response.json()["token"]
+        temp_path = uploads.get_upload_path(token)
+        self.assertTrue(temp_path.exists())
+        temp_path.unlink(missing_ok=True)
+        uploads.remove_upload_token(token)
 
     def test_bulk_preview_job_can_apply_saved_suggestions(self):
         self._enable_auto_tags()
