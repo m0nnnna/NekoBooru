@@ -174,52 +174,73 @@ function normalizedXImageUrl(raw) {
 }
 
 function imageUrlFromArticle(article) {
-  if (!article) return ''
+  return imageCandidateFromArticle(article)?.src || ''
+}
+
+function statusUrlForMediaElement(article, element) {
+  const mediaLink = element?.closest?.('a[href*="/status/"]')
+  const mediaStatusUrl = normalizedStatusUrl(mediaLink?.getAttribute('href') || mediaLink?.href || '')
+  if (mediaStatusUrl) return mediaStatusUrl
+
+  const nestedArticle = element?.closest?.('article[data-testid="tweet"]')
+  const nestedStatusUrl = nestedArticle && nestedArticle !== article ? statusUrlFromArticle(nestedArticle) : ''
+  return nestedStatusUrl || statusUrlFromArticle(article)
+}
+
+function imageCandidateFromArticle(article) {
+  if (!article) return null
   const candidates = Array.from(article.querySelectorAll('img'))
     .map((img) => {
       const src = normalizedXImageUrl(img.currentSrc || img.src)
       if (!src) return null
       const area = (img.naturalWidth || img.clientWidth || 0) * (img.naturalHeight || img.clientHeight || 0)
-      return { src, area }
+      return { src, area, statusUrl: statusUrlForMediaElement(article, img) }
     })
     .filter(Boolean)
     .sort((a, b) => b.area - a.area)
-  return candidates[0]?.src || ''
+  return candidates[0] || null
+}
+
+function videoCandidateFromArticle(article) {
+  if (!article) return null
+  const selectors = '[data-testid="videoPlayer"], [data-testid="playButton"], [data-testid="videoComponent"], video'
+  const player = article.querySelector(selectors)
+  if (!player) return null
+  const statusUrl = statusUrlForMediaElement(article, player)
+  return statusUrl ? { statusUrl } : null
+}
+
+function hasUploadableXMedia(article) {
+  return Boolean(videoCandidateFromArticle(article) || imageCandidateFromArticle(article))
 }
 
 function uploadTargetFromArticle(article) {
   const statusUrl = statusUrlFromArticle(article)
   if (!statusUrl) return null
-  const xTweetId = tweetIdFromUrl(statusUrl)
 
-  if (article.querySelector('video')) {
+  const video = videoCandidateFromArticle(article)
+  if (video) {
     return {
-      src: statusUrl,
-      page: statusUrl,
+      src: video.statusUrl,
+      page: video.statusUrl,
       mediaType: 'video',
       fetch: 'link',
-      xTweetId,
+      xTweetId: tweetIdFromUrl(video.statusUrl),
     }
   }
 
-  const imageUrl = imageUrlFromArticle(article)
-  if (imageUrl) {
+  const image = imageCandidateFromArticle(article)
+  if (image) {
     return {
-      src: imageUrl,
-      page: statusUrl,
+      src: image.src,
+      page: image.statusUrl || statusUrl,
       mediaType: 'image',
       fetch: 'direct',
-      xTweetId,
+      xTweetId: tweetIdFromUrl(image.statusUrl || statusUrl),
     }
   }
 
-  return {
-    src: statusUrl,
-    page: statusUrl,
-    mediaType: 'video',
-    fetch: 'link',
-    xTweetId,
-  }
+  return null
 }
 
 function installXButtonStyle() {
@@ -285,9 +306,11 @@ function openUploadForTarget(target) {
 }
 
 function injectXButton(article) {
-  if (!article || article.querySelector('.nekobooru-x-download')) return
-  const statusUrl = statusUrlFromArticle(article)
-  if (!statusUrl) return
+  if (!article) return
+  const existing = article.querySelector('.nekobooru-x-download')
+  const hasMedia = hasUploadableXMedia(article)
+  if (existing && !hasMedia) existing.remove()
+  if (existing || !hasMedia) return
 
   const actionGroups = Array.from(article.querySelectorAll('[role="group"]'))
   const actionGroup = actionGroups.find((group) => group.querySelector('button, a'))
@@ -307,7 +330,8 @@ function injectXButton(article) {
   button.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
-    openUploadForTarget(uploadTargetFromArticle(article))
+    const target = uploadTargetFromArticle(article)
+    if (target) openUploadForTarget(target)
   })
 
   // Put the button beside the last native action (the share icon). Appending to
@@ -328,7 +352,10 @@ function injectXButton(article) {
 function scanXPosts(root = document) {
   if (!isXHost()) return
   installXButtonStyle()
-  if (root.matches?.('article[data-testid="tweet"]')) injectXButton(root)
+  const article = root.matches?.('article[data-testid="tweet"]')
+    ? root
+    : root.closest?.('article[data-testid="tweet"]')
+  if (article) injectXButton(article)
   root.querySelectorAll?.('article[data-testid="tweet"]').forEach(injectXButton)
 }
 
