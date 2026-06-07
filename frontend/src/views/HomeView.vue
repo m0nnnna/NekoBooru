@@ -64,7 +64,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePostsStore } from '../stores/posts'
 import PostGrid from '../components/PostGrid.vue'
@@ -103,6 +103,7 @@ const posts = ref([])
 const total = ref(0)
 const pages = ref(0)
 const loading = ref(false)
+const pendingScrollTop = ref(false)
 
 onMounted(() => {
   if (route.query.q) {
@@ -176,6 +177,11 @@ async function fetchPosts() {
     console.error('Failed to fetch posts:', e)
   } finally {
     loading.value = false
+    if (pendingScrollTop.value) {
+      pendingScrollTop.value = false
+      await nextTick()
+      scrollToTop()
+    }
   }
 }
 
@@ -189,18 +195,23 @@ function onPerPageChange() {
   perPage.value = normalizePerPage(perPage.value)
   localStorage.setItem('postsPerPage', String(perPage.value))
   page.value = 1
-  router.push({
-    query: {
-      ...route.query,
-      page: undefined,
-      limit: perPage.value === 42 ? undefined : perPage.value,
-    }
-  })
-  fetchPosts()
+  const query = {
+    ...route.query,
+    page: undefined,
+    limit: perPage.value === 42 ? undefined : perPage.value,
+  }
+  const routeWillChange =
+    String(route.query.page || '') !== String(query.page || '') ||
+    String(route.query.limit || '') !== String(query.limit || '')
+
+  requestScrollToTop()
+  router.push({ query })
+  if (!routeWillChange) fetchPosts()
 }
 
 function onPageChange(newPage) {
   page.value = newPage
+  requestScrollToTop()
   router.push({
     query: {
       ...route.query,
@@ -208,12 +219,14 @@ function onPageChange(newPage) {
       limit: perPage.value === 42 ? undefined : perPage.value,
     }
   })
-  fetchPosts()
-  scrollToTop()
+}
+
+function requestScrollToTop() {
+  pendingScrollTop.value = true
 }
 
 function scrollToTop() {
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  window.scrollTo({ top: 0, behavior: 'auto' })
 }
 </script>
 
