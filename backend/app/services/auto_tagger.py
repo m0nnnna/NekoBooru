@@ -122,6 +122,15 @@ _download_job: dict[str, Any] | None = None
 _load_lock = threading.Lock()
 _load_job: dict[str, Any] | None = None
 
+DEFAULT_SEMANTIC_PROMPT = (
+    "Return compact JSON only with keys tags, safety, rationale. "
+    "Use snake_case tags. Look for higher-level context such as political_edit, meme_edit, amv, music_video, "
+    "captioned, protest, politician, propaganda, and contextual edit signals only when visually or transcript supported. "
+    "Use national_socialism only for clear Nazi/far-right symbols such as a swastika, sonnenrad, or black_sun. "
+    "Use communism only for clear communist symbols such as a hammer_and_sickle or communist red star. "
+    "If transcript or audio evidence suggests a song or music-driven edit, include music and edit."
+)
+
 
 @dataclass
 class AutoTagOptions:
@@ -148,6 +157,7 @@ class AutoTagOptions:
     videoMaxFrames: int = 4
     videoMaxDurationSeconds: int = 900
     semanticPoliticalEnabled: bool = False
+    semanticPrompt: str = DEFAULT_SEMANTIC_PROMPT
     ocrEnabled: bool = False
     whisperEnabled: bool = False
     qwenEnabled: bool = False
@@ -595,13 +605,7 @@ class QwenSemanticTagger:
         self.ensure_loaded(opts.torchDevice)
         from qwen_vl_utils import process_vision_info  # type: ignore
 
-        prompt = (
-            "Return compact JSON only with keys tags, safety, rationale. "
-            "Use snake_case tags. Include political_edit, meme_edit, amv, music_video, "
-            "captioned, protest, politician, propaganda only when visually supported. "
-            "Use national_socialism only for clear Nazi/far-right symbols such as a swastika, sonnenrad, or black_sun. "
-            "Use communism only for clear communist symbols such as a hammer_and_sickle or communist red star."
-        )
+        prompt = _semantic_prompt(opts)
         if context:
             prompt += f" Context: {json.dumps(context)[:1000]}"
         messages = [{
@@ -842,6 +846,17 @@ def delete_tagger_worker_token() -> None:
     SettingsManager(settings.config_file).delete_tagger_worker_token()
 
 
+def _clean_semantic_prompt(value: Any) -> str:
+    prompt = str(value or "").strip()
+    if not prompt:
+        return DEFAULT_SEMANTIC_PROMPT
+    return prompt[:4000]
+
+
+def _semantic_prompt(opts: AutoTagOptions) -> str:
+    return _clean_semantic_prompt(opts.semanticPrompt)
+
+
 def validate_options(raw: dict) -> AutoTagOptions:
     data = asdict(default_options())
     data.update({k: v for k, v in (raw or {}).items() if k in data})
@@ -859,6 +874,7 @@ def validate_options(raw: dict) -> AutoTagOptions:
     data["remoteEnabled"] = bool(data.get("remoteEnabled"))
     data["remoteUrl"] = str(data.get("remoteUrl") or "").strip().rstrip("/")
     data["remoteTimeoutSeconds"] = min(1800, max(5, int(data.get("remoteTimeoutSeconds") or 120)))
+    data["semanticPrompt"] = _clean_semantic_prompt(data.get("semanticPrompt"))
     if not isinstance(data["excludedTags"], list):
         data["excludedTags"] = []
     if not isinstance(data["keywordRules"], list):

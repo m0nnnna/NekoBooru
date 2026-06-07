@@ -468,6 +468,19 @@ class AutoTagUnitTests(unittest.TestCase):
 
         self.assertEqual(opts.torchDevice, "auto")
 
+    def test_semantic_prompt_can_be_customized_and_validated(self):
+        from app.services.auto_tagger import DEFAULT_SEMANTIC_PROMPT, validate_options
+
+        custom = "Return tags about vaporwave_edit and city_pop."
+        opts = validate_options({"semanticPrompt": custom})
+        self.assertEqual(opts.semanticPrompt, custom)
+
+        fallback = validate_options({"semanticPrompt": "  "})
+        self.assertEqual(fallback.semanticPrompt, DEFAULT_SEMANTIC_PROMPT)
+
+        capped = validate_options({"semanticPrompt": "x" * 5000})
+        self.assertEqual(len(capped.semanticPrompt), 4000)
+
     def test_qwen_device_map_respects_cpu_and_gpu_availability(self):
         from app.services.auto_tagger import _qwen_device_map
 
