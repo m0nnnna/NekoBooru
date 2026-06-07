@@ -215,15 +215,12 @@ function createMenu() {
       contexts: ['page'],
       documentUrlPatterns: PLAYER_OVERLAY_PATTERNS,
     })
-    // Browse your instance and copy a piece of media into whatever you're
-    // composing. No 'page' context: on overlay players (X) the right-click over
-    // the video registers as page context, and 'page' would make Insert tag
-    // along there. Composing happens in an editable field/selection anyway, so
-    // it still shows where it's actually used.
+    // Only show while composing in an editable field. The picker copies media
+    // to the clipboard for the user to paste into that same text area/editor.
     chrome.contextMenus.create({
       id: INSERT_MENU_ID,
       title: 'Insert media from NekoBooru…',
-      contexts: ['frame', 'selection', 'link', 'editable'],
+      contexts: ['editable'],
     })
   })
 }
