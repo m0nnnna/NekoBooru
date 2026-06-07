@@ -53,6 +53,10 @@ const AI_TAG_PROFILES = {
       videoMaxFrames: 4,
     },
   },
+  realistic: {
+    label: 'Realistic',
+    resolve: () => (mediaType === 'video' ? 'realistic_video' : 'realistic_image'),
+  },
 }
 
 const els = {
@@ -562,7 +566,7 @@ async function updateCreatedPost() {
 
 async function runAiTag(event) {
   const button = event?.currentTarget || els.aiTag
-  const profileId = button?.dataset?.aiProfile || 'anime'
+  const profileId = resolveAiTagProfileId(button?.dataset?.aiProfile || 'anime')
   const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
   setAiProfileButtonsDisabled(true)
   els.submit.disabled = true
@@ -855,12 +859,18 @@ function modelInfoTitle(model) {
 }
 
 function applyAiTagProfile(profileId) {
+  profileId = resolveAiTagProfileId(profileId)
   const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
   Object.entries(profile.settings).forEach(([key, value]) => {
     autoTagSettings[key] = value
     autoTagModelOverrides[key] = value
   })
   renderAiModelPicker()
+}
+
+function resolveAiTagProfileId(profileId) {
+  const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
+  return profile.resolve ? profile.resolve() : profileId
 }
 
 function autoTagRunSettings() {
