@@ -162,7 +162,33 @@ async function copyImageToClipboard(url) {
   const blob = await res.blob()
   // The Clipboard API only reliably accepts PNG, so normalise everything else.
   const png = blob.type === 'image/png' ? blob : await toPng(blob)
-  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
+  const html = `<img src="${escapeHtml(url)}" alt="">`
+  const item = new ClipboardItem({
+    'image/png': png,
+    'text/html': new Blob([html], { type: 'text/html' }),
+    'text/plain': new Blob([url], { type: 'text/plain' }),
+    'text/uri-list': new Blob([url], { type: 'text/uri-list' }),
+  })
+
+  try {
+    await navigator.clipboard.write([item])
+  } catch (e) {
+    // Keep the action useful even if the browser/editor rejects binary image
+    // clipboard data. Pasting the URL still lets the user attach or embed it.
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url)
+      return
+    }
+    throw e
+  }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }
 
 function toPng(blob) {
