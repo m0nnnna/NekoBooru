@@ -41,6 +41,13 @@ let autoTagStatus = {}
 let autoTagSuggestion = null
 let modelLoadPollTimer = null
 
+class BackendOfflineError extends Error {
+  constructor() {
+    super('NekoBooru server is not running. Click Start NekoBooru, then try again.')
+    this.name = 'BackendOfflineError'
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -69,8 +76,7 @@ async function init() {
   setupTagAutocomplete()
   els.startLocalApp.addEventListener('click', startLocalApp)
   chrome.runtime.onMessage.addListener(onRuntimeMessage)
-  checkBackendHealth()
-  loadAutoTagControls()
+  if (await checkBackendHealth()) loadAutoTagControls()
 
   els.submit.addEventListener('click', doUpload)
   els.aiTag.addEventListener('click', runAiTag)
@@ -86,6 +92,11 @@ async function checkBackendHealth() {
     els.serverHelper.classList.remove('hidden')
     return false
   }
+}
+
+async function ensureBackendReady() {
+  if (await checkBackendHealth()) return
+  throw new BackendOfflineError()
 }
 
 async function startLocalApp() {
@@ -364,6 +375,7 @@ async function doUpload() {
   setStatus('Fetching media...', 'working')
 
   try {
+    await ensureBackendReady()
     const post = await createPostFromPopup({})
 
     await chrome.storage.sync.set({ lastSafety: els.safety.value })
@@ -372,8 +384,9 @@ async function doUpload() {
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
     convertUploadButtonToPostLink(post)
   } catch (e) {
-    setStatus('Upload failed: ' + e.message, 'error')
-    notify('NekoBooru upload failed', e.message)
+    const message = await friendlyBackendError(e)
+    setStatus('Upload failed: ' + message, 'error')
+    notify('NekoBooru upload failed', message)
     els.submit.disabled = false
     els.aiTag.disabled = false
   }
@@ -432,6 +445,7 @@ async function runAiTag() {
   autoTagSuggestion = null
 
   try {
+    await ensureBackendReady()
     setStatus('Preparing media for AI tagging...', 'working')
     const token = await getContentToken()
 
@@ -471,12 +485,21 @@ async function runAiTag() {
     renderAiPreview(autoTagSuggestion)
     setStatus('AI suggestions are in the form. Review or edit them, then upload.', 'success')
   } catch (e) {
-    setStatus('AI tag failed: ' + e.message, 'error')
-    notify('NekoBooru AI tag failed', e.message)
+    const message = await friendlyBackendError(e)
+    setStatus('AI tag failed: ' + message, 'error')
+    notify('NekoBooru AI tag failed', message)
   } finally {
     els.aiTag.disabled = false
     els.submit.disabled = false
   }
+}
+
+async function friendlyBackendError(error) {
+  if (error instanceof BackendOfflineError) return error.message
+  if (error?.message === 'Failed to fetch' && !(await checkBackendHealth())) {
+    return new BackendOfflineError().message
+  }
+  return error?.message || String(error)
 }
 
 function renderAiPreview(suggestion) {
@@ -580,6 +603,7 @@ function convertUploadButtonToPostLink(post) {
 
 async function loadAutoTagControls() {
   try {
+    await ensureBackendReady()
     const [settingsRes, statusRes] = await Promise.all([
       fetch(`${instanceUrl}/api/auto-tags/settings`),
       fetch(`${instanceUrl}/api/auto-tags/status`),
@@ -713,6 +737,7 @@ async function loadEnabledAutoTagModels() {
 }
 
 async function loadAutoTagModel(modelId, options = {}) {
+  await ensureBackendReady()
   const model = (autoTagStatus.models || []).find((item) => item.id === modelId)
   setStatus(`Loading ${model?.name || 'AI'} model weights...`, 'working')
   const res = await fetch(`${instanceUrl}/api/auto-tags/models/${encodeURIComponent(modelId)}/load`, {
@@ -728,6 +753,7 @@ async function loadAutoTagModel(modelId, options = {}) {
 }
 
 async function unloadAutoTagModel(modelId) {
+  await ensureBackendReady()
   const model = (autoTagStatus.models || []).find((item) => item.id === modelId)
   setStatus(`Unloading ${model?.name || 'AI'} model...`, 'working')
   const res = await fetch(`${instanceUrl}/api/auto-tags/models/${encodeURIComponent(modelId)}/unload`, {
@@ -809,6 +835,7 @@ function videoPlatformUrl(url) {
 // fetching the bytes here in the browser and uploading them directly.
 async function getContentToken() {
   if (contentToken) return contentToken
+  await ensureBackendReady()
   // RedGifs/X/YouTube/etc.: the watch page (or a video element's page) is what
   // yt-dlp understands, not the blob/CDN src the browser exposes. In link-fetch
   // mode the src already *is* that page URL, so use it directly. In direct mode
@@ -836,6 +863,7 @@ async function getContentToken() {
         ytdlpError = formatBackendError(err.detail || `HTTP ${res.status}`)
       }
     } catch (e) {
+      if (e.message === 'Failed to fetch' && !(await checkBackendHealth())) throw new BackendOfflineError()
       ytdlpError = e.message
     }
 
@@ -858,6 +886,7 @@ async function getContentToken() {
       }
     }
   } catch {
+    if (!(await checkBackendHealth())) throw new BackendOfflineError()
     // fall through to client-side fetch
   }
 
