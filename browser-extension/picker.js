@@ -1,7 +1,6 @@
 // "Insert media from NekoBooru" popup: browse/search your own instance by tags,
-// rating and type, then pull a piece of media out — images go to the clipboard
-// (ready to paste into whatever you're composing), GIFs/videos download so you
-// can attach them.
+// rating and type, then pull a piece of media out. Images copy as image data;
+// GIFs/videos copy a pasteable media reference and download for attachment.
 
 const els = {
   needsSetup: document.getElementById('needs-setup'),
@@ -129,7 +128,7 @@ function renderCell(post) {
 }
 
 // ---------------------------------------------------------------------------
-// Selecting a post: copy images, download GIFs/videos
+// Selecting a post: copy images; copy links and download GIFs/videos
 // ---------------------------------------------------------------------------
 
 async function selectPost(post, kind) {
@@ -140,9 +139,10 @@ async function selectPost(post, kind) {
       await copyImageToClipboard(url)
       setStatus('Copied! Paste it into your post. Nyaa~', 'success')
     } else {
-      setStatus('Downloading…', 'working')
+      setStatus(`Copying ${kind} link and downloading…`, 'working')
+      await copyMediaReferenceToClipboard(url, kind)
       await startDownload(url, `nekobooru-${post.id}${post.extension || ''}`)
-      setStatus('Downloading — drag it from your downloads into your post.', 'success')
+      setStatus('Copied link and downloading — paste the link or attach the downloaded file.', 'success')
     }
     // Auto-close so the picker gets out of the way. The clipboard contents and
     // the browser download both live on independently of this popup.
@@ -175,6 +175,30 @@ async function copyImageToClipboard(url) {
   } catch (e) {
     // Keep the action useful even if the browser/editor rejects binary image
     // clipboard data. Pasting the URL still lets the user attach or embed it.
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url)
+      return
+    }
+    throw e
+  }
+}
+
+async function copyMediaReferenceToClipboard(url, kind) {
+  const escaped = escapeHtml(url)
+  const media =
+    kind === 'video'
+      ? `<video controls src="${escaped}"></video>`
+      : `<img src="${escaped}" alt="">`
+  const html = `<a href="${escaped}">${media}</a>`
+  const item = new ClipboardItem({
+    'text/html': new Blob([html], { type: 'text/html' }),
+    'text/plain': new Blob([url], { type: 'text/plain' }),
+    'text/uri-list': new Blob([url], { type: 'text/uri-list' }),
+  })
+
+  try {
+    await navigator.clipboard.write([item])
+  } catch (e) {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(url)
       return
