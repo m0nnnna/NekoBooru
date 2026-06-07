@@ -160,7 +160,9 @@ async function selectPost(post, kind) {
       await copyMediaReferenceToClipboard(url, kind, localPath)
       const pasteResult = await pasteMediaFileToSourceTab(post, url, kind)
       await startDownload(url, `nekobooru-${post.id}${post.extension || ''}`)
-      const pasteText = pasteResult.ok ? 'sent to the editor' : 'copied as a path'
+      const pasteText = pasteResult.ok
+        ? (pasteResult.method === 'file-input' ? 'attached through X upload' : 'sent to the editor')
+        : 'copied as a path'
       setStatus(`Video ${pasteText} and downloading — attach the file if X rejects paste.`, 'success')
     }
     // Auto-close so the picker gets out of the way. The clipboard contents and

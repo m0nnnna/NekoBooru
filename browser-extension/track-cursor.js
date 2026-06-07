@@ -35,6 +35,11 @@ function pasteFileIntoEditable(file) {
   const target = lastEditableTarget?.isConnected ? lastEditableTarget : document.activeElement
   if (!target) return { ok: false, error: 'No editable target is active.' }
 
+  if (isXHost()) {
+    const inputResult = attachFileViaInput(target, file)
+    if (inputResult.ok) return inputResult
+  }
+
   try {
     target.focus?.()
   } catch {
@@ -53,7 +58,65 @@ function pasteFileIntoEditable(file) {
     ok: true,
     accepted,
     files: data.files.length,
+    method: 'paste',
   }
+}
+
+function attachFileViaInput(target, file) {
+  const input = findFileInputForTarget(target, file)
+  if (!input) return { ok: false, error: 'No matching file input found.' }
+
+  const data = new DataTransfer()
+  data.items.add(file)
+  input.files = data.files
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+
+  return {
+    ok: true,
+    files: input.files.length,
+    method: 'file-input',
+  }
+}
+
+function findFileInputForTarget(target, file) {
+  const roots = [
+    target.closest?.('[role="dialog"]'),
+    target.closest?.('[data-testid^="tweetTextarea_"]')?.parentElement,
+    target.closest?.('form'),
+    document,
+  ].filter(Boolean)
+
+  const seen = new Set()
+  const inputs = []
+  for (const root of roots) {
+    root.querySelectorAll?.('input[type="file"]').forEach((input) => {
+      if (!seen.has(input)) {
+        seen.add(input)
+        inputs.push(input)
+      }
+    })
+  }
+
+  return inputs
+    .filter((input) => !input.disabled)
+    .sort((a, b) => fileInputScore(b, file) - fileInputScore(a, file))[0] || null
+}
+
+function fileInputScore(input, file) {
+  const accept = (input.getAttribute('accept') || '').toLowerCase()
+  const name = (file.name || '').toLowerCase()
+  const type = (file.type || '').toLowerCase()
+  let score = 0
+  if (input.multiple) score += 1
+  if (!accept) score += 1
+  if (accept.includes(type)) score += 10
+  if (type.startsWith('video/') && accept.includes('video')) score += 8
+  if (type.startsWith('image/') && accept.includes('image')) score += 8
+  if (name.endsWith('.mp4') && accept.includes('.mp4')) score += 6
+  if (name.endsWith('.webm') && accept.includes('.webm')) score += 6
+  if (name.endsWith('.gif') && accept.includes('.gif')) score += 6
+  return score
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
