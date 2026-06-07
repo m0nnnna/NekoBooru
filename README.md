@@ -179,15 +179,20 @@ stack (torch/CUDA, onnxruntime, transformers) is large, so you install it only w
 The easiest way is the installer script, which creates/uses the project venv,
 installs everything, and verifies torch/onnxruntime:
 ```bash
-# Windows:
-.\install-ai.ps1            # NVIDIA GPU (CUDA 12.8)
-.\install-ai.ps1 -CPU       # CPU only
-.\install-ai.ps1 -Legacy    # older Pascal GPU (GTX 10-series, CUDA 12.6)
+# Windows (auto-detects the GPU and installs the matching stack):
+.\install-ai.ps1            # auto: standard / legacy / CPU based on the GPU
+.\install-ai.ps1 -CPU       # force CPU only
+.\install-ai.ps1 -Legacy    # force older Pascal GPU (GTX 10-series, CUDA 12.6)
+.\install-ai.ps1 -GPU       # force standard CUDA 12.8
 # Linux / macOS:
-./install-ai.sh             # NVIDIA GPU (CUDA 12.8)
-./install-ai.sh --cpu       # CPU only
-./install-ai.sh --legacy    # older Pascal GPU (GTX 10-series, CUDA 12.6)
+./install-ai.sh             # auto-detect
+./install-ai.sh --cpu / --legacy / --gpu
 ```
+The installer is idempotent and self-healing: it detects the GPU's compute
+capability via `nvidia-smi` (7.0+ → CUDA 12.8, 6.x Pascal → CUDA 12.6, else CPU),
+skips work if the right build is already present, and if an installed build can't
+launch a kernel on your GPU it uninstalls it and installs the correct one (auto
+falling back standard → legacy → CPU).
 Or install manually into the Python environment running NekoBooru:
 ```bash
 # NVIDIA GPU (CUDA 12.8):
@@ -199,6 +204,19 @@ pip install -r backend/requirements-tagger-cpu.txt
 ```
 Then open **Settings → Auto Tagging**, toggle **Enable AI features**, and download the models you want.
 The web UI also shows these commands and a CPU/GPU picker when the runtime isn't installed yet.
+
+### Benchmark tagging speed
+To see how fast tagging runs on your hardware (and the GPU vs CPU speedup), run
+the benchmark with the venv that has the AI stack:
+```bash
+# Windows
+venv\Scripts\python.exe benchmark-tagger.py
+# Linux / macOS
+venv/bin/python benchmark-tagger.py
+```
+It times the default WD tagger (preprocess + inference) on CPU and GPU and prints
+per-image latency, throughput, and projected times for bulk runs. Use
+`--images <folder>` to benchmark your own files, or `--device cpu|gpu|both`.
 
 > **Older NVIDIA GPUs:** PyTorch's default CUDA 12.8 builds dropped Maxwell/Pascal/Volta
 > support, so on a GTX 10-series card (e.g. 1060, `sm_61`) the standard GPU install fails

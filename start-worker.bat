@@ -17,20 +17,13 @@ set NEKO_HOST=0.0.0.0
 set NEKO_PORT=8772
 set NEKO_TAGGER_WORKER_TOKEN=change-me-shared-secret
 
-REM ----- Ensure the AI stack is installed in the venv (first run only) -----
-set NEED_INSTALL=1
-if exist "venv\Scripts\python.exe" (
-    venv\Scripts\python.exe -c "import torch, onnxruntime" >nul 2>&1 && set NEED_INSTALL=0
-)
-if "%NEED_INSTALL%"=="1" (
-    echo AI stack not found in venv; installing GPU stack via install-ai.ps1 ...
-    echo ^(CPU-only worker: install-ai.ps1 -CPU  ^|  older Pascal GPU/GTX 10-series: install-ai.ps1 -Legacy^)
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-ai.ps1"
-    if errorlevel 1 (
-        echo ERROR: AI install failed. See output above.
-        pause
-        exit /b 1
-    )
+REM ----- Ensure the right AI stack is installed (auto-detects the GPU; only
+REM       installs/repairs when needed, so this is fast on subsequent runs) -----
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-ai.ps1"
+if errorlevel 1 (
+    echo ERROR: AI install failed. See output above.
+    pause
+    exit /b 1
 )
 
 echo.
