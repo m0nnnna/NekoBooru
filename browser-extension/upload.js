@@ -73,8 +73,6 @@ const els = {
   submit: document.getElementById('submit'),
   aiModelPicker: document.getElementById('ai-model-picker'),
   aiModelList: document.getElementById('ai-model-list'),
-  testXCookies: document.getElementById('test-x-cookies'),
-  xCookieStatus: document.getElementById('x-cookie-status'),
   aiPreview: document.getElementById('ai-preview'),
   aiPreviewSafety: document.getElementById('ai-preview-safety'),
   aiPreviewTags: document.getElementById('ai-preview-tags'),
@@ -130,7 +128,6 @@ async function init() {
 
   els.submit.addEventListener('click', doUpload)
   els.aiProfileButtons.forEach((button) => button.addEventListener('click', runAiTag))
-  els.testXCookies.addEventListener('click', testXCookieAccess)
 }
 
 async function checkBackendHealth() {
@@ -462,12 +459,6 @@ function tweetIdFromUrl(raw) {
   }
 }
 
-function setXCookieStatus(message, kind) {
-  els.xCookieStatus.textContent = message
-  els.xCookieStatus.className = `cookie-status ${kind || ''}`
-  els.xCookieStatus.classList.remove('hidden')
-}
-
 function getXCookiePermissionSpec() {
   return {
     permissions: ['cookies'],
@@ -488,41 +479,6 @@ async function ensureXCookiePermission() {
   const spec = getXCookiePermissionSpec()
   if (await containsPermission(spec)) return true
   return Boolean(chrome.cookies?.getAll)
-}
-
-async function testXCookieAccess() {
-  els.testXCookies.disabled = true
-  els.testXCookies.textContent = 'Testing...'
-  setXCookieStatus('Checking Brave X/Twitter cookies from the extension context...', '')
-  try {
-    if (!(await ensureXCookiePermission())) {
-      setXCookieStatus('Not ready: X/Twitter cookie access has not been granted. Click Grant Access first.', 'error')
-      return
-    }
-    const diagnostics = await collectXCookieDiagnostics()
-    if (diagnostics.available) {
-      setXCookieStatus(
-        `Ready: found ${diagnostics.count} X/Twitter cookies across ${diagnostics.stores} cookie store(s), including auth_token and ct0.`,
-        'success',
-      )
-    } else if (diagnostics.error) {
-      setXCookieStatus(diagnostics.error, 'error')
-    } else {
-      const missing = diagnostics.missing?.join(', ') || 'auth cookies'
-      setXCookieStatus(
-        `Not ready: found ${diagnostics.count} X/Twitter cookies, but ${missing} is missing. Confirm this Brave profile is logged into X and can view the protected post.`,
-        'error',
-      )
-    }
-  } catch (error) {
-    setXCookieStatus(
-      `Cookie check failed: ${error?.message || error}. Reload the extension and make sure Site access includes x.com/twitter.com.`,
-      'error',
-    )
-  } finally {
-    els.testXCookies.disabled = false
-    els.testXCookies.textContent = 'Test Cookies'
-  }
 }
 
 async function doUpload() {
