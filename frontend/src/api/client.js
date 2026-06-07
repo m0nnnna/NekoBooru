@@ -105,6 +105,13 @@ export const api = {
     })
   },
 
+  async previewUploadAutoTags(token, data = {}) {
+    return request(`/uploads/${encodeURIComponent(token)}/auto-tags/preview`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
   async createPost(data) {
     return request('/posts', {
       method: 'POST',

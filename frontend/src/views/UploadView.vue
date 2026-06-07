@@ -88,7 +88,14 @@
           }"
         >
           <div class="preview">
-            <img v-if="upload.preview" :src="upload.preview" />
+            <video
+              v-if="upload.preview && isVideoUpload(upload)"
+              :src="upload.preview"
+              muted
+              playsinline
+              preload="metadata"
+            ></video>
+            <img v-else-if="upload.preview" :src="upload.preview" />
             <span v-else class="no-preview">{{ getFileIcon(upload.file) }}</span>
           </div>
           <div class="upload-details">
@@ -105,6 +112,25 @@
                 <option value="sketchy">Sketchy</option>
                 <option value="unsafe">Unsafe</option>
               </select>
+            </div>
+            <div v-if="aiEnabled" class="upload-ai-panel">
+              <div class="upload-ai-actions" aria-label="AI tag preview profiles">
+                <button
+                  v-for="profile in aiProfiles"
+                  :key="profile.id"
+                  type="button"
+                  class="btn btn-secondary ai-profile-btn"
+                  :class="{ active: upload.aiProfile === profile.id }"
+                  :disabled="upload.completed || upload.uploading || upload.aiTagging || uploading"
+                  :data-tooltip="profile.tooltip"
+                  @click="previewUploadAiTags(upload, profile.id)"
+                >
+                  {{ upload.aiTagging && upload.aiProfile === profile.id ? 'Running...' : profile.label }}
+                </button>
+              </div>
+              <div v-if="upload.aiStatus" class="upload-ai-status" :class="{ error: upload.aiError }">
+                {{ upload.aiStatus }}
+              </div>
             </div>
           </div>
           <div class="upload-status">
@@ -164,7 +190,27 @@ const fetchingVideo = ref(false)
 const fetchingFediverse = ref(false)
 const autoTagUploads = ref(false)
 const aiEnabled = ref(false)
+const autoTagSettings = ref({})
+const savedAutoTagSettings = ref({})
 let uploadIdCounter = 0
+
+const aiProfiles = [
+  {
+    id: 'anime',
+    label: 'Anime / Booru',
+    tooltip: 'Best for anime, manga, illustrations, and booru-style art. Uses Camie character/source tags plus TrOCR text; videos also use Whisper for speech, music, AMV/edit signals, and transcript context.',
+  },
+  {
+    id: 'realistic',
+    label: 'Realistic',
+    tooltip: 'Best for realistic photos, screenshots, videos, edits, and memes. Uses WD broad visual/media tags plus TrOCR text; videos also use Whisper. If semantic/Qwen defaults are enabled, Realistic includes Qwen too.',
+  },
+  {
+    id: 'custom',
+    label: 'Custom',
+    tooltip: 'Runs your saved auto-tag defaults from Settings for this upload preview.',
+  },
+]
 
 // Paste event handler
 onMounted(() => {
@@ -174,7 +220,15 @@ onMounted(() => {
 
 async function loadAiEnabled() {
   try {
-    const status = await api.getAutoTagStatus()
+    const [settings, status] = await Promise.all([
+      api.getAutoTagSettings(),
+      api.getAutoTagStatus(),
+    ])
+    autoTagSettings.value = {
+      ...settings,
+      wdEnabled: settings.wdEnabled !== false,
+    }
+    savedAutoTagSettings.value = { ...autoTagSettings.value }
     aiEnabled.value = Boolean(status?.enabled)
   } catch (e) {
     aiEnabled.value = false
@@ -185,6 +239,7 @@ async function loadAiEnabled() {
 
 onUnmounted(() => {
   document.removeEventListener('paste', handlePaste)
+  revokeUploadPreviews(uploads.value)
 })
 
 async function handlePaste(e) {
@@ -385,9 +440,15 @@ async function fetchFromUrl(url) {
       tags: [],
       safety: 'safe',
       preview: url, // Use URL as preview
+      previewObjectUrl: false,
       uploading: false,
       completed: false,
       error: null,
+      aiTagging: false,
+      aiProfile: '',
+      aiStatus: '',
+      aiError: false,
+      aiPreviewed: false,
       token: result.token, // Pre-uploaded token
     })
 
@@ -414,9 +475,15 @@ async function fetchFromYtdlp(url) {
       tags: [],
       safety: 'safe',
       preview: result.thumbnail || null, // Use yt-dlp thumbnail
+      previewObjectUrl: false,
       uploading: false,
       completed: false,
       error: null,
+      aiTagging: false,
+      aiProfile: '',
+      aiStatus: '',
+      aiError: false,
+      aiPreviewed: false,
       token: result.token, // Pre-uploaded token
       videoInfo: {
         title: result.title,
@@ -450,10 +517,16 @@ async function fetchFromFediverse(url) {
         file: { name: att.filename, size: att.size, type: 'image/*' },
         tags: [...(result.tags || [])],
         safety: 'safe',
-        preview: null,
+        preview: att.thumbnail || null,
+        previewObjectUrl: false,
         uploading: false,
         completed: false,
         error: null,
+        aiTagging: false,
+        aiProfile: '',
+        aiStatus: '',
+        aiError: false,
+        aiPreviewed: false,
         token: att.token,
         source: result.source,
       })
@@ -489,6 +562,12 @@ function getFileIcon(file) {
   return '?'
 }
 
+function isVideoUpload(upload) {
+  const type = upload.file?.type || ''
+  const name = upload.file?.name || ''
+  return type.startsWith('video/') || /\.(mp4|webm)$/i.test(name)
+}
+
 function onDrop(e) {
   isDragging.value = false
   const files = Array.from(e.dataTransfer.files)
@@ -509,18 +588,27 @@ function addFiles(files) {
       tags: [],
       safety: 'safe',
       preview: null,
+      previewObjectUrl: false,
       uploading: false,
       completed: false,
       error: null,
+      aiTagging: false,
+      aiProfile: '',
+      aiStatus: '',
+      aiError: false,
+      aiPreviewed: false,
     })
 
-    // Generate preview for images
+    // Generate preview for images and videos.
     if (file.type.startsWith('image/')) {
       const reader = new FileReader()
       reader.onload = (e) => {
         upload.preview = e.target.result
       }
       reader.readAsDataURL(file)
+    } else if (file.type.startsWith('video/')) {
+      upload.preview = URL.createObjectURL(file)
+      upload.previewObjectUrl = true
     }
 
     uploads.value.push(upload)
@@ -528,14 +616,106 @@ function addFiles(files) {
 }
 
 function removeUpload(index) {
-  uploads.value.splice(index, 1)
+  const [removed] = uploads.value.splice(index, 1)
+  revokeUploadPreviews([removed])
 }
 
 function clearAll() {
+  revokeUploadPreviews(uploads.value)
   uploads.value = []
   uploadProgress.total = 0
   uploadProgress.current = 0
   uploadProgress.done = false
+}
+
+function revokeUploadPreviews(items) {
+  for (const upload of items || []) {
+    if (upload?.previewObjectUrl && upload.preview) {
+      URL.revokeObjectURL(upload.preview)
+      upload.previewObjectUrl = false
+    }
+  }
+}
+
+async function ensureUploadToken(upload) {
+  if (upload.token) return upload.token
+  upload.aiStatus = 'Uploading temporary file for AI preview...'
+  const result = await api.uploadFile(upload.file)
+  upload.token = result.token
+  return upload.token
+}
+
+async function previewUploadAiTags(upload, profileId = 'custom') {
+  upload.aiTagging = true
+  upload.aiProfile = profileId
+  upload.aiError = false
+  upload.aiStatus = 'Preparing AI preview...'
+  try {
+    const token = await ensureUploadToken(upload)
+    upload.aiStatus = 'Analyzing upload with AI...'
+    const suggestion = await api.previewUploadAutoTags(token, {
+      tags: upload.tags,
+      safety: upload.safety,
+      settings: uploadAiRunSettings(upload, profileId),
+    })
+    if (suggestion.error) throw new Error(suggestion.error)
+    upload.tags = suggestion.suggestedTags || upload.tags
+    upload.safety = suggestion.suggestedSafety || upload.safety || 'safe'
+    upload.aiPreviewed = true
+    upload.aiStatus = `AI tags applied: ${profileLabel(profileId)}`
+  } catch (e) {
+    upload.aiError = true
+    upload.aiStatus = `AI tag failed: ${e.message}`
+  } finally {
+    upload.aiTagging = false
+  }
+}
+
+function uploadAiRunSettings(upload, profileId) {
+  return {
+    ...autoTagSettings.value,
+    ...uploadAiProfileSettings(upload, profileId),
+    enabled: true,
+  }
+}
+
+function uploadAiProfileSettings(upload, profileId) {
+  if (profileId === 'custom') return {}
+  const isVideo = isVideoUpload(upload)
+  if (profileId === 'anime') {
+    return {
+      wdEnabled: false,
+      characterModelEnabled: true,
+      ocrEnabled: true,
+      whisperEnabled: isVideo,
+      qwenEnabled: false,
+      semanticPoliticalEnabled: false,
+      generalThreshold: 0.35,
+      characterThreshold: 0.45,
+      maxTags: 40,
+      ...(isVideo ? { videoMaxFrames: 4 } : {}),
+    }
+  }
+  if (profileId === 'realistic') {
+    const useSemanticQwen = Boolean(savedAutoTagSettings.value.qwenEnabled || savedAutoTagSettings.value.semanticPoliticalEnabled)
+    return {
+      wdEnabled: true,
+      characterModelEnabled: false,
+      ocrEnabled: true,
+      whisperEnabled: isVideo,
+      qwenEnabled: useSemanticQwen,
+      semanticPoliticalEnabled: useSemanticQwen,
+      generalThreshold: 0.5,
+      characterThreshold: 0.6,
+      maxTags: isVideo ? 20 : 18,
+      ...(isVideo ? { videoMaxFrames: 4 } : {}),
+    }
+  }
+  return {}
+}
+
+function profileLabel(profileId) {
+  return aiProfiles.find((profile) => profile.id === profileId)?.label || 'Custom'
 }
 
 function showToast(message) {
@@ -584,7 +764,7 @@ async function uploadAll() {
         tags: upload.tags,
         safety: upload.safety,
         source: upload.source || null,
-        autoTag: autoTagUploads.value,
+        autoTag: autoTagUploads.value && !upload.aiPreviewed,
       })
       if (created?.autoTagWarning) autoTagWarnings++
 
@@ -595,7 +775,8 @@ async function uploadAll() {
       setTimeout(() => {
         const idx = uploads.value.findIndex(u => u.id === upload.id)
         if (idx !== -1 && uploads.value[idx].completed) {
-          uploads.value.splice(idx, 1)
+          const [removed] = uploads.value.splice(idx, 1)
+          revokeUploadPreviews([removed])
         }
       }, 1500)
 
@@ -828,7 +1009,8 @@ async function uploadAll() {
   justify-content: center;
 }
 
-.preview img {
+.preview img,
+.preview video {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -864,6 +1046,79 @@ async function uploadAll() {
 
 .safety-row select {
   width: fit-content;
+}
+
+.upload-ai-panel {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.upload-ai-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.ai-profile-btn {
+  position: relative;
+  min-width: 0;
+  padding: 0.5rem 0.45rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.ai-profile-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ai-profile-btn::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 80;
+  display: block;
+  width: max-content;
+  max-width: min(340px, 78vw);
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: #111827;
+  color: #f8fafc;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.38);
+  content: attr(data-tooltip);
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.ai-profile-btn:hover::after,
+.ai-profile-btn:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.upload-ai-status {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.upload-ai-status.error {
+  border-color: rgba(235, 139, 114, 0.5);
+  color: var(--coral);
 }
 
 .upload-status {
