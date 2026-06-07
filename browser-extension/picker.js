@@ -19,6 +19,7 @@ const els = {
 const PAGE_SIZE = 30
 
 let instanceUrl = ''
+let postsDir = ''
 let page = 1
 let totalPages = 0
 let searchToken = 0 // guards against out-of-order responses
@@ -44,6 +45,7 @@ async function init() {
   els.type.addEventListener('change', runSearch)
   els.loadMore.addEventListener('click', () => loadPage(page + 1))
 
+  loadStorageSettings()
   runSearch()
 }
 
@@ -96,6 +98,17 @@ function mediaUrl(relative) {
   return instanceUrl + relative
 }
 
+async function loadStorageSettings() {
+  try {
+    const res = await fetch(`${instanceUrl}/api/settings`)
+    if (!res.ok) return
+    const data = await res.json()
+    postsDir = data.posts_dir || data.postsDir || ''
+  } catch {
+    postsDir = ''
+  }
+}
+
 function kindOf(post) {
   const ext = (post.extension || '').toLowerCase()
   if (ext === '.mp4' || ext === '.webm') return 'video'
@@ -133,6 +146,7 @@ function renderCell(post) {
 
 async function selectPost(post, kind) {
   const url = mediaUrl(post.contentUrl)
+  const localPath = localMediaPath(post)
   try {
     if (kind === 'image') {
       setStatus('Copying image…', 'working')
@@ -140,7 +154,7 @@ async function selectPost(post, kind) {
       setStatus('Copied! Paste it into your post. Nyaa~', 'success')
     } else {
       setStatus(`Copying ${kind} link and downloading…`, 'working')
-      await copyMediaReferenceToClipboard(url, kind)
+      await copyMediaReferenceToClipboard(url, kind, localPath)
       await startDownload(url, `nekobooru-${post.id}${post.extension || ''}`)
       setStatus('Copied link and downloading — paste the link or attach the downloaded file.', 'success')
     }
@@ -183,28 +197,60 @@ async function copyImageToClipboard(url) {
   }
 }
 
-async function copyMediaReferenceToClipboard(url, kind) {
+async function copyMediaReferenceToClipboard(url, kind, localPath = '') {
   const escaped = escapeHtml(url)
+  const fileUri = localPath ? pathToFileUri(localPath) : ''
+  const plainText = localPath || url
   const media =
     kind === 'video'
       ? `<video controls src="${escaped}"></video>`
       : `<img src="${escaped}" alt="">`
-  const html = `<a href="${escaped}">${media}</a>`
+  const href = fileUri || escaped
+  const html = `<a href="${escapeHtml(href)}">${media}</a>`
   const item = new ClipboardItem({
     'text/html': new Blob([html], { type: 'text/html' }),
-    'text/plain': new Blob([url], { type: 'text/plain' }),
-    'text/uri-list': new Blob([url], { type: 'text/uri-list' }),
+    'text/plain': new Blob([plainText], { type: 'text/plain' }),
+    'text/uri-list': new Blob([fileUri || url], { type: 'text/uri-list' }),
   })
 
   try {
     await navigator.clipboard.write([item])
   } catch (e) {
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(url)
+      await navigator.clipboard.writeText(plainText)
       return
     }
     throw e
   }
+}
+
+function localMediaPath(post) {
+  if (!postsDir || !post?.contentUrl) return ''
+  const marker = '/api/media/posts/'
+  const index = post.contentUrl.indexOf(marker)
+  if (index < 0) return ''
+  const relative = decodeURIComponent(post.contentUrl.slice(index + marker.length))
+  return joinPath(postsDir, relative)
+}
+
+function joinPath(root, relative) {
+  const separator = root.includes('\\') ? '\\' : '/'
+  const cleanRoot = root.replace(/[\\/]+$/, '')
+  const cleanRelative = relative.replace(/^[\\/]+/, '').replace(/[\\/]+/g, separator)
+  return `${cleanRoot}${separator}${cleanRelative}`
+}
+
+function pathToFileUri(path) {
+  const normalized = path.replace(/\\/g, '/')
+  const driveMatch = normalized.match(/^([a-zA-Z]:)\/(.*)$/)
+  if (driveMatch) {
+    const [, drive, rest] = driveMatch
+    return `file:///${drive}/${rest.split('/').map(encodeURIComponent).join('/')}`
+  }
+  if (normalized.startsWith('/')) {
+    return `file://${normalized.split('/').map(encodeURIComponent).join('/')}`
+  }
+  return ''
 }
 
 function escapeHtml(value) {
