@@ -47,6 +47,12 @@
       </div>
     </div>
 
+    <Pagination
+      v-model="page"
+      :pages="pages"
+      @update:modelValue="onPageChange"
+    />
+
     <PostGrid :posts="posts" :loading="loading" />
 
     <Pagination
