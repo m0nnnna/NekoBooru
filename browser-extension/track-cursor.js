@@ -15,12 +15,138 @@
 // Elements stacked under a viewport point, top-first. Uses elementsFromPoint so
 // it still finds media beneath a transparent overlay (exactly how X covers its
 // player) and a touch off the element still counts.
+let lastEditableTarget = null
+
 function elementsUnder(x, y) {
   try {
     return document.elementsFromPoint(x, y)
   } catch {
     return []
   }
+}
+
+function editableTargetFromEvent(event) {
+  const target = event.target
+  if (!target?.closest) return null
+  return target.closest('textarea, input, [contenteditable="true"], [role="textbox"]')
+}
+
+function pasteFileIntoEditable(file) {
+  const target = lastEditableTarget?.isConnected ? lastEditableTarget : document.activeElement
+  if (!target) return { ok: false, error: 'No editable target is active.' }
+
+  if (isXHost()) {
+    const inputResult = attachFileViaInput(target, file)
+    if (inputResult.ok) return inputResult
+  }
+
+  try {
+    target.focus?.()
+  } catch {
+    // Some page-controlled elements reject focus; still try the paste event.
+  }
+
+  const data = new DataTransfer()
+  data.items.add(file)
+  const event = new ClipboardEvent('paste', {
+    bubbles: true,
+    cancelable: true,
+    clipboardData: data,
+  })
+  const accepted = target.dispatchEvent(event)
+  return {
+    ok: true,
+    accepted,
+    files: data.files.length,
+    method: 'paste',
+  }
+}
+
+function attachFileViaInput(target, file) {
+  const input = findFileInputForTarget(target, file)
+  if (!input) return { ok: false, error: 'No matching file input found.' }
+
+  const data = new DataTransfer()
+  data.items.add(file)
+  input.files = data.files
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+
+  return {
+    ok: true,
+    files: input.files.length,
+    method: 'file-input',
+  }
+}
+
+function findFileInputForTarget(target, file) {
+  const roots = [
+    target.closest?.('[role="dialog"]'),
+    target.closest?.('[data-testid^="tweetTextarea_"]')?.parentElement,
+    target.closest?.('form'),
+    document,
+  ].filter(Boolean)
+
+  const seen = new Set()
+  const inputs = []
+  for (const root of roots) {
+    root.querySelectorAll?.('input[type="file"]').forEach((input) => {
+      if (!seen.has(input)) {
+        seen.add(input)
+        inputs.push(input)
+      }
+    })
+  }
+
+  return inputs
+    .filter((input) => !input.disabled)
+    .sort((a, b) => fileInputScore(b, file) - fileInputScore(a, file))[0] || null
+}
+
+function fileInputScore(input, file) {
+  const accept = (input.getAttribute('accept') || '').toLowerCase()
+  const name = (file.name || '').toLowerCase()
+  const type = (file.type || '').toLowerCase()
+  let score = 0
+  if (input.multiple) score += 1
+  if (!accept) score += 1
+  if (accept.includes(type)) score += 10
+  if (type.startsWith('video/') && accept.includes('video')) score += 8
+  if (type.startsWith('image/') && accept.includes('image')) score += 8
+  if (name.endsWith('.mp4') && accept.includes('.mp4')) score += 6
+  if (name.endsWith('.webm') && accept.includes('.webm')) score += 6
+  if (name.endsWith('.gif') && accept.includes('.gif')) score += 6
+  return score
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type !== 'nekobooru-paste-media-file') return
+  ;(async () => {
+    try {
+      const blob = await dataUrlToBlob(msg.dataUrl)
+      const file = new File([blob], msg.filename || 'nekobooru-media', {
+        type: msg.mime || blob.type || 'application/octet-stream',
+      })
+      const result = pasteFileIntoEditable(file)
+      sendResponse({
+        ...result,
+        fileSize: file.size,
+        expectedSize: msg.size || null,
+      })
+    } catch (e) {
+      sendResponse({ ok: false, error: e.message || String(e) })
+    }
+  })()
+  return true
+})
+
+async function dataUrlToBlob(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') {
+    throw new Error('No media bytes were received.')
+  }
+  const response = await fetch(dataUrl)
+  if (!response.ok) throw new Error('Could not decode media bytes.')
+  return response.blob()
 }
 
 function isXHost() {
@@ -42,11 +168,110 @@ function normalizedStatusUrl(raw) {
   }
 }
 
+function tweetIdFromUrl(raw) {
+  const url = normalizedStatusUrl(raw)
+  return url.match(/\/status\/(\d+)/)?.[1] || ''
+}
+
 function statusUrlFromArticle(article) {
   if (!article) return ''
   const timeLink = article.querySelector('a[href*="/status/"] time')?.closest('a')
   const statusLink = timeLink || article.querySelector('a[href*="/status/"]')
   return normalizedStatusUrl(statusLink?.getAttribute('href') || statusLink?.href || '')
+}
+
+function normalizeCapturedMediaUrl(raw, type) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw, location.origin)
+    const host = url.hostname.toLowerCase()
+    if (host === 'pbs.twimg.com' && url.pathname.includes('/media/')) {
+      if (url.searchParams.has('format')) url.searchParams.set('name', 'orig')
+      url.hash = ''
+      return url.href
+    }
+    if (host.endsWith('video.twimg.com')) {
+      url.hash = ''
+      return url.href
+    }
+    if (type === 'image' || type === 'video') return url.href
+  } catch {
+    // ignore malformed media URLs
+  }
+  return ''
+}
+
+function bestVideoVariant(variants = []) {
+  return variants
+    .filter((variant) => variant?.url && (!variant.content_type || variant.content_type === 'video/mp4'))
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0]
+}
+
+function mediaFromLegacyTweet(tweetId, legacy = {}) {
+  const mediaList = legacy.extended_entities?.media || legacy.entities?.media || []
+  return mediaList.map((media, index) => {
+    if (media.type === 'photo') {
+      return {
+        type: 'image',
+        url: normalizeCapturedMediaUrl(media.media_url_https || media.media_url, 'image'),
+        index,
+      }
+    }
+    const variant = bestVideoVariant(media.video_info?.variants || [])
+    if (variant?.url) {
+      return {
+        type: 'video',
+        url: normalizeCapturedMediaUrl(variant.url, 'video'),
+        index,
+      }
+    }
+    return null
+  }).filter((media) => media?.url && tweetId)
+}
+
+function collectTweetMedia(node, entries = new Map()) {
+  if (!node || typeof node !== 'object') return entries
+
+  const tweetId = String(node.rest_id || node.id_str || node.id || '')
+  const legacy = node.legacy && typeof node.legacy === 'object' ? node.legacy : node
+  const medias = mediaFromLegacyTweet(tweetId, legacy)
+  if (tweetId && medias.length) {
+    const old = entries.get(tweetId) || []
+    const seen = new Set(old.map((media) => media.url))
+    for (const media of medias) {
+      if (!seen.has(media.url)) {
+        old.push(media)
+        seen.add(media.url)
+      }
+    }
+    entries.set(tweetId, old)
+  }
+
+  if (Array.isArray(node)) {
+    for (const item of node) collectTweetMedia(item, entries)
+  } else {
+    for (const value of Object.values(node)) collectTweetMedia(value, entries)
+  }
+  return entries
+}
+
+function installXMediaCaptureBridge() {
+  if (!isXHost() || window.top !== window) return
+  document.addEventListener('nekobooru:x-media-response', (event) => {
+    const body = event?.detail?.body
+    if (typeof body !== 'string' || !body) return
+    try {
+      const parsed = JSON.parse(body)
+      const entries = [...collectTweetMedia(parsed).entries()].map(([tweetId, media]) => ({ tweetId, media }))
+      if (!entries.length) return
+      chrome.runtime.sendMessage({
+        type: 'nekobooru-x-media-cache',
+        entries,
+      })
+    } catch {
+      // X response shapes change often; ignore unparseable captures.
+    }
+  })
 }
 
 function statusUrlFromStack(stack) {
@@ -75,48 +300,73 @@ function normalizedXImageUrl(raw) {
 }
 
 function imageUrlFromArticle(article) {
-  if (!article) return ''
+  return imageCandidateFromArticle(article)?.src || ''
+}
+
+function statusUrlForMediaElement(article, element) {
+  const mediaLink = element?.closest?.('a[href*="/status/"]')
+  const mediaStatusUrl = normalizedStatusUrl(mediaLink?.getAttribute('href') || mediaLink?.href || '')
+  if (mediaStatusUrl) return mediaStatusUrl
+
+  const nestedArticle = element?.closest?.('article[data-testid="tweet"]')
+  const nestedStatusUrl = nestedArticle && nestedArticle !== article ? statusUrlFromArticle(nestedArticle) : ''
+  return nestedStatusUrl || statusUrlFromArticle(article)
+}
+
+function imageCandidateFromArticle(article) {
+  if (!article) return null
   const candidates = Array.from(article.querySelectorAll('img'))
     .map((img) => {
       const src = normalizedXImageUrl(img.currentSrc || img.src)
       if (!src) return null
       const area = (img.naturalWidth || img.clientWidth || 0) * (img.naturalHeight || img.clientHeight || 0)
-      return { src, area }
+      return { src, area, statusUrl: statusUrlForMediaElement(article, img) }
     })
     .filter(Boolean)
     .sort((a, b) => b.area - a.area)
-  return candidates[0]?.src || ''
+  return candidates[0] || null
+}
+
+function videoCandidateFromArticle(article) {
+  if (!article) return null
+  const selectors = '[data-testid="videoPlayer"], [data-testid="playButton"], [data-testid="videoComponent"], video'
+  const player = article.querySelector(selectors)
+  if (!player) return null
+  const statusUrl = statusUrlForMediaElement(article, player)
+  return statusUrl ? { statusUrl } : null
+}
+
+function hasUploadableXMedia(article) {
+  return Boolean(videoCandidateFromArticle(article) || imageCandidateFromArticle(article))
 }
 
 function uploadTargetFromArticle(article) {
   const statusUrl = statusUrlFromArticle(article)
   if (!statusUrl) return null
 
-  if (article.querySelector('video')) {
+  const video = videoCandidateFromArticle(article)
+  if (video) {
     return {
-      src: statusUrl,
-      page: statusUrl,
+      src: video.statusUrl,
+      page: video.statusUrl,
       mediaType: 'video',
       fetch: 'link',
+      xTweetId: tweetIdFromUrl(video.statusUrl),
     }
   }
 
-  const imageUrl = imageUrlFromArticle(article)
-  if (imageUrl) {
+  const image = imageCandidateFromArticle(article)
+  if (image) {
     return {
-      src: imageUrl,
-      page: statusUrl,
+      src: image.src,
+      page: image.statusUrl || statusUrl,
       mediaType: 'image',
       fetch: 'direct',
+      xTweetId: tweetIdFromUrl(image.statusUrl || statusUrl),
     }
   }
 
-  return {
-    src: statusUrl,
-    page: statusUrl,
-    mediaType: 'video',
-    fetch: 'link',
-  }
+  return null
 }
 
 function installXButtonStyle() {
@@ -142,6 +392,14 @@ function installXButtonStyle() {
       transition: background-color 120ms ease, color 120ms ease;
       vertical-align: middle;
     }
+    .nekobooru-x-download-native-shell {
+      align-items: center;
+      display: flex;
+      justify-content: center;
+    }
+    .nekobooru-x-download-native-shell .nekobooru-x-download {
+      margin-left: 0;
+    }
     .nekobooru-x-download svg {
       display: block;
       height: 22px;
@@ -165,6 +423,26 @@ function installXButtonStyle() {
   document.documentElement.appendChild(style)
 }
 
+function nativeActionShell(actionGroup, innerButton) {
+  const sampleButton = actionGroup.querySelector('[data-testid="reply"], [data-testid="retweet"], [data-testid="like"], [role="button"], button, a')
+  if (!sampleButton) return innerButton
+
+  let shell = sampleButton
+  while (shell.parentElement && shell.parentElement !== actionGroup) {
+    shell = shell.parentElement
+  }
+  if (!shell || shell === actionGroup) return innerButton
+
+  const clonedShell = shell.cloneNode(false)
+  clonedShell.classList.add('nekobooru-x-download-native-shell')
+  clonedShell.removeAttribute('data-testid')
+  clonedShell.removeAttribute('aria-label')
+  clonedShell.removeAttribute('role')
+  clonedShell.removeAttribute('tabindex')
+  clonedShell.appendChild(innerButton)
+  return clonedShell
+}
+
 function openUploadForTarget(target) {
   if (!target?.src) return
   try {
@@ -174,6 +452,7 @@ function openUploadForTarget(target) {
       page: target.page || target.src,
       mediaType: target.mediaType || 'image',
       fetch: target.fetch || 'direct',
+      xTweetId: target.xTweetId || tweetIdFromUrl(target.page || target.src),
     })
   } catch {
     // Extension context may be reloading; ignore.
@@ -181,12 +460,14 @@ function openUploadForTarget(target) {
 }
 
 function injectXButton(article) {
-  if (!article || article.querySelector('.nekobooru-x-download')) return
-  const statusUrl = statusUrlFromArticle(article)
-  if (!statusUrl) return
+  if (!article) return
+  const existing = article.querySelector('.nekobooru-x-download, .nekobooru-x-download-native-shell')
+  const hasMedia = hasUploadableXMedia(article)
+  if (existing && !hasMedia) existing.remove()
+  if (existing || !hasMedia) return
 
   const actionGroups = Array.from(article.querySelectorAll('[role="group"]'))
-  const actionGroup = actionGroups.find((group) => group.querySelector('button, a'))
+  const actionGroup = actionGroups.find((group) => group.querySelector('[data-testid="reply"], [role="button"], button, a'))
   if (!actionGroup) return
 
   const button = document.createElement('button')
@@ -203,28 +484,20 @@ function injectXButton(article) {
   button.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
-    openUploadForTarget(uploadTargetFromArticle(article))
+    const target = uploadTargetFromArticle(article)
+    if (target) openUploadForTarget(target)
   })
 
-  // Put the button beside the last native action (the share icon). Appending to
-  // the group makes it a `justify-content: space-between` sibling that floats to
-  // the far edge on a full-width standalone post; the share slot on its own lays
-  // children out stacked. So nest it in the share slot AND force that slot to a
-  // single inline row (see `.nekobooru-x-slot`), so the button sits immediately
-  // to the right of share — hugging it identically on every page.
-  const slot = actionGroup.lastElementChild
-  if (slot) {
-    slot.classList.add('nekobooru-x-slot')
-    slot.appendChild(button)
-  } else {
-    actionGroup.appendChild(button)
-  }
+  actionGroup.appendChild(nativeActionShell(actionGroup, button))
 }
 
 function scanXPosts(root = document) {
   if (!isXHost()) return
   installXButtonStyle()
-  if (root.matches?.('article[data-testid="tweet"]')) injectXButton(root)
+  const article = root.matches?.('article[data-testid="tweet"]')
+    ? root
+    : root.closest?.('article[data-testid="tweet"]')
+  if (article) injectXButton(article)
   root.querySelectorAll?.('article[data-testid="tweet"]').forEach(injectXButton)
 }
 
@@ -258,6 +531,9 @@ function setupXPostButtons() {
 window.addEventListener(
   'contextmenu',
   (e) => {
+    const editableTarget = editableTargetFromEvent(e)
+    if (editableTarget) lastEditableTarget = editableTarget
+
     const stack = elementsUnder(e.clientX, e.clientY)
     const hasVideo = stack.some((el) => el.tagName === 'VIDEO')
     const hasMedia = hasVideo || stack.some((el) => el.tagName === 'IMG')
@@ -286,3 +562,4 @@ window.addEventListener(
 )
 
 setupXPostButtons()
+installXMediaCaptureBridge()

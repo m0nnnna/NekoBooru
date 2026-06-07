@@ -1,11 +1,21 @@
 <template>
   <div class="post-grid" :class="{ 'is-loading': loading && posts.length > 0 }">
     <PostCard
-      v-for="post in posts"
+      v-for="post in visiblePosts"
       :key="post.id"
       :post="post"
       @click="$emit('select', post)"
     />
+    <div
+      v-if="visiblePosts.length < posts.length"
+      ref="renderSentinel"
+      class="rendering-state"
+    >
+      <span>Showing {{ visiblePosts.length }} of {{ posts.length }} posts</span>
+      <button class="btn btn-secondary" type="button" @click="showMorePosts">
+        Show more
+      </button>
+    </div>
     <div v-if="posts.length === 0 && !loading" class="empty-state">
       <div class="neko-face">(=^&#xB7;&#x2D8;&#xB7;^=)</div>
       <div>No posts found, nyaa~</div>
@@ -20,9 +30,10 @@
 </template>
 
 <script setup>
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import PostCard from './PostCard.vue'
 
-defineProps({
+const props = defineProps({
   posts: {
     type: Array,
     required: true,
@@ -34,6 +45,58 @@ defineProps({
 })
 
 defineEmits(['select'])
+
+const INITIAL_RENDER_LIMIT = 100
+const RENDER_BATCH_SIZE = 100
+
+const visibleCount = ref(INITIAL_RENDER_LIMIT)
+const renderSentinel = ref(null)
+let observer = null
+
+const visiblePosts = computed(() => props.posts.slice(0, visibleCount.value))
+
+watch(
+  () => props.posts,
+  async () => {
+    visibleCount.value = Math.min(INITIAL_RENDER_LIMIT, props.posts.length)
+    await nextTick()
+    observeSentinel()
+  },
+  { immediate: true }
+)
+
+watch(visibleCount, async () => {
+  await nextTick()
+  observeSentinel()
+})
+
+onBeforeUnmount(disconnectObserver)
+
+function showMorePosts() {
+  visibleCount.value = Math.min(visibleCount.value + RENDER_BATCH_SIZE, props.posts.length)
+}
+
+function observeSentinel() {
+  disconnectObserver()
+  if (!renderSentinel.value || visibleCount.value >= props.posts.length) return
+  if (!('IntersectionObserver' in window)) return
+
+  observer = new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) {
+      showMorePosts()
+    }
+  }, {
+    rootMargin: '600px 0px',
+  })
+  observer.observe(renderSentinel.value)
+}
+
+function disconnectObserver() {
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+}
 </script>
 
 <style scoped>
@@ -50,7 +113,8 @@ defineEmits(['select'])
 }
 
 .empty-state,
-.loading-state {
+.loading-state,
+.rendering-state {
   grid-column: 1 / -1;
   text-align: center;
   padding: 3rem;
@@ -59,6 +123,12 @@ defineEmits(['select'])
   flex-direction: column;
   align-items: center;
   gap: 0.75rem;
+}
+
+.rendering-state {
+  padding: 1rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
 }
 
 .neko-face {

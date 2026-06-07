@@ -31,6 +31,38 @@ SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 SUPPORTED_VIDEO_EXTS = {".webm", ".mp4"}
 WD_MODEL_ID = "SmilingWolf/wd-eva02-large-tagger-v3"
 WHISPER_MAX_AUDIO_SECONDS = 30
+QWEN_MIN_FREE_VRAM_GB = 18.0
+MEDIA_TYPE_TAGS = {
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".png": "image",
+    ".webp": "image",
+    ".gif": "gif",
+    ".mp4": "video",
+    ".webm": "video",
+}
+DEFAULT_NOISY_TAGS = {
+    "absurdres",
+    "best_quality",
+    "card_medium",
+    "commentary_request",
+    "compression_artifacts",
+    "high_quality",
+    "highres",
+    "jpeg_artifacts",
+    "low_quality",
+    "lowres",
+    "medium_quality",
+    "outline",
+    "signature",
+    "text_focus",
+    "thumbnail",
+    "transparent_background",
+    "twitter_username",
+    "username",
+    "watermark",
+    "worst_quality",
+}
 
 MODEL_REGISTRY = {
     "wd": {
@@ -90,6 +122,15 @@ _download_job: dict[str, Any] | None = None
 _load_lock = threading.Lock()
 _load_job: dict[str, Any] | None = None
 
+DEFAULT_SEMANTIC_PROMPT = (
+    "Return compact JSON only with keys tags, safety, rationale. "
+    "Use snake_case tags. Look for higher-level context such as political_edit, meme_edit, amv, music_video, "
+    "captioned, protest, politician, propaganda, and contextual edit signals only when visually or transcript supported. "
+    "Use national_socialism only for clear Nazi/far-right symbols such as a swastika, sonnenrad, or black_sun. "
+    "Use communism only for clear communist symbols such as a hammer_and_sickle or communist red star. "
+    "If transcript or audio evidence suggests a song or music-driven edit, include music and edit."
+)
+
 
 @dataclass
 class AutoTagOptions:
@@ -116,6 +157,7 @@ class AutoTagOptions:
     videoMaxFrames: int = 4
     videoMaxDurationSeconds: int = 900
     semanticPoliticalEnabled: bool = False
+    semanticPrompt: str = DEFAULT_SEMANTIC_PROMPT
     ocrEnabled: bool = False
     whisperEnabled: bool = False
     qwenEnabled: bool = False
@@ -437,7 +479,7 @@ class OcrTagger:
         generated_ids = self._model.generate(pixel_values, max_new_tokens=96)
         text = self._processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
         tags = []
-        if text:
+        if _meaningful_ocr_text(text):
             tags.extend(["has_text", "text_overlay"])
         if _looks_political(text):
             tags.append("political_text")
@@ -496,11 +538,7 @@ class WhisperTagger:
             text = str(result.get("text") if isinstance(result, dict) else result).strip()
         finally:
             wav_path.unlink(missing_ok=True)
-        tags = []
-        if text:
-            tags.append("has_speech")
-        if _looks_political(text):
-            tags.append("political_audio")
+        tags = _whisper_tags_from_text(text)
         return AutoTagResult(
             tags=tags,
             categories={tag: "general" for tag in tags},
@@ -544,16 +582,19 @@ class QwenSemanticTagger:
                 self._loaded = False
                 self._device_preference = None
                 _clear_torch_cache()
+            import torch  # type: ignore
             from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration  # type: ignore
 
             repo_id = MODEL_REGISTRY["qwen"]["repoId"]
             device_map = _qwen_device_map(device_preference)
+            torch_dtype = torch.float16 if device_map != "cpu" and torch.cuda.is_available() else "auto"
             self._processor = AutoProcessor.from_pretrained(repo_id, token=huggingface_token())
             self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                 repo_id,
                 token=huggingface_token(),
                 device_map=device_map,
-                torch_dtype="auto",
+                torch_dtype=torch_dtype,
+                low_cpu_mem_usage=True,
             )
             self._loaded = True
             self._device_preference = device_preference
@@ -564,11 +605,7 @@ class QwenSemanticTagger:
         self.ensure_loaded(opts.torchDevice)
         from qwen_vl_utils import process_vision_info  # type: ignore
 
-        prompt = (
-            "Return compact JSON only with keys tags, safety, rationale. "
-            "Use snake_case tags. Include political_edit, meme_edit, amv, music_video, "
-            "captioned, protest, politician, propaganda only when visually supported."
-        )
+        prompt = _semantic_prompt(opts)
         if context:
             prompt += f" Context: {json.dumps(context)[:1000]}"
         messages = [{
@@ -713,12 +750,40 @@ def _qwen_device_map(device_preference: str):
     if device_preference == "gpu":
         if not torch_info.get("cudaAvailable"):
             raise RuntimeError("GPU was selected, but this Python environment has CPU-only torch or CUDA is unavailable.")
+        _ensure_qwen_gpu_headroom()
         return {"": 0}
     if device_preference == "cpu":
         return "cpu"
     if torch_info.get("cudaAvailable"):
-        return "auto"
+        _ensure_qwen_gpu_headroom()
+        return {"": 0}
     return "cpu"
+
+
+def _ensure_qwen_gpu_headroom() -> None:
+    info = _qwen_gpu_memory_info()
+    free_gb = float(info.get("freeGb") or 0.0)
+    if free_gb < QWEN_MIN_FREE_VRAM_GB:
+        raise RuntimeError(
+            f"Qwen needs about {QWEN_MIN_FREE_VRAM_GB:g} GB free VRAM to load safely; "
+            f"only {free_gb:.1f} GB is free. Unload other AI models or use Custom without Qwen."
+        )
+
+
+def _qwen_gpu_memory_info() -> dict:
+    try:
+        import torch  # type: ignore
+
+        if not torch.cuda.is_available():
+            return {"available": False, "freeGb": 0.0, "totalGb": 0.0}
+        free, total = torch.cuda.mem_get_info(0)
+        return {
+            "available": True,
+            "freeGb": round(float(free) / 1024**3, 2),
+            "totalGb": round(float(total) / 1024**3, 2),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "freeGb": 0.0, "totalGb": 0.0, "error": str(exc)}
 
 
 def default_options() -> AutoTagOptions:
@@ -781,6 +846,17 @@ def delete_tagger_worker_token() -> None:
     SettingsManager(settings.config_file).delete_tagger_worker_token()
 
 
+def _clean_semantic_prompt(value: Any) -> str:
+    prompt = str(value or "").strip()
+    if not prompt:
+        return DEFAULT_SEMANTIC_PROMPT
+    return prompt[:4000]
+
+
+def _semantic_prompt(opts: AutoTagOptions) -> str:
+    return _clean_semantic_prompt(opts.semanticPrompt)
+
+
 def validate_options(raw: dict) -> AutoTagOptions:
     data = asdict(default_options())
     data.update({k: v for k, v in (raw or {}).items() if k in data})
@@ -798,6 +874,7 @@ def validate_options(raw: dict) -> AutoTagOptions:
     data["remoteEnabled"] = bool(data.get("remoteEnabled"))
     data["remoteUrl"] = str(data.get("remoteUrl") or "").strip().rstrip("/")
     data["remoteTimeoutSeconds"] = min(1800, max(5, int(data.get("remoteTimeoutSeconds") or 120)))
+    data["semanticPrompt"] = _clean_semantic_prompt(data.get("semanticPrompt"))
     if not isinstance(data["excludedTags"], list):
         data["excludedTags"] = []
     if not isinstance(data["keywordRules"], list):
@@ -1532,7 +1609,7 @@ def _combine_results(results: list[AutoTagResult]) -> AutoTagResult:
 
 
 def merge_with_existing(existing: list[str], result: AutoTagResult, opts: AutoTagOptions) -> tuple[list[str], dict[str, str]]:
-    excluded = {normalize_tag(t) for t in opts.excludedTags}
+    excluded = _excluded_tags(opts)
     raw = list(existing or [])
     raw.extend(result.all_tags)
     if opts.addProvenanceTag and result.all_tags:
@@ -1547,6 +1624,7 @@ def merge_with_existing(existing: list[str], result: AutoTagResult, opts: AutoTa
         if tag and tag not in excluded and tag not in seen:
             seen.add(tag)
             out.append(tag)
+    categories = {tag: category for tag, category in categories.items() if normalize_tag(tag) in seen}
     return out, categories
 
 
@@ -1575,6 +1653,36 @@ def _dedupe_tags(tags: list[str]) -> list[str]:
             seen.add(norm)
             out.append(norm)
     return out
+
+
+def _excluded_tags(opts: AutoTagOptions) -> set[str]:
+    return {normalize_tag(t) for t in [*DEFAULT_NOISY_TAGS, *(opts.excludedTags or [])] if normalize_tag(t)}
+
+
+def _media_type_tag(path: Path) -> str | None:
+    return MEDIA_TYPE_TAGS.get(Path(path).suffix.lower())
+
+
+def _append_media_type_tag(result: AutoTagResult, path: Path) -> None:
+    tag = _media_type_tag(path)
+    if not tag:
+        return
+    result.tags.append(tag)
+    result.categories[normalize_tag(tag)] = "meta"
+
+
+def _apply_tag_filters(result: AutoTagResult, opts: AutoTagOptions) -> AutoTagResult:
+    excluded = _excluded_tags(opts)
+    result.tags = [tag for tag in _dedupe_tags(result.tags) if tag not in excluded]
+    result.character_tags = [tag for tag in _dedupe_tags(result.character_tags) if tag not in excluded]
+    result.copyright_tags = [tag for tag in _dedupe_tags(result.copyright_tags) if tag not in excluded]
+    allowed = set(result.all_tags)
+    result.categories = {
+        normalize_tag(tag): category
+        for tag, category in result.categories.items()
+        if normalize_tag(tag) in allowed
+    }
+    return result
 
 
 def _higher_safety(left: str | None, right: str | None) -> str | None:
@@ -1631,6 +1739,37 @@ def _looks_political(text: str) -> bool:
         "war", "protest", "propaganda", "minister", "parliament",
     ]
     return any(needle in haystack for needle in needles)
+
+
+def _looks_like_music_transcript(text: str) -> bool:
+    haystack = str(text or "").lower()
+    if "♪" in haystack or "♫" in haystack:
+        return True
+    needles = [
+        "[music]", "(music)", "background music", "song", "singing", "sings",
+        "lyrics", "chorus", "verse", "instrumental", "melody", "beat drops",
+    ]
+    return any(needle in haystack for needle in needles)
+
+
+def _whisper_tags_from_text(text: str) -> list[str]:
+    tags = []
+    if str(text or "").strip():
+        tags.append("has_speech")
+    if _looks_political(text):
+        tags.append("political_audio")
+    if _looks_like_music_transcript(text):
+        tags.extend(["music", "edit"])
+    return _dedupe_tags(tags)
+
+
+def _meaningful_ocr_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    alnum = re.findall(r"[a-zA-Z0-9]", normalized)
+    if len(alnum) < 6:
+        return False
+    words = re.findall(r"[a-zA-Z0-9]{2,}", normalized)
+    return len(words) >= 2 or len(alnum) >= 10
 
 
 def _parse_semantic_json(raw: str) -> dict:
@@ -1698,6 +1837,7 @@ def safety_from_rating(rating: dict[str, float], opts: AutoTagOptions) -> str | 
 
 
 def _post_process(result: AutoTagResult, path: Path, opts: AutoTagOptions) -> AutoTagResult:
+    _append_media_type_tag(result, path)
     for rule in opts.keywordRules:
         try:
             needle = normalize_tag(rule.get("contains", ""))
@@ -1709,7 +1849,7 @@ def _post_process(result: AutoTagResult, path: Path, opts: AutoTagOptions) -> Au
                 result.categories[tag] = "general"
         except Exception:
             continue
-    return result
+    return _apply_tag_filters(result, opts)
 
 
 def _tag_video(path: Path, opts: AutoTagOptions) -> AutoTagResult:

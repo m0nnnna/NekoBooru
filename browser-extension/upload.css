@@ -99,6 +99,21 @@ body {
   align-items: center;
 }
 
+.server-helper {
+  margin-bottom: 1rem;
+  text-align: left;
+  align-items: stretch;
+}
+
+.server-helper p,
+.server-helper small {
+  color: var(--text-secondary);
+}
+
+.server-helper small {
+  font-size: 0.78rem;
+}
+
 /* Preview */
 .preview {
   width: 100%;
@@ -327,6 +342,26 @@ select:focus {
   cursor: default;
 }
 
+.btn.loading {
+  gap: 0.55rem;
+}
+
+.btn.loading::before {
+  content: '';
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .btn.uploaded {
   background: var(--success);
   color: #102017;
@@ -340,9 +375,24 @@ select:focus {
   width: 100%;
 }
 
+.ai-profile-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.ai-profile-actions .btn {
+  min-height: 42px;
+  padding: 0.55rem 0.65rem;
+  position: relative;
+  width: 100%;
+  white-space: normal;
+}
+
 .upload-actions {
   display: grid;
-  grid-template-columns: minmax(150px, 0.72fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.6rem;
   margin-bottom: 0.75rem;
 }
@@ -463,6 +513,24 @@ select:focus {
   cursor: help;
 }
 
+.viewport-tooltip {
+  position: fixed;
+  z-index: 2147483647;
+  width: min(300px, calc(100vw - 24px));
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: #11161d;
+  color: var(--text-primary);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.35;
+  pointer-events: none;
+  text-align: left;
+  white-space: pre-line;
+}
+
 .ai-preview-card {
   display: grid;
   gap: 0.75rem;
@@ -575,6 +643,18 @@ select:focus {
 .view-link {
   color: var(--accent);
   font-weight: 600;
+}
+
+.status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.status-action-btn {
+  padding: 0.45rem 0.7rem;
+  font-size: 0.8rem;
 }
 
 /* Media picker (browse NekoBooru) */

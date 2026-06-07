@@ -466,13 +466,27 @@
                   <small>{{ modelPipelineDescription(model.id) }}</small>
                 </span>
               </label>
-              <label v-if="model.id === 'qwen'" class="pipeline-toggle nested">
-                <input type="checkbox" v-model="autoTagSettings.semanticPoliticalEnabled" />
-                <span>
-                  <strong>Political/edit semantic tags</strong>
-                  <small>Ask Qwen to look for political edit, propaganda, meme, and contextual edit signals.</small>
-                </span>
-              </label>
+              <div v-if="model.id === 'qwen'" class="semantic-prompt-panel">
+                <div class="semantic-prompt-head">
+                  <div>
+                    <strong>Semantic prompt</strong>
+                    <small>Customize what Qwen should look for and which tags it should return.</small>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-small" @click="resetSemanticPrompt">
+                    Reset
+                  </button>
+                </div>
+                <textarea
+                  v-model="autoTagSettings.semanticPrompt"
+                  rows="7"
+                  maxlength="4000"
+                  spellcheck="true"
+                  placeholder="Describe the semantic tags Qwen should look for..."
+                ></textarea>
+                <small class="semantic-prompt-note">
+                  Used when Qwen is enabled for per-post, import, extension preview, or bulk auto-tagging. Keep requested tags in snake_case for best results.
+                </small>
+              </div>
             </div>
             <div v-if="modelDownloadState(model.id)" class="model-progress">
               <div class="progress-bar">
@@ -780,6 +794,38 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showPreviewModal" class="modal-overlay" @click.self="showPreviewModal = false">
+      <div class="preview-modal">
+        <div class="modal-head">
+          <div>
+            <h2>Preview Suggestions</h2>
+            <p>{{ previewSuggestions.length }} suggestion{{ previewSuggestions.length === 1 ? '' : 's' }} from job #{{ autoTagJob?.id }}</p>
+          </div>
+          <button class="btn btn-secondary" @click="showPreviewModal = false">Close</button>
+        </div>
+        <div v-if="previewLoading" class="stats-loading">Loading suggestions...</div>
+        <div v-else-if="!previewSuggestions.length" class="empty-preview">
+          No saved suggestions found for this preview job.
+        </div>
+        <div v-else class="preview-list">
+          <div v-for="suggestion in previewSuggestions" :key="suggestion.id" class="preview-row">
+            <div class="preview-row-head">
+              <strong>Post #{{ suggestion.postId }}</strong>
+              <span :class="suggestion.error ? 'model-missing' : 'model-ok'">{{ suggestion.error ? 'error' : suggestion.status }}</span>
+            </div>
+            <div class="preview-tags">
+              <span v-for="tag in suggestion.suggestedTags.slice(0, 18)" :key="tag">{{ tag }}</span>
+              <em v-if="suggestion.suggestedTags.length > 18">+{{ suggestion.suggestedTags.length - 18 }} more</em>
+            </div>
+            <p>
+              Safety: <strong>{{ suggestion.suggestedSafety || 'unchanged' }}</strong>
+              <span v-if="suggestion.error"> · {{ suggestion.error }}</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -823,6 +869,13 @@ const showPreviewModal = ref(false)
 const previewSuggestions = ref([])
 const previewLoading = ref(false)
 const savingAutoTags = ref(false)
+const defaultSemanticPrompt = [
+  'Return compact JSON only with keys tags, safety, rationale.',
+  'Use snake_case tags. Look for higher-level context such as political_edit, meme_edit, amv, music_video, captioned, protest, politician, propaganda, and contextual edit signals only when visually or transcript supported.',
+  'Use national_socialism only for clear Nazi/far-right symbols such as a swastika, sonnenrad, or black_sun.',
+  'Use communism only for clear communist symbols such as a hammer_and_sickle or communist red star.',
+  'If transcript or audio evidence suggests a song or music-driven edit, include music and edit.',
+].join(' ')
 const huggingFaceToken = ref('')
 const savingToken = ref(false)
 const modelCatalog = ref([])
@@ -1167,6 +1220,7 @@ async function loadAutoTags() {
       ...settingsResult,
       wdEnabled: settingsResult.wdEnabled !== false,
       torchDevice: settingsResult.torchDevice || 'auto',
+      semanticPrompt: settingsResult.semanticPrompt || defaultSemanticPrompt,
     }
     autoTagStatus.value = statusResult
     autoTagJob.value = currentJob
@@ -1182,6 +1236,7 @@ async function loadAutoTags() {
 async function saveAutoTagSettings() {
   savingAutoTags.value = true
   try {
+    autoTagSettings.value.semanticPrompt = (autoTagSettings.value.semanticPrompt || defaultSemanticPrompt).trim()
     autoTagSettings.value = await api.updateAutoTagSettings(autoTagSettings.value)
     autoTagStatus.value = await api.getAutoTagStatus()
   } catch (e) {
@@ -1189,6 +1244,10 @@ async function saveAutoTagSettings() {
   } finally {
     savingAutoTags.value = false
   }
+}
+
+function resetSemanticPrompt() {
+  autoTagSettings.value.semanticPrompt = defaultSemanticPrompt
 }
 
 async function refreshAutoTagStatus() {
@@ -2820,12 +2879,6 @@ function startYtdlpPolling() {
   color: var(--text-primary);
 }
 
-.pipeline-toggle.nested {
-  margin-top: 0;
-  margin-left: 1.75rem;
-  width: calc(100% - 1.75rem);
-}
-
 .pipeline-toggle input {
   margin-top: 0.15rem;
 }
@@ -2841,6 +2894,53 @@ function startYtdlpPolling() {
   color: var(--text-secondary);
   font-size: 0.76rem;
   line-height: 1.35;
+}
+
+.semantic-prompt-panel {
+  display: grid;
+  gap: 0.6rem;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.8rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+}
+
+.semantic-prompt-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  color: var(--text-primary);
+}
+
+.semantic-prompt-head strong {
+  display: block;
+  margin-bottom: 0.15rem;
+  font-size: 0.88rem;
+}
+
+.semantic-prompt-head small,
+.semantic-prompt-note {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.semantic-prompt-panel textarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.btn-small {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.8rem;
 }
 
 .model-badge {

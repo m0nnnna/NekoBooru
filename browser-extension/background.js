@@ -10,6 +10,8 @@ const DOWNLOAD_PAGE_ID = 'nekobooru-upload-page'
 const INSERT_MENU_ID = 'nekobooru-insert'
 const POPUP_WIDTH = 500
 const POPUP_HEIGHT = 680
+const X_MEDIA_CACHE_KEY = 'nekobooruXMediaCache'
+const X_MEDIA_CACHE_MAX_AGE_MS = 60 * 60 * 1000
 
 // Video platforms where the direct media often can't be grabbed normally (blob
 // <video> srcs, poster images standing in for the video), so the click handler
@@ -56,8 +58,84 @@ const PLAYER_OVERLAY_PATTERNS = [
 let lastCursor = null
 let lastHasVideo = false
 let lastPostUrl = ''
+const xMediaCache = new Map()
 
-chrome.runtime.onMessage.addListener((msg, sender) => {
+function tweetIdFromUrl(raw) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    if (!/(^|\.)x\.com$|(^|\.)twitter\.com$/.test(host)) return ''
+    return url.pathname.match(/\/status\/(\d+)/)?.[1] || ''
+  } catch {
+    return ''
+  }
+}
+
+function normalizeMediaList(media = []) {
+  const seen = new Set()
+  return media
+    .filter((item) => item?.url && (item.type === 'image' || item.type === 'video'))
+    .sort((a, b) => (a.index || 0) - (b.index || 0))
+    .filter((item) => {
+      if (seen.has(item.url)) return false
+      seen.add(item.url)
+      return true
+    })
+}
+
+function cacheXMedia(entries = []) {
+  let changed = false
+  for (const entry of entries) {
+    const tweetId = String(entry?.tweetId || '')
+    const media = normalizeMediaList(entry?.media || [])
+    if (!tweetId || !media.length) continue
+    xMediaCache.set(tweetId, {
+      media,
+      savedAt: Date.now(),
+    })
+    changed = true
+  }
+  if (changed) persistXMediaCache()
+}
+
+function getXMedia(tweetId) {
+  const cached = xMediaCache.get(String(tweetId || ''))
+  if (!cached) return []
+  if (Date.now() - (cached.savedAt || 0) > X_MEDIA_CACHE_MAX_AGE_MS) {
+    xMediaCache.delete(String(tweetId || ''))
+    persistXMediaCache()
+    return []
+  }
+  return cached.media || []
+}
+
+async function loadXMediaCache() {
+  try {
+    const stored = await chrome.storage.local.get(X_MEDIA_CACHE_KEY)
+    const rows = stored[X_MEDIA_CACHE_KEY] || {}
+    for (const [tweetId, value] of Object.entries(rows)) {
+      if (Date.now() - (value.savedAt || 0) <= X_MEDIA_CACHE_MAX_AGE_MS) {
+        xMediaCache.set(tweetId, value)
+      }
+    }
+  } catch {
+    // Storage may be unavailable during extension startup; cache will refill.
+  }
+}
+
+function persistXMediaCache() {
+  const rows = {}
+  const now = Date.now()
+  for (const [tweetId, value] of xMediaCache.entries()) {
+    if (now - (value.savedAt || 0) <= X_MEDIA_CACHE_MAX_AGE_MS) rows[tweetId] = value
+  }
+  chrome.storage.local.set({ [X_MEDIA_CACHE_KEY]: rows }).catch(() => {})
+}
+
+loadXMediaCache()
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.type === 'nekobooru-cursor') {
     lastCursor = { x: msg.x, y: msg.y }
     lastHasVideo = !!msg.hasVideo
@@ -74,9 +152,118 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       type: msg.mediaType || 'video',
       fetch: msg.fetch || 'link',
     })
+    const xTweetId = msg.xTweetId || tweetIdFromUrl(msg.page || target)
+    if (xTweetId) params.set('xTweetId', xTweetId)
     openPopup('upload.html', params, sender.tab)
+    return
+  }
+
+  if (msg && msg.type === 'nekobooru-x-media-cache') {
+    cacheXMedia(msg.entries)
+    return
+  }
+
+  if (msg && msg.type === 'nekobooru-get-x-media') {
+    ;(async () => {
+      if (!xMediaCache.has(String(msg.tweetId || ''))) await loadXMediaCache()
+      sendResponse({
+        ok: true,
+        media: getXMedia(msg.tweetId),
+      })
+    })()
+    return true
+  }
+
+  if (msg && msg.type === 'nekobooru-start-local-app') {
+    chrome.runtime.sendNativeMessage(
+      'com.nekobooru.launcher',
+      { command: 'start' },
+      (response) => {
+        const error = chrome.runtime.lastError
+        if (error) {
+          sendResponse({
+            ok: false,
+            error: error.message || 'Native launcher is not installed.',
+          })
+          return
+        }
+        sendResponse({
+          ok: !!response?.ok,
+          response,
+          error: response?.error || '',
+        })
+      },
+    )
+    return true
+  }
+
+  if (msg && msg.type === 'nekobooru-paste-media-to-tab') {
+    ;(async () => {
+      try {
+        const tabId = Number(msg.tabId)
+        if (!tabId || !msg.url) throw new Error('Missing target tab or media URL.')
+        const response = await fetch(msg.url)
+        if (!response.ok) throw new Error(`Could not fetch media (HTTP ${response.status}).`)
+        const blob = await response.blob()
+        const filename = msg.filename || filenameFromUrl(msg.url, response.headers.get('content-type') || '')
+        const mime = msg.mime || blob.type || response.headers.get('content-type') || mediaMimeFromFilename(filename)
+        const dataUrl = await blobToDataUrl(blob)
+        chrome.tabs.sendMessage(
+          tabId,
+          {
+            type: 'nekobooru-paste-media-file',
+            filename,
+            mime,
+            dataUrl,
+            size: blob.size,
+          },
+          { frameId: Number.isInteger(msg.frameId) ? msg.frameId : 0 },
+          (result) => {
+            const error = chrome.runtime.lastError
+            if (error) {
+              sendResponse({ ok: false, error: error.message })
+              return
+            }
+            sendResponse(result || { ok: false, error: 'No paste response from page.' })
+          },
+        )
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message || String(e) })
+      }
+    })()
+    return true
   }
 })
+
+function filenameFromUrl(raw, mime = '') {
+  try {
+    const name = decodeURIComponent(new URL(raw).pathname.split('/').pop() || '')
+    if (name) return name
+  } catch {
+    // Fall through to a generic media filename.
+  }
+  const ext = mime.includes('mp4') ? '.mp4' : mime.includes('webm') ? '.webm' : mime.includes('gif') ? '.gif' : ''
+  return `nekobooru-media${ext}`
+}
+
+function mediaMimeFromFilename(filename = '') {
+  const lower = filename.toLowerCase()
+  if (lower.endsWith('.mp4')) return 'video/mp4'
+  if (lower.endsWith('.webm')) return 'video/webm'
+  if (lower.endsWith('.gif')) return 'image/gif'
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+  return 'application/octet-stream'
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error || new Error('Could not encode media file.'))
+    reader.readAsDataURL(blob)
+  })
+}
 
 function createMenu() {
   // Remove first so re-installing / updating doesn't throw "duplicate id".
@@ -95,15 +282,12 @@ function createMenu() {
       contexts: ['page'],
       documentUrlPatterns: PLAYER_OVERLAY_PATTERNS,
     })
-    // Browse your instance and copy a piece of media into whatever you're
-    // composing. No 'page' context: on overlay players (X) the right-click over
-    // the video registers as page context, and 'page' would make Insert tag
-    // along there. Composing happens in an editable field/selection anyway, so
-    // it still shows where it's actually used.
+    // Only show while composing in an editable field. The picker copies media
+    // to the clipboard for the user to paste into that same text area/editor.
     chrome.contextMenus.create({
       id: INSERT_MENU_ID,
       title: 'Insert media from NekoBooru…',
-      contexts: ['frame', 'selection', 'link', 'editable'],
+      contexts: ['editable'],
     })
   })
 }
@@ -113,7 +297,10 @@ chrome.runtime.onStartup.addListener(createMenu)
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === INSERT_MENU_ID) {
-    openPopup('picker.html', new URLSearchParams(), tab)
+    const params = new URLSearchParams()
+    if (tab?.id != null) params.set('targetTabId', String(tab.id))
+    if (info.frameId != null) params.set('targetFrameId', String(info.frameId))
+    openPopup('picker.html', params, tab)
     return
   }
 
@@ -141,6 +328,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       type: 'video',
       fetch: 'link', // the src is a page for the server to fetch, not media to preview
     })
+    const xTweetId = tweetIdFromUrl(target)
+    if (xTweetId) params.set('xTweetId', xTweetId)
     openPopup('upload.html', params, tab)
     return
   }

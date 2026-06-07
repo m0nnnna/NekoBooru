@@ -1,5 +1,6 @@
 import json
 import tempfile
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Optional
 
@@ -62,11 +63,30 @@ class WorkerTokenBody(BaseModel):
 
 
 def _require_worker_token(x_tagger_token: Optional[str]) -> None:
-    """Authenticate inbound worker calls. If this instance has a token
-    configured, callers must match it; otherwise allow (LAN/no-auth posture)."""
+    """Authenticate inbound worker calls.
+
+    Loopback-only development can omit a token, but any worker bound to a
+    network interface must configure NEKO_TAGGER_WORKER_TOKEN or the saved
+    worker token before accepting inference uploads.
+    """
     expected = tagger_worker_token()
+    if not expected and not _host_is_loopback(settings.host):
+        raise HTTPException(
+            status_code=403,
+            detail="Remote tagger worker token is required when NEKO_HOST is not loopback",
+        )
     if expected and x_tagger_token != expected:
         raise HTTPException(status_code=401, detail="Invalid or missing tagger worker token")
+
+
+def _host_is_loopback(host: str) -> bool:
+    normalized = str(host or "").strip().lower()
+    if normalized in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
 
 
 @router.get("/settings")

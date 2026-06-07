@@ -5,16 +5,88 @@ const params = new URLSearchParams(location.search)
 const srcUrl = params.get('src') || ''
 const pageUrl = params.get('page') || ''
 const mediaType = params.get('type') || 'image'
+const xTweetId = params.get('xTweetId') || tweetIdFromUrl(pageUrl) || tweetIdFromUrl(srcUrl)
 // 'link' when src is a page URL the server should fetch (yt-dlp), not direct
 // media to preview inline (e.g. an X tweet whose <video> is a blob URL).
 const fetchMode = params.get('fetch') || ''
-
-// How long to keep the popup up after a successful upload before auto-closing.
-// Short enough to feel instant, long enough to show the success state.
-const UPLOAD_CLOSE_DELAY_MS = 450
+const AI_TAG_PROFILES = {
+  anime: {
+    label: 'Anime / Booru',
+    resolve: () => (mediaType === 'video' ? 'anime_video' : 'anime_image'),
+  },
+  anime_image: {
+    label: 'Anime / Booru Image',
+    settings: {
+      wdEnabled: false,
+      characterModelEnabled: true,
+      ocrEnabled: true,
+      whisperEnabled: false,
+      qwenEnabled: false,
+      semanticPoliticalEnabled: false,
+      generalThreshold: 0.35,
+      characterThreshold: 0.45,
+      maxTags: 40,
+    },
+  },
+  anime_video: {
+    label: 'Anime / Booru Video',
+    settings: {
+      wdEnabled: false,
+      characterModelEnabled: true,
+      ocrEnabled: true,
+      whisperEnabled: true,
+      qwenEnabled: false,
+      semanticPoliticalEnabled: false,
+      generalThreshold: 0.35,
+      characterThreshold: 0.45,
+      maxTags: 40,
+      videoMaxFrames: 4,
+    },
+  },
+  realistic_image: {
+    label: 'Realistic Image',
+    settings: {
+      wdEnabled: true,
+      characterModelEnabled: false,
+      ocrEnabled: true,
+      whisperEnabled: false,
+      qwenEnabled: false,
+      semanticPoliticalEnabled: false,
+      generalThreshold: 0.5,
+      characterThreshold: 0.6,
+      maxTags: 18,
+    },
+  },
+  realistic_video: {
+    label: 'Realistic Video',
+    settings: {
+      wdEnabled: true,
+      characterModelEnabled: false,
+      ocrEnabled: true,
+      whisperEnabled: true,
+      qwenEnabled: false,
+      semanticPoliticalEnabled: false,
+      generalThreshold: 0.5,
+      characterThreshold: 0.6,
+      maxTags: 20,
+      videoMaxFrames: 4,
+    },
+  },
+  realistic: {
+    label: 'Realistic',
+    resolve: () => (mediaType === 'video' ? 'realistic_video' : 'realistic_image'),
+  },
+  custom: {
+    label: 'Custom',
+    settings: null,
+  },
+}
 
 const els = {
   needsSetup: document.getElementById('needs-setup'),
+  serverHelper: document.getElementById('server-helper'),
+  startLocalApp: document.getElementById('start-local-app'),
+  serverHelperNote: document.getElementById('server-helper-note'),
   formWrap: document.getElementById('form-wrap'),
   openOptions: document.getElementById('open-options'),
   preview: document.getElementById('preview'),
@@ -24,6 +96,7 @@ const els = {
   safety: document.getElementById('safety'),
   includeSource: document.getElementById('include-source'),
   aiTag: document.getElementById('ai-tag'),
+  aiProfileButtons: Array.from(document.querySelectorAll('[data-ai-profile]')),
   submit: document.getElementById('submit'),
   aiModelPicker: document.getElementById('ai-model-picker'),
   aiModelList: document.getElementById('ai-model-list'),
@@ -38,9 +111,31 @@ let instanceUrl = ''
 let contentToken = ''
 let createdPost = null
 let autoTagSettings = {}
+let autoTagSavedSettings = {}
 let autoTagStatus = {}
 let autoTagSuggestion = null
+let autoTagModelOverrides = {}
 let modelLoadPollTimer = null
+let bootPromise = null
+let viewportTooltip = null
+let duplicatePost = null
+
+class BackendOfflineError extends Error {
+  constructor() {
+    super('NekoBooru server is not running. Click Start NekoBooru, then try again.')
+    this.name = 'BackendOfflineError'
+  }
+}
+
+class DuplicatePostError extends Error {
+  constructor(detail) {
+    super(detail?.message || 'Same post detected. This content already exists in NekoBooru.')
+    this.name = 'DuplicatePostError'
+    this.detail = detail || {}
+    this.post = this.detail.post || null
+    this.postId = this.detail.postId || this.post?.id || null
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -68,10 +163,167 @@ async function init() {
 
   renderPreview()
   setupTagAutocomplete()
-  loadAutoTagControls()
+  setupViewportTooltips()
+  els.startLocalApp.addEventListener('click', startLocalApp)
+  if (await checkBackendHealth()) loadAutoTagControls()
 
   els.submit.addEventListener('click', doUpload)
-  els.aiTag.addEventListener('click', runAiTag)
+  els.aiProfileButtons.forEach((button) => button.addEventListener('click', runAiTag))
+}
+
+async function checkBackendHealth() {
+  try {
+    const res = await fetch(`${instanceUrl}/api/health`, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    els.serverHelper.classList.add('hidden')
+    return true
+  } catch {
+    els.serverHelper.classList.remove('hidden')
+    return false
+  }
+}
+
+async function ensureBackendReady(options = {}) {
+  if (await checkBackendHealth()) return
+  if (options.autoStart) {
+    await bootLocalApp(options)
+    if (await checkBackendHealth()) return
+  }
+  throw new BackendOfflineError()
+}
+
+async function startLocalApp() {
+  try {
+    await bootLocalApp({ button: els.startLocalApp, label: 'Starting NekoBooru...' })
+    setStatus('NekoBooru is running. You can continue.', 'success')
+    loadAutoTagControls()
+  } catch (e) {
+    setStatus('Could not start NekoBooru: ' + e.message, 'error')
+  }
+}
+
+async function bootLocalApp(options = {}) {
+  const button = options.button
+  const doneBusy = button ? setButtonBusy(button, options.label || 'Booting NekoBooru...') : null
+  if (!bootPromise) {
+    bootPromise = (async () => {
+      els.serverHelper.classList.remove('hidden')
+      els.serverHelperNote.textContent = 'Booting NekoBooru. This can take a few seconds...'
+      setStatus('Booting NekoBooru...', 'working')
+      const response = await chrome.runtime.sendMessage({ type: 'nekobooru-start-local-app' })
+      if (!response?.ok) {
+        const message = response?.error || 'Native launcher failed. Run browser-extension/native-host/install-native-host.ps1 once.'
+        els.serverHelperNote.textContent = message
+        throw new Error(message)
+      }
+      els.serverHelperNote.textContent = 'Launcher started. Waiting for the API...'
+      await waitForBackend()
+    })().finally(() => {
+      bootPromise = null
+    })
+  }
+  try {
+    await bootPromise
+  } finally {
+    if (doneBusy) doneBusy()
+  }
+}
+
+async function waitForBackend() {
+  for (let i = 0; i < 30; i += 1) {
+    if (await checkBackendHealth()) {
+      els.startLocalApp.disabled = false
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  els.startLocalApp.disabled = false
+  els.serverHelperNote.textContent = 'Launcher ran, but the API did not answer yet. Try again in a moment.'
+  throw new Error('NekoBooru did not answer after startup.')
+}
+
+function setButtonBusy(button, label) {
+  const oldText = button.textContent
+  const wasDisabled = button.disabled
+  button.textContent = label
+  button.disabled = true
+  button.classList.add('loading')
+  return () => {
+    button.textContent = oldText
+    button.disabled = wasDisabled
+    button.classList.remove('loading')
+  }
+}
+
+function setAiProfileButtonsDisabled(disabled) {
+  els.aiProfileButtons.forEach((button) => {
+    button.disabled = disabled
+  })
+}
+
+function setupViewportTooltips() {
+  document.addEventListener('mouseenter', handleTooltipEnter, true)
+  document.addEventListener('focusin', handleTooltipEnter, true)
+  document.addEventListener('mouseleave', handleTooltipLeave, true)
+  document.addEventListener('focusout', handleTooltipLeave, true)
+  window.addEventListener('scroll', hideViewportTooltip, true)
+  window.addEventListener('resize', hideViewportTooltip)
+}
+
+function handleTooltipEnter(event) {
+  const target = event.target?.closest?.('[data-tooltip]')
+  if (!target) return
+  showViewportTooltip(target)
+}
+
+function handleTooltipLeave(event) {
+  if (!event.target?.closest?.('[data-tooltip]')) return
+  hideViewportTooltip()
+}
+
+function showViewportTooltip(target) {
+  const text = target.dataset.tooltip
+  if (!text) return
+
+  if (!viewportTooltip) {
+    viewportTooltip = document.createElement('div')
+    viewportTooltip.className = 'viewport-tooltip'
+    document.body.appendChild(viewportTooltip)
+  }
+
+  viewportTooltip.textContent = text
+  viewportTooltip.style.visibility = 'hidden'
+  viewportTooltip.style.top = '0px'
+  viewportTooltip.style.left = '0px'
+  viewportTooltip.hidden = false
+
+  const rect = target.getBoundingClientRect()
+  const tooltipRect = viewportTooltip.getBoundingClientRect()
+  const gap = 8
+  const margin = 12
+  const viewportWidth = document.documentElement.clientWidth
+  const viewportHeight = document.documentElement.clientHeight
+  const left = clamp(
+    rect.left + (rect.width / 2) - (tooltipRect.width / 2),
+    margin,
+    viewportWidth - tooltipRect.width - margin,
+  )
+  const hasRoomAbove = rect.top >= tooltipRect.height + gap + margin
+  const top = hasRoomAbove
+    ? rect.top - tooltipRect.height - gap
+    : Math.min(rect.bottom + gap, viewportHeight - tooltipRect.height - margin)
+
+  viewportTooltip.style.left = `${left}px`
+  viewportTooltip.style.top = `${Math.max(margin, top)}px`
+  viewportTooltip.style.visibility = 'visible'
+}
+
+function hideViewportTooltip() {
+  if (viewportTooltip) viewportTooltip.hidden = true
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value))
 }
 
 function renderPreview() {
@@ -80,7 +332,9 @@ function renderPreview() {
   if (fetchMode === 'link') {
     const note = document.createElement('div')
     note.className = 'fetch-note'
-    note.textContent = '\u{1F3AC} The server will download this video on upload.'
+    note.textContent = xTweetId
+      ? '\u{1F3AC} NekoBooru will use captured X media when available, then fall back to yt-dlp.'
+      : '\u{1F3AC} The server will download this video on upload.'
     els.preview.appendChild(note)
     return
   }
@@ -299,6 +553,78 @@ function setStatus(message, kind) {
   els.status.classList.remove('hidden')
 }
 
+function setDuplicateStatus(post, options = {}) {
+  const postId = post?.id
+  duplicatePost = post || null
+  els.status.textContent = ''
+  els.status.className = 'status success'
+  els.status.classList.remove('hidden')
+
+  const message = document.createElement('span')
+  message.textContent = options.updated ? 'Updated existing post. ' : 'Same post detected. '
+  els.status.appendChild(message)
+
+  if (postId) {
+    const link = document.createElement('a')
+    link.className = 'view-link'
+    link.href = `${instanceUrl}/post/${postId}`
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    link.textContent = `Open existing post #${postId}`
+    els.status.appendChild(link)
+
+    const actions = document.createElement('div')
+    actions.className = 'status-actions'
+
+    const overwrite = document.createElement('button')
+    overwrite.type = 'button'
+    overwrite.className = 'btn btn-secondary status-action-btn'
+    overwrite.textContent = 'Overwrite Tags'
+    overwrite.title = 'Replace the existing post tags, rating, and source URL with the current upload form values.'
+    overwrite.addEventListener('click', overwriteDuplicateTags)
+    actions.appendChild(overwrite)
+    els.status.appendChild(actions)
+  } else {
+    const fallback = document.createElement('span')
+    fallback.textContent = 'It already exists in NekoBooru, but this backend response did not include a post link. Restart the backend and try again.'
+    els.status.appendChild(fallback)
+  }
+}
+
+function tweetIdFromUrl(raw) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    if (!/(^|\.)x\.com$|(^|\.)twitter\.com$/.test(host)) return ''
+    return url.pathname.match(/\/status\/(\d+)/)?.[1] || ''
+  } catch {
+    return ''
+  }
+}
+
+function getXCookiePermissionSpec() {
+  return {
+    permissions: ['cookies'],
+  }
+}
+
+function containsPermission(spec) {
+  return new Promise((resolve) => {
+    if (!chrome.permissions?.contains) {
+      resolve(false)
+      return
+    }
+    chrome.permissions.contains(spec, (granted) => resolve(Boolean(granted)))
+  })
+}
+
+async function ensureXCookiePermission() {
+  const spec = getXCookiePermissionSpec()
+  if (await containsPermission(spec)) return true
+  return Boolean(chrome.cookies?.getAll)
+}
+
 async function doUpload() {
   if (createdPost?.id) {
     window.open(`${instanceUrl}/post/${createdPost.id}`, '_blank')
@@ -306,24 +632,42 @@ async function doUpload() {
   }
 
   els.submit.disabled = true
-  els.aiTag.disabled = true
+  setAiProfileButtonsDisabled(true)
   setStatus('Fetching media...', 'working')
 
   try {
-    await createPostFromPopup({})
+    await ensureBackendReady({
+      autoStart: true,
+      button: els.submit,
+      label: 'Booting NekoBooru...',
+    })
+    setStatus('Fetching media...', 'working')
+    const post = await createPostFromPopup({})
 
     await chrome.storage.sync.set({ lastSafety: els.safety.value })
 
     setStatus('Uploaded to NekoBooru.', 'success')
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
-    // Success: close the popup quickly so uploading feels one-click. On failure
-    // (the catch below) we keep the window open so the error stays visible.
-    setTimeout(() => window.close(), UPLOAD_CLOSE_DELAY_MS)
+    convertUploadButtonToPostLink(post)
   } catch (e) {
-    setStatus('Upload failed: ' + e.message, 'error')
-    notify('NekoBooru upload failed', e.message)
+    if (e instanceof DuplicatePostError) {
+      const post = e.post || { id: e.postId }
+      createdPost = post
+      setDuplicateStatus(post)
+      notify('Same post detected', e.message)
+      if (post.id) {
+        convertUploadButtonToPostLink(post, { duplicate: true })
+      } else {
+        els.submit.disabled = false
+        setAiProfileButtonsDisabled(false)
+      }
+      return
+    }
+    const message = await friendlyBackendError(e)
+    setStatus('Upload failed: ' + message, 'error')
+    notify('NekoBooru upload failed', message)
     els.submit.disabled = false
-    els.aiTag.disabled = false
+    setAiProfileButtonsDisabled(false)
   }
 }
 
@@ -346,7 +690,13 @@ async function createPostFromPopup(options = {}) {
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.detail || `HTTP ${res.status}`)
+    if (res.status === 409 && err.detail?.code === 'duplicate_post') {
+      throw new DuplicatePostError(err.detail)
+    }
+    if (res.status === 409 && /content already exists/i.test(String(err.detail || ''))) {
+      throw new DuplicatePostError({ message: 'Same post detected. Restart the backend to show a direct post link and overwrite option.' })
+    }
+    throw new Error(formatBackendError(err.detail || `HTTP ${res.status}`))
   }
   createdPost = await res.json()
   return createdPost
@@ -373,17 +723,58 @@ async function updateCreatedPost() {
   return createdPost
 }
 
-async function runAiTag() {
-  els.aiTag.disabled = true
+async function overwriteDuplicateTags() {
+  if (!duplicatePost?.id) {
+    setStatus('Cannot overwrite tags because the duplicate response did not include a post id. Restart the backend and try again.', 'error')
+    return
+  }
+
+  const confirmed = confirm(
+    `Overwrite tags on existing post #${duplicatePost.id} with the current form tags, rating, and source URL?`,
+  )
+  if (!confirmed) return
+
+  els.submit.disabled = true
+  setAiProfileButtonsDisabled(true)
+  setStatus(`Overwriting tags on existing post #${duplicatePost.id}...`, 'working')
+
+  try {
+    createdPost = duplicatePost
+    const post = await updateCreatedPost()
+    duplicatePost = post
+    await chrome.storage.sync.set({ lastSafety: els.safety.value })
+    setDuplicateStatus(post, { updated: true })
+    notify('NekoBooru post updated', `Tags were overwritten on post #${post.id}.`)
+    convertUploadButtonToPostLink(post, { duplicate: true })
+  } catch (e) {
+    const message = await friendlyBackendError(e)
+    setStatus('Overwrite failed: ' + message, 'error')
+    notify('NekoBooru overwrite failed', message)
+    els.submit.disabled = false
+    setAiProfileButtonsDisabled(false)
+  }
+}
+
+async function runAiTag(event) {
+  const button = event?.currentTarget || els.aiTag
+  const profileId = resolveAiTagProfileId(button?.dataset?.aiProfile || 'anime')
+  const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
+  setAiProfileButtonsDisabled(true)
   els.submit.disabled = true
   els.aiPreview.classList.add('hidden')
   autoTagSuggestion = null
 
   try {
-    setStatus('Preparing media for AI tagging...', 'working')
+    await ensureBackendReady({
+      autoStart: true,
+      button,
+      label: 'Booting NekoBooru...',
+    })
+    setStatus(`Preparing media for ${profile.label} AI preview...`, 'working')
     const token = await getContentToken()
 
     await loadAutoTagControls()
+    applyAiTagProfile(profileId)
     if (!autoTagStatus.enabled) {
       throw new Error('AI tagging is disabled. Enable Auto Tagging in NekoBooru Settings first.')
     }
@@ -396,13 +787,15 @@ async function runAiTag() {
 
     await loadEnabledAutoTagModels()
 
-    setStatus('Analyzing media...', 'working')
+    setStatus(`Analyzing media with ${profile.label} profile...`, 'working')
     const res = await fetch(`${instanceUrl}/api/uploads/${encodeURIComponent(token)}/auto-tags/preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         tags: parseTags(),
-        safety: els.safety.value,
+        // Preview should show the model's safety signal, not inherit a sticky
+        // remembered popup rating that promotion logic can never downgrade.
+        safety: 'safe',
         settings: autoTagRunSettings(),
       }),
     })
@@ -417,14 +810,23 @@ async function runAiTag() {
     setTags(autoTagSuggestion.suggestedTags || tags)
     els.safety.value = autoTagSuggestion.suggestedSafety || els.safety.value || 'safe'
     renderAiPreview(autoTagSuggestion)
-    setStatus('AI suggestions are in the form. Review or edit them, then upload.', 'success')
+    setStatus(`${profile.label} AI suggestions are in the form. Review or edit them, then upload.`, 'success')
   } catch (e) {
-    setStatus('AI tag failed: ' + e.message, 'error')
-    notify('NekoBooru AI tag failed', e.message)
+    const message = await friendlyBackendError(e)
+    setStatus('AI tag failed: ' + message, 'error')
+    notify('NekoBooru AI tag failed', message)
   } finally {
-    els.aiTag.disabled = false
+    setAiProfileButtonsDisabled(false)
     els.submit.disabled = false
   }
+}
+
+async function friendlyBackendError(error) {
+  if (error instanceof BackendOfflineError) return error.message
+  if (error?.message === 'Failed to fetch' && !(await checkBackendHealth())) {
+    return new BackendOfflineError().message
+  }
+  return error?.message || String(error)
 }
 
 function renderAiPreview(suggestion) {
@@ -518,15 +920,29 @@ function applyAiVisibility(enabled) {
   if (!enabled) els.aiPreview.classList.add('hidden')
 }
 
+function convertUploadButtonToPostLink(post, options = {}) {
+  if (!post?.id) return
+  els.submit.disabled = false
+  els.submit.textContent = options.duplicate ? 'Open Existing Post' : 'Open Post in NekoBooru'
+  els.submit.classList.add('uploaded')
+  setAiProfileButtonsDisabled(true)
+}
+
 async function loadAutoTagControls() {
   try {
+    await ensureBackendReady()
     const [settingsRes, statusRes] = await Promise.all([
       fetch(`${instanceUrl}/api/auto-tags/settings`),
       fetch(`${instanceUrl}/api/auto-tags/status`),
     ])
     if (!settingsRes.ok || !statusRes.ok) throw new Error('AI tag status unavailable')
-    autoTagSettings = await settingsRes.json()
-    autoTagSettings.wdEnabled = autoTagSettings.wdEnabled !== false
+    autoTagSavedSettings = await settingsRes.json()
+    autoTagSavedSettings.wdEnabled = autoTagSavedSettings.wdEnabled !== false
+    autoTagSettings = { ...autoTagSavedSettings }
+    autoTagSettings = {
+      ...autoTagSettings,
+      ...autoTagModelOverrides,
+    }
     autoTagStatus = await statusRes.json()
     applyAiVisibility(Boolean(autoTagStatus.enabled))
     renderAiModelPicker()
@@ -562,7 +978,9 @@ function renderAiModelPicker() {
     checkbox.id = `ai-model-${model.id}`
     checkbox.checked = Boolean(autoTagSettings[modelSettingKey(model.id)])
     checkbox.addEventListener('change', () => {
-      autoTagSettings[modelSettingKey(model.id)] = checkbox.checked
+      const key = modelSettingKey(model.id)
+      autoTagModelOverrides[key] = checkbox.checked
+      autoTagSettings[key] = checkbox.checked
     })
     const enabledText = document.createElement('span')
     enabledText.textContent = 'Use'
@@ -575,7 +993,10 @@ function renderAiModelPicker() {
     name.textContent = model.name
     const info = document.createElement('span')
     info.className = 'ai-info'
-    info.title = modelInfoTitle(model)
+    info.dataset.tooltip = modelInfoTitle(model)
+    info.tabIndex = 0
+    info.setAttribute('role', 'button')
+    info.setAttribute('aria-label', modelInfoTitle(model))
     info.textContent = 'i'
     title.append(name, info)
     const meta = document.createElement('small')
@@ -634,6 +1055,33 @@ function modelInfoTitle(model) {
   ].filter(Boolean).join('\n')
 }
 
+function applyAiTagProfile(profileId) {
+  profileId = resolveAiTagProfileId(profileId)
+  const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
+  if (!profile.settings) {
+    renderAiModelPicker()
+    return
+  }
+  const useSemanticQwen = profileId.startsWith('realistic_')
+    && Boolean(autoTagSavedSettings.qwenEnabled || autoTagSavedSettings.semanticPoliticalEnabled)
+  Object.entries(profile.settings).forEach(([key, value]) => {
+    autoTagSettings[key] = value
+    autoTagModelOverrides[key] = value
+  })
+  if (useSemanticQwen) {
+    autoTagSettings.qwenEnabled = true
+    autoTagSettings.semanticPoliticalEnabled = true
+    autoTagModelOverrides.qwenEnabled = true
+    autoTagModelOverrides.semanticPoliticalEnabled = true
+  }
+  renderAiModelPicker()
+}
+
+function resolveAiTagProfileId(profileId) {
+  const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
+  return profile.resolve ? profile.resolve() : profileId
+}
+
 function autoTagRunSettings() {
   return {
     ...autoTagSettings,
@@ -646,13 +1094,18 @@ function enabledModels() {
 }
 
 async function loadEnabledAutoTagModels() {
-  for (const model of enabledModels()) {
+  const pending = enabledModels().filter((model) => model.downloaded && model.runtimeAvailable && !model.loaded)
+  if (pending.length) {
+    setStatus(`Loading model weights: ${pending.map((model) => model.name).join(', ')}...`, 'working')
+  }
+  for (const model of pending) {
     if (!model.downloaded || !model.runtimeAvailable || model.loaded) continue
     await loadAutoTagModel(model.id, { keepStatus: true })
   }
 }
 
 async function loadAutoTagModel(modelId, options = {}) {
+  await ensureBackendReady()
   const model = (autoTagStatus.models || []).find((item) => item.id === modelId)
   setStatus(`Loading ${model?.name || 'AI'} model weights...`, 'working')
   const res = await fetch(`${instanceUrl}/api/auto-tags/models/${encodeURIComponent(modelId)}/load`, {
@@ -668,6 +1121,7 @@ async function loadAutoTagModel(modelId, options = {}) {
 }
 
 async function unloadAutoTagModel(modelId) {
+  await ensureBackendReady()
   const model = (autoTagStatus.models || []).find((item) => item.id === modelId)
   setStatus(`Unloading ${model?.name || 'AI'} model...`, 'working')
   const res = await fetch(`${instanceUrl}/api/auto-tags/models/${encodeURIComponent(modelId)}/unload`, {
@@ -691,7 +1145,11 @@ function pollModelLoad() {
         const res = await fetch(`${instanceUrl}/api/auto-tags/models/load-job`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const job = await res.json()
-        if (job?.message) setStatus(job.message, 'working')
+        if (job?.message) {
+          const progress = Number.isFinite(Number(job.progress)) ? ` (${Math.round(Number(job.progress))}%)` : ''
+          const model = job.model ? `${job.model}: ` : ''
+          setStatus(`${model}${job.message}${progress}`, 'working')
+        }
         if (!job || !['queued', 'running'].includes(job.status)) {
           clearInterval(modelLoadPollTimer)
           modelLoadPollTimer = null
@@ -725,6 +1183,9 @@ const VIDEO_PLATFORMS = [
   'redgifs.com',
 ]
 
+const X_COOKIE_URLS = ['https://x.com/', 'https://twitter.com/']
+const X_COOKIE_DOMAINS = ['x.com', '.x.com', 'twitter.com', '.twitter.com']
+
 // Return the URL if its host is a known video platform, else ''. Instagram only
 // carries video on reels/posts.
 function videoPlatformUrl(url) {
@@ -743,12 +1204,190 @@ function videoPlatformUrl(url) {
   }
 }
 
+function isXUrl(url) {
+  try {
+    const host = new URL(url).host.toLowerCase()
+    return host === 'x.com' || host.endsWith('.x.com') || host === 'twitter.com' || host.endsWith('.twitter.com')
+  } catch {
+    return false
+  }
+}
+
+function getBrowserCookies(details) {
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.cookies.getAll(details, (cookies) => {
+        const lastError = chrome.runtime?.lastError
+        if (lastError) {
+          reject(new Error(lastError.message || 'Cookie permission denied'))
+          return
+        }
+        resolve(cookies || [])
+      })
+    } catch (error) {
+      reject(error)
+    }
+  })
+}
+
+function getCookieStores() {
+  return new Promise((resolve) => {
+    if (!chrome.cookies?.getAllCookieStores) {
+      resolve([{ id: undefined }])
+      return
+    }
+    try {
+      chrome.cookies.getAllCookieStores((stores) => resolve(stores?.length ? stores : [{ id: undefined }]))
+    } catch {
+      resolve([{ id: undefined }])
+    }
+  })
+}
+
+async function collectXCookieDiagnostics() {
+  if (!chrome.cookies?.getAll) {
+    return { available: false, count: 0, names: [], missing: ['cookies_api'], error: 'The extension does not have the cookies API. Reload it and approve the updated permissions.' }
+  }
+  const stores = await getCookieStores()
+  const queries = []
+  for (const store of stores) {
+    const storeQuery = store.id ? { storeId: store.id } : {}
+    for (const cookieUrl of X_COOKIE_URLS) queries.push(getBrowserCookies({ ...storeQuery, url: cookieUrl }))
+    for (const domain of X_COOKIE_DOMAINS) queries.push(getBrowserCookies({ ...storeQuery, domain }))
+  }
+  const cookieLists = await Promise.all(queries)
+  const seen = new Set()
+  const cookies = []
+  for (const cookie of cookieLists.flat()) {
+    const key = `${cookie.storeId || ''}\t${cookie.domain}\t${cookie.path}\t${cookie.name}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    cookies.push(cookie)
+  }
+
+  const names = [...new Set(cookies.map((cookie) => cookie.name))].sort()
+  const missing = ['auth_token', 'ct0'].filter((name) => !cookies.some((cookie) => cookie.name === name && cookie.value))
+  return { available: missing.length === 0, count: cookies.length, names, missing, cookies, stores: stores.length }
+}
+
+async function ytdlpCookiesForUrl(url) {
+  if (!isXUrl(url)) return ''
+  const hasPermission = await ensureXCookiePermission()
+  if (!hasPermission) {
+    throw new Error('X/Twitter cookie access is not available. Reload extension version 1.2.5 so Brave applies the required cookies permission.')
+  }
+  const diagnostics = await collectXCookieDiagnostics()
+  if (!diagnostics.available) {
+    const missing = diagnostics.missing?.join(', ') || 'auth cookies'
+    throw new Error(
+      `X/Twitter auth cookies are not available to the extension (${missing} missing). Reload the NekoBooru extension, approve cookies/site access, and make sure this Brave profile is logged into an account that can view the protected post.`,
+    )
+  }
+
+  return [
+    '# Netscape HTTP Cookie File',
+    '# Generated temporarily by the NekoBooru extension for yt-dlp.',
+    ...diagnostics.cookies.map(formatNetscapeCookie),
+    '',
+  ].join('\n')
+}
+
+function formatNetscapeCookie(cookie) {
+  const domain = `${cookie.httpOnly ? '#HttpOnly_' : ''}${cookie.domain || ''}`
+  const includeSubdomains = (cookie.domain || '').startsWith('.') ? 'TRUE' : 'FALSE'
+  const path = cookie.path || '/'
+  const secure = cookie.secure ? 'TRUE' : 'FALSE'
+  const expires = cookie.session ? '0' : String(Math.floor(cookie.expirationDate || 0))
+  return [domain, includeSubdomains, path, secure, expires, cookie.name, cookie.value].join('\t')
+}
+
+async function capturedXMediaCandidates() {
+  if (!xTweetId) return []
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'nekobooru-get-x-media',
+      tweetId: xTweetId,
+    })
+    const media = Array.isArray(response?.media) ? response.media : []
+    return media.filter((item) => item?.url && (item.type === 'image' || item.type === 'video'))
+  } catch {
+    return []
+  }
+}
+
+async function uploadMediaUrl(url, typeHint = '') {
+  try {
+    const res = await fetch(`${instanceUrl}/api/uploads/from-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.token) return data.token
+    }
+  } catch {
+    if (!(await checkBackendHealth())) throw new BackendOfflineError()
+  }
+
+  const mediaRes = await fetch(url, {
+    credentials: 'include',
+    cache: 'no-store',
+  })
+  if (!mediaRes.ok) throw new Error(`could not fetch captured media (HTTP ${mediaRes.status})`)
+  const blob = await mediaRes.blob()
+
+  const formData = new FormData()
+  formData.append('content', blob, filenameFromUrl(url, blob.type || typeHint))
+
+  const upRes = await fetch(`${instanceUrl}/api/uploads`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!upRes.ok) {
+    const err = await upRes.json().catch(() => ({}))
+    throw new Error(err.detail || `upload failed (HTTP ${upRes.status})`)
+  }
+  const data = await upRes.json()
+  if (!data.token) throw new Error('no upload token returned')
+  return data.token
+}
+
+async function uploadCapturedXMedia() {
+  const candidates = await capturedXMediaCandidates()
+  if (!candidates.length) return ''
+  const ordered = [
+    ...candidates.filter((item) => item.type === mediaType),
+    ...candidates.filter((item) => item.type !== mediaType),
+  ]
+  let lastError = ''
+  for (const candidate of ordered) {
+    if (!candidate?.url) continue
+    try {
+      setStatus('Using captured X media...', 'working')
+      return await uploadMediaUrl(candidate.url, candidate.type === 'video' ? 'video/mp4' : 'image/jpeg')
+    } catch (error) {
+      lastError = error?.message || String(error)
+    }
+  }
+  if (lastError) setStatus(`Captured X media failed, trying yt-dlp fallback: ${lastError}`, 'working')
+  return ''
+}
+
 // Get an upload token. For known video-platform pages, let the server run yt-dlp
 // on the page URL first. Otherwise prefer the server-side fetch (it sends a
 // proper Referer, which works for most boorus/CDNs). If both fail, fall back to
 // fetching the bytes here in the browser and uploading them directly.
 async function getContentToken() {
   if (contentToken) return contentToken
+  await ensureBackendReady()
+  if (xTweetId) {
+    const capturedToken = await uploadCapturedXMedia()
+    if (capturedToken) {
+      contentToken = capturedToken
+      return contentToken
+    }
+  }
   // RedGifs/X/YouTube/etc.: the watch page (or a video element's page) is what
   // yt-dlp understands, not the blob/CDN src the browser exposes. In link-fetch
   // mode the src already *is* that page URL, so use it directly. In direct mode
@@ -760,10 +1399,11 @@ async function getContentToken() {
   if (ytdlpUrl) {
     let ytdlpError = ''
     try {
+      const cookies = await ytdlpCookiesForUrl(ytdlpUrl)
       const res = await fetch(`${instanceUrl}/api/uploads/from-ytdlp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: ytdlpUrl }),
+        body: JSON.stringify({ url: ytdlpUrl, ...(cookies ? { cookies } : {}) }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -776,6 +1416,7 @@ async function getContentToken() {
         ytdlpError = formatBackendError(err.detail || `HTTP ${res.status}`)
       }
     } catch (e) {
+      if (e.message === 'Failed to fetch' && !(await checkBackendHealth())) throw new BackendOfflineError()
       ytdlpError = e.message
     }
 
@@ -798,6 +1439,7 @@ async function getContentToken() {
       }
     }
   } catch {
+    if (!(await checkBackendHealth())) throw new BackendOfflineError()
     // fall through to client-side fetch
   }
 

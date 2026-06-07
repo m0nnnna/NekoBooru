@@ -23,6 +23,7 @@ PLEROMA_FORKS = {"pleroma", "akkoma"}
 
 class UrlFetchRequest(BaseModel):
     url: str
+    cookies: str | None = None
 
 
 class FediverseRequest(BaseModel):
@@ -282,6 +283,7 @@ async def upload_from_ytdlp(request: UrlFetchRequest):
 
     # Generate unique token
     token = str(uuid.uuid4())
+    request_cookie_file: Path | None = None
 
     try:
         # Import yt-dlp here to avoid startup issues if not installed
@@ -298,10 +300,19 @@ async def upload_from_ytdlp(request: UrlFetchRequest):
             'merge_output_format': 'mp4',  # Prefer mp4 output
         }
 
-        # Check for cookies file in config directory
-        cookies_file = settings.config_dir / COOKIES_FILENAME
-        if cookies_file.exists():
-            ydl_opts['cookiefile'] = str(cookies_file)
+        # Prefer one-shot cookies supplied by the browser extension for locked
+        # X/Twitter posts. They live only for this yt-dlp invocation.
+        if request.cookies:
+            if len(request.cookies) > 1024 * 1024:
+                raise HTTPException(status_code=400, detail="Cookie payload is too large")
+            request_cookie_file = settings.uploads_dir / f"{token}.cookies.txt"
+            request_cookie_file.write_text(request.cookies, encoding="utf-8")
+            ydl_opts['cookiefile'] = str(request_cookie_file)
+        else:
+            # Check for cookies file in config directory
+            cookies_file = settings.config_dir / COOKIES_FILENAME
+            if cookies_file.exists():
+                ydl_opts['cookiefile'] = str(cookies_file)
 
         # Run yt-dlp in thread pool to avoid blocking
         def download_video():
@@ -397,6 +408,9 @@ async def upload_from_ytdlp(request: UrlFetchRequest):
                 status_code=500,
                 detail=ytdlp_error_detail(f"Failed to download video: {error_msg}", url, error_msg),
             )
+    finally:
+        if request_cookie_file and request_cookie_file.exists():
+            request_cookie_file.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

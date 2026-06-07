@@ -41,6 +41,8 @@ function onImageError(e) {
   overflow: hidden;
   transition: transform 0.2s, box-shadow 0.2s;
   border: 2px solid transparent;
+  content-visibility: auto;
+  contain-intrinsic-size: 180px 180px;
 }
 
 .post-card:hover {

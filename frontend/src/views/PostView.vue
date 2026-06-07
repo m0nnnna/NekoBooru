@@ -56,9 +56,20 @@
           Edit Tags
         </button>
         <template v-if="autoTagStatus?.enabled">
-        <button class="btn btn-secondary edit-tags-btn" @click="previewAutoTags" :disabled="autoTagLoading">
-          {{ autoTagLoading ? 'AI Tag running...' : 'AI Tag' }}
-        </button>
+        <div class="ai-profile-actions" aria-label="AI tag preview profiles">
+          <button
+            v-for="profile in autoTagProfiles"
+            :key="profile.id"
+            type="button"
+            class="btn btn-secondary ai-profile-btn"
+            :class="{ active: activeAutoTagProfile === profile.id }"
+            :disabled="autoTagLoading"
+            :data-tooltip="profile.tooltip"
+            @click="previewAutoTags(profile.id)"
+          >
+            {{ autoTagLoading && activeAutoTagProfile === profile.id ? 'Running...' : profile.label }}
+          </button>
+        </div>
         <div v-if="autoTagLoading" class="ai-inline-status">
           <div class="ai-inline-status-head">
             <strong>{{ autoTagStageTitle }}</strong>
@@ -303,6 +314,8 @@ const autoTagSuggestion = ref(null)
 const autoTagLoading = ref(false)
 const autoTagStatus = ref(null)
 const postAutoTagSettings = ref({})
+const savedAutoTagSettings = ref({})
+const activeAutoTagProfile = ref('')
 const autoModelPickerOpen = ref(false)
 const showAutoProcessModal = ref(false)
 const autoTagStage = ref('idle')
@@ -333,6 +346,24 @@ const safetyOptions = [
   { value: 'safe', label: 'Safe' },
   { value: 'sketchy', label: 'Sketchy' },
   { value: 'unsafe', label: 'Unsafe / NSFW' },
+]
+
+const autoTagProfiles = [
+  {
+    id: 'anime',
+    label: 'Anime / Booru',
+    tooltip: 'Best for anime, manga, illustrations, and booru-style art. Uses Camie character/source tags plus TrOCR text; videos also use Whisper for speech, music, AMV/edit signals, and transcript context.',
+  },
+  {
+    id: 'realistic',
+    label: 'Realistic',
+    tooltip: 'Best for realistic photos, screenshots, videos, edits, and memes. Uses WD broad visual/media tags plus TrOCR text; videos also use Whisper. If semantic/Qwen defaults are enabled, Realistic includes Qwen too.',
+  },
+  {
+    id: 'custom',
+    label: 'Custom',
+    tooltip: 'Runs exactly the model checkboxes currently selected below. This does not change your saved defaults.',
+  },
 ]
 
 const autoTagEvidenceRaw = computed(() => {
@@ -528,6 +559,7 @@ async function loadAutoTagControls() {
       ...settingsResult,
       wdEnabled: settingsResult.wdEnabled !== false,
     }
+    savedAutoTagSettings.value = { ...postAutoTagSettings.value }
     autoTagStatus.value = statusResult
   } catch (e) {
     console.error('Failed to load AI tag controls:', e)
@@ -573,8 +605,10 @@ async function saveTags() {
   }
 }
 
-async function previewAutoTags() {
+async function previewAutoTags(profileId = 'custom') {
   autoTagLoading.value = true
+  activeAutoTagProfile.value = profileId
+  applyAutoTagProfile(profileId)
   beginAutoTagProcess('checking', 'Checking settings, selected models, and local runtime packages.')
   try {
     autoTagStatus.value = await api.getAutoTagStatus()
@@ -620,9 +654,54 @@ async function previewAutoTags() {
     alert(`Failed to preview AI tags: ${e.message}\n\nLarge Qwen runs can take a while. If the backend is still healthy, try again after the model finishes loading.`)
   } finally {
     autoTagLoading.value = false
+    activeAutoTagProfile.value = ''
     showAutoProcessModal.value = false
     stopAutoTagTimer()
   }
+}
+
+function applyAutoTagProfile(profileId) {
+  const profileSettings = autoTagProfileSettings(profileId)
+  if (!profileSettings) return
+  postAutoTagSettings.value = {
+    ...postAutoTagSettings.value,
+    ...profileSettings,
+  }
+}
+
+function autoTagProfileSettings(profileId) {
+  if (profileId === 'custom') return null
+  const isVideo = mediaType.value === 'video'
+  if (profileId === 'anime') {
+    return {
+      wdEnabled: false,
+      characterModelEnabled: true,
+      ocrEnabled: true,
+      whisperEnabled: isVideo,
+      qwenEnabled: false,
+      semanticPoliticalEnabled: false,
+      generalThreshold: 0.35,
+      characterThreshold: 0.45,
+      maxTags: 40,
+      ...(isVideo ? { videoMaxFrames: 4 } : {}),
+    }
+  }
+  if (profileId === 'realistic') {
+    const useSemanticQwen = Boolean(savedAutoTagSettings.value.qwenEnabled || savedAutoTagSettings.value.semanticPoliticalEnabled)
+    return {
+      wdEnabled: true,
+      characterModelEnabled: false,
+      ocrEnabled: true,
+      whisperEnabled: isVideo,
+      qwenEnabled: useSemanticQwen,
+      semanticPoliticalEnabled: useSemanticQwen,
+      generalThreshold: 0.5,
+      characterThreshold: 0.6,
+      maxTags: isVideo ? 20 : 18,
+      ...(isVideo ? { videoMaxFrames: 4 } : {}),
+    }
+  }
+  return null
 }
 
 function autoTagRunSettings() {
@@ -925,6 +1004,60 @@ function formatDate(dateStr) {
 .edit-tags-btn {
   margin-top: 0.75rem;
   width: 100%;
+}
+
+.ai-profile-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.ai-profile-btn {
+  position: relative;
+  min-width: 0;
+  padding: 0.55rem 0.45rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.ai-profile-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ai-profile-btn::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 80;
+  display: block;
+  width: max-content;
+  max-width: min(320px, 76vw);
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: #111827;
+  color: #f8fafc;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.38);
+  content: attr(data-tooltip);
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.ai-profile-btn:hover::after,
+.ai-profile-btn:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .ai-inline-status {

@@ -19,6 +19,15 @@
       <button id="open-options" class="btn">Open settings</button>
     </div>
 
+    <div id="server-helper" class="card server-helper hidden">
+      <div>
+        <strong>NekoBooru is not running</strong>
+        <p>The extension can start the local backend and frontend if the native launcher helper is installed.</p>
+      </div>
+      <button id="start-local-app" class="btn">Start NekoBooru</button>
+      <small id="server-helper-note">If this fails, run browser-extension/native-host/install-native-host.ps1 once.</small>
+    </div>
+
     <!-- Main upload form -->
     <div id="form-wrap" class="hidden">
       <div class="preview" id="preview"></div>
@@ -44,8 +53,26 @@
         <label><input type="checkbox" id="include-source" checked /> Save source page URL</label>
       </div>
 
+      <div class="ai-profile-actions" aria-label="AI tag preview profiles">
+        <button
+          id="ai-tag"
+          class="btn btn-secondary"
+          data-ai-profile="anime"
+          data-tooltip="Best for anime, manga, illustrations, and booru-style art. Uses Camie for character/source style tags plus TrOCR for visible text. For videos it also runs Whisper to detect speech, music, AMV/edit signals, and transcript context."
+        >Anime / Booru</button>
+        <button
+          class="btn btn-secondary"
+          data-ai-profile="realistic"
+          data-tooltip="Best for realistic photos, screenshots, videos, edits, and memes. Uses WD for broad visual/media tags, TrOCR for visible text, and Whisper automatically for videos."
+        >Realistic</button>
+        <button
+          class="btn btn-secondary"
+          data-ai-profile="custom"
+          data-tooltip="Runs exactly the model checkboxes currently selected in Advanced AI model settings. It does not change your selections."
+        >Custom</button>
+      </div>
+
       <div class="upload-actions">
-        <button id="ai-tag" class="btn btn-secondary">Preview AI Tags</button>
         <button id="submit" class="btn">Upload to NekoBooru</button>
       </div>
 

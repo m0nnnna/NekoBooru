@@ -1,15 +1,20 @@
 {
   "manifest_version": 3,
   "name": "Download to NekoBooru",
-  "version": "4.0.0",
+  "version": "4.0.8",
   "description": "Right-click to upload web images/videos to your NekoBooru instance, or browse your instance and insert media into whatever you're posting.",
-  "permissions": ["contextMenus", "storage", "notifications", "clipboardWrite", "downloads"],
+  "permissions": ["contextMenus", "storage", "notifications", "clipboardWrite", "downloads", "nativeMessaging", "cookies"],
   "host_permissions": ["*://*/*"],
   "background": {
-    "service_worker": "background.js",
-    "scripts": ["background.js"]
+    "service_worker": "background.js"
   },
   "content_scripts": [
+    {
+      "matches": ["*://twitter.com/*", "*://mobile.twitter.com/*", "*://x.com/*", "*://*.x.com/*"],
+      "js": ["x-media-capture.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
     {
       "matches": ["*://*/*"],
       "js": ["track-cursor.js"],

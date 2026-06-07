@@ -1,7 +1,6 @@
 // "Insert media from NekoBooru" popup: browse/search your own instance by tags,
-// rating and type, then pull a piece of media out — images go to the clipboard
-// (ready to paste into whatever you're composing), GIFs/videos download so you
-// can attach them.
+// rating and type, then pull a piece of media out. Images copy as image data;
+// GIFs/videos copy a pasteable media reference and download for attachment.
 
 const els = {
   needsSetup: document.getElementById('needs-setup'),
@@ -18,8 +17,12 @@ const els = {
 }
 
 const PAGE_SIZE = 30
+const params = new URLSearchParams(location.search)
+const targetTabId = Number(params.get('targetTabId') || 0)
+const targetFrameId = Number(params.get('targetFrameId') || 0)
 
 let instanceUrl = ''
+let postsDir = ''
 let page = 1
 let totalPages = 0
 let searchToken = 0 // guards against out-of-order responses
@@ -45,6 +48,7 @@ async function init() {
   els.type.addEventListener('change', runSearch)
   els.loadMore.addEventListener('click', () => loadPage(page + 1))
 
+  loadStorageSettings()
   runSearch()
 }
 
@@ -97,6 +101,17 @@ function mediaUrl(relative) {
   return instanceUrl + relative
 }
 
+async function loadStorageSettings() {
+  try {
+    const res = await fetch(`${instanceUrl}/api/settings`)
+    if (!res.ok) return
+    const data = await res.json()
+    postsDir = data.posts_dir || data.postsDir || ''
+  } catch {
+    postsDir = ''
+  }
+}
+
 function kindOf(post) {
   const ext = (post.extension || '').toLowerCase()
   if (ext === '.mp4' || ext === '.webm') return 'video'
@@ -129,20 +144,27 @@ function renderCell(post) {
 }
 
 // ---------------------------------------------------------------------------
-// Selecting a post: copy images, download GIFs/videos
+// Selecting a post: copy images; copy links and download GIFs/videos
 // ---------------------------------------------------------------------------
 
 async function selectPost(post, kind) {
   const url = mediaUrl(post.contentUrl)
+  const localPath = localMediaPath(post)
   try {
     if (kind === 'image') {
       setStatus('Copying image…', 'working')
       await copyImageToClipboard(url)
       setStatus('Copied! Paste it into your post. Nyaa~', 'success')
     } else {
-      setStatus('Downloading…', 'working')
+      setStatus(`Pasting ${kind} file and downloading…`, 'working')
+      await copyMediaReferenceToClipboard(url, kind, localPath)
+      const pasteResult = await pasteMediaFileToSourceTab(post, url, kind)
       await startDownload(url, `nekobooru-${post.id}${post.extension || ''}`)
-      setStatus('Downloading — drag it from your downloads into your post.', 'success')
+      const pasteText = pasteResult.ok
+        ? (pasteResult.method === 'file-input' ? 'attached through X upload' : 'sent to the editor')
+        : 'copied as a path'
+      const sizeText = pasteResult.fileSize ? ` (${formatBytes(pasteResult.fileSize)})` : ''
+      setStatus(`Video ${pasteText}${sizeText} and downloading — attach the file if X rejects paste.`, 'success')
     }
     // Auto-close so the picker gets out of the way. The clipboard contents and
     // the browser download both live on independently of this popup.
@@ -150,6 +172,37 @@ async function selectPost(post, kind) {
   } catch (e) {
     setStatus('Failed: ' + e.message, 'error')
   }
+}
+
+async function pasteMediaFileToSourceTab(post, url, kind) {
+  if (!targetTabId) return { ok: false, error: 'No target tab.' }
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'nekobooru-paste-media-to-tab',
+      tabId: targetTabId,
+      frameId: targetFrameId,
+      url,
+      filename: `nekobooru-${post.id}${post.extension || ''}`,
+      mime: mimeForPost(post, kind),
+    })
+    return response || { ok: false, error: 'No paste response.' }
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) }
+  }
+}
+
+function mimeForPost(post, kind) {
+  const ext = (post.extension || '').toLowerCase()
+  if (ext === '.mp4') return 'video/mp4'
+  if (ext === '.webm') return 'video/webm'
+  if (ext === '.gif') return 'image/gif'
+  return kind === 'video' ? 'video/mp4' : 'application/octet-stream'
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return ''
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function closeSoon() {
@@ -162,7 +215,89 @@ async function copyImageToClipboard(url) {
   const blob = await res.blob()
   // The Clipboard API only reliably accepts PNG, so normalise everything else.
   const png = blob.type === 'image/png' ? blob : await toPng(blob)
-  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
+  const html = `<img src="${escapeHtml(url)}" alt="">`
+  const item = new ClipboardItem({
+    'image/png': png,
+    'text/html': new Blob([html], { type: 'text/html' }),
+    'text/plain': new Blob([url], { type: 'text/plain' }),
+    'text/uri-list': new Blob([url], { type: 'text/uri-list' }),
+  })
+
+  try {
+    await navigator.clipboard.write([item])
+  } catch (e) {
+    // Keep the action useful even if the browser/editor rejects binary image
+    // clipboard data. Pasting the URL still lets the user attach or embed it.
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url)
+      return
+    }
+    throw e
+  }
+}
+
+async function copyMediaReferenceToClipboard(url, kind, localPath = '') {
+  const escaped = escapeHtml(url)
+  const fileUri = localPath ? pathToFileUri(localPath) : ''
+  const plainText = localPath || url
+  const media =
+    kind === 'video'
+      ? `<video controls src="${escaped}"></video>`
+      : `<img src="${escaped}" alt="">`
+  const href = fileUri || escaped
+  const html = `<a href="${escapeHtml(href)}">${media}</a>`
+  const item = new ClipboardItem({
+    'text/html': new Blob([html], { type: 'text/html' }),
+    'text/plain': new Blob([plainText], { type: 'text/plain' }),
+    'text/uri-list': new Blob([fileUri || url], { type: 'text/uri-list' }),
+  })
+
+  try {
+    await navigator.clipboard.write([item])
+  } catch (e) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(plainText)
+      return
+    }
+    throw e
+  }
+}
+
+function localMediaPath(post) {
+  if (!postsDir || !post?.contentUrl) return ''
+  const marker = '/api/media/posts/'
+  const index = post.contentUrl.indexOf(marker)
+  if (index < 0) return ''
+  const relative = decodeURIComponent(post.contentUrl.slice(index + marker.length))
+  return joinPath(postsDir, relative)
+}
+
+function joinPath(root, relative) {
+  const separator = root.includes('\\') ? '\\' : '/'
+  const cleanRoot = root.replace(/[\\/]+$/, '')
+  const cleanRelative = relative.replace(/^[\\/]+/, '').replace(/[\\/]+/g, separator)
+  return `${cleanRoot}${separator}${cleanRelative}`
+}
+
+function pathToFileUri(path) {
+  const normalized = path.replace(/\\/g, '/')
+  const driveMatch = normalized.match(/^([a-zA-Z]:)\/(.*)$/)
+  if (driveMatch) {
+    const [, drive, rest] = driveMatch
+    return `file:///${drive}/${rest.split('/').map(encodeURIComponent).join('/')}`
+  }
+  if (normalized.startsWith('/')) {
+    return `file://${normalized.split('/').map(encodeURIComponent).join('/')}`
+  }
+  return ''
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }
 
 function toPng(blob) {

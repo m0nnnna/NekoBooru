@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 import asyncio
+import types
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -59,6 +60,15 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(upload.status_code, 200, upload.text)
         return upload.json()["token"]
 
+    def _upload_specific_image_token(self, image_path):
+        with image_path.open("rb") as fh:
+            upload = self.client.post(
+                "/api/uploads",
+                files={"content": (image_path.name, fh, "image/png")},
+            )
+        self.assertEqual(upload.status_code, 200, upload.text)
+        return upload.json()["token"]
+
     def _enable_auto_tags(self):
         settings = self.client.get("/api/auto-tags/settings").json()
         settings["enabled"] = True
@@ -104,6 +114,33 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(body["error"], "disabled")
         self.assertNotIn("auto_tagged", body["categories"])
 
+    def test_duplicate_post_response_includes_existing_post_link_data(self):
+        from PIL import Image
+
+        image_path = Path(self.tmp.name) / f"duplicate-{time.time_ns()}.png"
+        Image.new("RGB", (32, 32), (10, 20, 30)).save(image_path)
+
+        first_token = self._upload_specific_image_token(image_path)
+        created = self.client.post(
+            "/api/posts",
+            json={"contentToken": first_token, "tags": [], "safety": "safe", "autoTag": False},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        post = created.json()
+
+        second_token = self._upload_specific_image_token(image_path)
+        duplicate = self.client.post(
+            "/api/posts",
+            json={"contentToken": second_token, "tags": [], "safety": "safe", "autoTag": False},
+        )
+
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        detail = duplicate.json()["detail"]
+        self.assertEqual(detail["code"], "duplicate_post")
+        self.assertEqual(detail["postId"], post["id"])
+        self.assertEqual(detail["postUrl"], f"/post/{post['id']}")
+        self.assertEqual(detail["post"]["id"], post["id"])
+
     def test_per_post_apply_adds_tags_categories_and_promotes_unsafe(self):
         self._enable_auto_tags()
         post = self._upload_image_post(tags=["manual_tag"], safety="safe")
@@ -141,6 +178,50 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertIn("red_eyes", body["suggestedTags"])
         self.assertEqual(body["suggestedSafety"], "unsafe")
         self.assertEqual(self.client.get("/api/posts").json()["total"], before_total)
+
+    def test_ytdlp_accepts_temporary_cookie_payload(self):
+        import app.routers.uploads as uploads
+
+        captured = {}
+        real_import = __import__
+
+        class FakeYoutubeDL:
+            def __init__(self, opts):
+                captured["cookiefile"] = opts.get("cookiefile")
+                self.opts = opts
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def extract_info(self, url, download=False):
+                return {"title": "locked video", "ext": "mp4"}
+
+            def download(self, urls):
+                Path(self.opts["outtmpl"].replace("%(ext)s", "mp4")).write_bytes(b"video")
+
+        def fake_import(name, *args, **kwargs):
+            if name == "yt_dlp":
+                return types.SimpleNamespace(YoutubeDL=FakeYoutubeDL, version=types.SimpleNamespace(__version__="test"))
+            return real_import(name, *args, **kwargs)
+
+        cookies = "# Netscape HTTP Cookie File\n.x.com\tTRUE\t/\tTRUE\t0\tauth_token\tsecret\n"
+        with patch("builtins.__import__", side_effect=fake_import), patch("httpx.AsyncClient.head", side_effect=Exception):
+            response = self.client.post(
+                "/api/uploads/from-ytdlp",
+                json={"url": "https://x.com/user/status/1", "cookies": cookies},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(captured["cookiefile"])
+        self.assertFalse(Path(captured["cookiefile"]).exists())
+        token = response.json()["token"]
+        temp_path = uploads.get_upload_path(token)
+        self.assertTrue(temp_path.exists())
+        temp_path.unlink(missing_ok=True)
+        uploads.remove_upload_token(token)
 
     def test_bulk_preview_job_can_apply_saved_suggestions(self):
         self._enable_auto_tags()
@@ -313,6 +394,57 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertEqual(result.safety, "unsafe")
         self.assertEqual(result.categories["hatsune_miku"], "character")
 
+    def test_post_process_adds_media_type_tag(self):
+        from app.services.auto_tagger import AutoTagOptions, AutoTagResult, _post_process
+
+        image = _post_process(AutoTagResult(tags=["meme"]), Path("sample.jpg"), AutoTagOptions())
+        video = _post_process(AutoTagResult(tags=["meme"]), Path("sample.mp4"), AutoTagOptions())
+        gif = _post_process(AutoTagResult(tags=["meme"]), Path("sample.gif"), AutoTagOptions())
+
+        self.assertIn("image", image.tags)
+        self.assertIn("video", video.tags)
+        self.assertIn("gif", gif.tags)
+        self.assertEqual(video.categories["video"], "meta")
+
+    def test_post_process_filters_default_noisy_tags(self):
+        from app.services.auto_tagger import AutoTagOptions, AutoTagResult, _post_process
+
+        result = _post_process(
+            AutoTagResult(
+                tags=["meme", "card_medium", "outline"],
+                categories={"meme": "general", "card_medium": "general", "outline": "general"},
+            ),
+            Path("sample.png"),
+            AutoTagOptions(),
+        )
+
+        self.assertIn("meme", result.tags)
+        self.assertIn("image", result.tags)
+        self.assertNotIn("card_medium", result.tags)
+        self.assertNotIn("outline", result.tags)
+        self.assertNotIn("card_medium", result.categories)
+
+    def test_meaningful_ocr_text_filters_blank_or_junk_text(self):
+        from app.services.auto_tagger import _meaningful_ocr_text
+
+        self.assertFalse(_meaningful_ocr_text(""))
+        self.assertFalse(_meaningful_ocr_text(" . "))
+        self.assertFalse(_meaningful_ocr_text("??"))
+        self.assertFalse(_meaningful_ocr_text("TAX"))
+        self.assertFalse(_meaningful_ocr_text("logo"))
+        self.assertTrue(_meaningful_ocr_text("subtitle line"))
+        self.assertTrue(_meaningful_ocr_text("hello world"))
+        self.assertTrue(_meaningful_ocr_text("2026 election"))
+
+    def test_whisper_song_transcript_adds_music_and_edit_tags(self):
+        from app.services.auto_tagger import _whisper_tags_from_text
+
+        tags = _whisper_tags_from_text("[Music] singing starts")
+
+        self.assertIn("music", tags)
+        self.assertIn("edit", tags)
+        self.assertIn("has_speech", tags)
+
     def test_wd_can_be_disabled_for_per_run_overrides(self):
         from app.services.auto_tagger import AutoTagOptions, _tag_image
 
@@ -336,6 +468,33 @@ class AutoTagUnitTests(unittest.TestCase):
 
         self.assertEqual(opts.torchDevice, "auto")
 
+    def test_semantic_prompt_can_be_customized_and_validated(self):
+        from app.services.auto_tagger import DEFAULT_SEMANTIC_PROMPT, validate_options
+
+        custom = "Return tags about vaporwave_edit and city_pop."
+        opts = validate_options({"semanticPrompt": custom})
+        self.assertEqual(opts.semanticPrompt, custom)
+
+        fallback = validate_options({"semanticPrompt": "  "})
+        self.assertEqual(fallback.semanticPrompt, DEFAULT_SEMANTIC_PROMPT)
+
+        capped = validate_options({"semanticPrompt": "x" * 5000})
+        self.assertEqual(len(capped.semanticPrompt), 4000)
+
+    def test_remote_infer_requires_token_when_bound_to_network(self):
+        from fastapi import HTTPException
+        from app.routers import auto_tags
+
+        with patch("app.routers.auto_tags.tagger_worker_token", return_value=None):
+            with patch.object(auto_tags.settings, "host", "127.0.0.1"):
+                auto_tags._require_worker_token(None)
+
+            with patch.object(auto_tags.settings, "host", "0.0.0.0"):
+                with self.assertRaises(HTTPException) as ctx:
+                    auto_tags._require_worker_token(None)
+
+        self.assertEqual(ctx.exception.status_code, 403)
+
     def test_qwen_device_map_respects_cpu_and_gpu_availability(self):
         from app.services.auto_tagger import _qwen_device_map
 
@@ -344,6 +503,17 @@ class AutoTagUnitTests(unittest.TestCase):
             self.assertEqual(_qwen_device_map("auto"), "cpu")
             with self.assertRaises(RuntimeError):
                 _qwen_device_map("gpu")
+        with patch("app.services.auto_tagger._torch_runtime_info", return_value={"cudaAvailable": True}), \
+             patch("app.services.auto_tagger._ensure_qwen_gpu_headroom") as headroom:
+            self.assertEqual(_qwen_device_map("auto"), {"": 0})
+            headroom.assert_called_once()
+
+    def test_qwen_gpu_headroom_blocks_low_free_vram(self):
+        from app.services.auto_tagger import _ensure_qwen_gpu_headroom
+
+        with patch("app.services.auto_tagger._qwen_gpu_memory_info", return_value={"freeGb": 2.0, "totalGb": 24.0}):
+            with self.assertRaisesRegex(RuntimeError, "free VRAM"):
+                _ensure_qwen_gpu_headroom()
 
     def test_onnx_providers_prefer_cuda_with_cpu_fallback(self):
         from app.services.auto_tagger import _onnx_providers
