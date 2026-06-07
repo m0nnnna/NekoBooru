@@ -71,7 +71,7 @@ const postsStore = usePostsStore()
 const sortBy = ref('date')
 const sortOrder = ref('desc')
 const page = ref(1)
-const perPageOptions = [24, 42, 60, 100]
+const perPageOptions = [24, 42, 60, 100, 200, 500]
 const perPage = ref(loadPerPage())
 
 // Load safety filter from localStorage or default to all enabled
@@ -203,6 +203,11 @@ function onPageChange(newPage) {
     }
   })
   fetchPosts()
+  scrollToTop()
+}
+
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 </script>
 

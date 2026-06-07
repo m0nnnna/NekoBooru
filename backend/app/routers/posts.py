@@ -166,7 +166,7 @@ async def process_tags_for_post(db: AsyncSession, post_id: int, tag_names: list[
 async def list_posts(
     q: str = Query("", description="Search query"),
     page: int = Query(1, ge=1),
-    limit: int = Query(42, ge=1, le=100),
+    limit: int = Query(42, ge=1, le=500),
     sort: str = Query("date"),
     order: str = Query("desc"),
     db: AsyncSession = Depends(get_db),
