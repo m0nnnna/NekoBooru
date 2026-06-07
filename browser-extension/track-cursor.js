@@ -42,11 +42,110 @@ function normalizedStatusUrl(raw) {
   }
 }
 
+function tweetIdFromUrl(raw) {
+  const url = normalizedStatusUrl(raw)
+  return url.match(/\/status\/(\d+)/)?.[1] || ''
+}
+
 function statusUrlFromArticle(article) {
   if (!article) return ''
   const timeLink = article.querySelector('a[href*="/status/"] time')?.closest('a')
   const statusLink = timeLink || article.querySelector('a[href*="/status/"]')
   return normalizedStatusUrl(statusLink?.getAttribute('href') || statusLink?.href || '')
+}
+
+function normalizeCapturedMediaUrl(raw, type) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw, location.origin)
+    const host = url.hostname.toLowerCase()
+    if (host === 'pbs.twimg.com' && url.pathname.includes('/media/')) {
+      if (url.searchParams.has('format')) url.searchParams.set('name', 'orig')
+      url.hash = ''
+      return url.href
+    }
+    if (host.endsWith('video.twimg.com')) {
+      url.hash = ''
+      return url.href
+    }
+    if (type === 'image' || type === 'video') return url.href
+  } catch {
+    // ignore malformed media URLs
+  }
+  return ''
+}
+
+function bestVideoVariant(variants = []) {
+  return variants
+    .filter((variant) => variant?.url && (!variant.content_type || variant.content_type === 'video/mp4'))
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0]
+}
+
+function mediaFromLegacyTweet(tweetId, legacy = {}) {
+  const mediaList = legacy.extended_entities?.media || legacy.entities?.media || []
+  return mediaList.map((media, index) => {
+    if (media.type === 'photo') {
+      return {
+        type: 'image',
+        url: normalizeCapturedMediaUrl(media.media_url_https || media.media_url, 'image'),
+        index,
+      }
+    }
+    const variant = bestVideoVariant(media.video_info?.variants || [])
+    if (variant?.url) {
+      return {
+        type: 'video',
+        url: normalizeCapturedMediaUrl(variant.url, 'video'),
+        index,
+      }
+    }
+    return null
+  }).filter((media) => media?.url && tweetId)
+}
+
+function collectTweetMedia(node, entries = new Map()) {
+  if (!node || typeof node !== 'object') return entries
+
+  const tweetId = String(node.rest_id || node.id_str || node.id || '')
+  const legacy = node.legacy && typeof node.legacy === 'object' ? node.legacy : node
+  const medias = mediaFromLegacyTweet(tweetId, legacy)
+  if (tweetId && medias.length) {
+    const old = entries.get(tweetId) || []
+    const seen = new Set(old.map((media) => media.url))
+    for (const media of medias) {
+      if (!seen.has(media.url)) {
+        old.push(media)
+        seen.add(media.url)
+      }
+    }
+    entries.set(tweetId, old)
+  }
+
+  if (Array.isArray(node)) {
+    for (const item of node) collectTweetMedia(item, entries)
+  } else {
+    for (const value of Object.values(node)) collectTweetMedia(value, entries)
+  }
+  return entries
+}
+
+function installXMediaCaptureBridge() {
+  if (!isXHost() || window.top !== window) return
+  document.addEventListener('nekobooru:x-media-response', (event) => {
+    const body = event?.detail?.body
+    if (typeof body !== 'string' || !body) return
+    try {
+      const parsed = JSON.parse(body)
+      const entries = [...collectTweetMedia(parsed).entries()].map(([tweetId, media]) => ({ tweetId, media }))
+      if (!entries.length) return
+      chrome.runtime.sendMessage({
+        type: 'nekobooru-x-media-cache',
+        entries,
+      })
+    } catch {
+      // X response shapes change often; ignore unparseable captures.
+    }
+  })
 }
 
 function statusUrlFromStack(stack) {
@@ -91,6 +190,7 @@ function imageUrlFromArticle(article) {
 function uploadTargetFromArticle(article) {
   const statusUrl = statusUrlFromArticle(article)
   if (!statusUrl) return null
+  const xTweetId = tweetIdFromUrl(statusUrl)
 
   if (article.querySelector('video')) {
     return {
@@ -98,6 +198,7 @@ function uploadTargetFromArticle(article) {
       page: statusUrl,
       mediaType: 'video',
       fetch: 'link',
+      xTweetId,
     }
   }
 
@@ -108,6 +209,7 @@ function uploadTargetFromArticle(article) {
       page: statusUrl,
       mediaType: 'image',
       fetch: 'direct',
+      xTweetId,
     }
   }
 
@@ -116,6 +218,7 @@ function uploadTargetFromArticle(article) {
     page: statusUrl,
     mediaType: 'video',
     fetch: 'link',
+    xTweetId,
   }
 }
 
@@ -174,6 +277,7 @@ function openUploadForTarget(target) {
       page: target.page || target.src,
       mediaType: target.mediaType || 'image',
       fetch: target.fetch || 'direct',
+      xTweetId: target.xTweetId || tweetIdFromUrl(target.page || target.src),
     })
   } catch {
     // Extension context may be reloading; ignore.
@@ -286,3 +390,4 @@ window.addEventListener(
 )
 
 setupXPostButtons()
+installXMediaCaptureBridge()

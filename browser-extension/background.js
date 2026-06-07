@@ -10,6 +10,8 @@ const DOWNLOAD_PAGE_ID = 'nekobooru-upload-page'
 const INSERT_MENU_ID = 'nekobooru-insert'
 const POPUP_WIDTH = 500
 const POPUP_HEIGHT = 680
+const X_MEDIA_CACHE_KEY = 'nekobooruXMediaCache'
+const X_MEDIA_CACHE_MAX_AGE_MS = 60 * 60 * 1000
 
 // Video platforms where the direct media often can't be grabbed normally (blob
 // <video> srcs, poster images standing in for the video), so the click handler
@@ -56,6 +58,82 @@ const PLAYER_OVERLAY_PATTERNS = [
 let lastCursor = null
 let lastHasVideo = false
 let lastPostUrl = ''
+const xMediaCache = new Map()
+
+function tweetIdFromUrl(raw) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    if (!/(^|\.)x\.com$|(^|\.)twitter\.com$/.test(host)) return ''
+    return url.pathname.match(/\/status\/(\d+)/)?.[1] || ''
+  } catch {
+    return ''
+  }
+}
+
+function normalizeMediaList(media = []) {
+  const seen = new Set()
+  return media
+    .filter((item) => item?.url && (item.type === 'image' || item.type === 'video'))
+    .sort((a, b) => (a.index || 0) - (b.index || 0))
+    .filter((item) => {
+      if (seen.has(item.url)) return false
+      seen.add(item.url)
+      return true
+    })
+}
+
+function cacheXMedia(entries = []) {
+  let changed = false
+  for (const entry of entries) {
+    const tweetId = String(entry?.tweetId || '')
+    const media = normalizeMediaList(entry?.media || [])
+    if (!tweetId || !media.length) continue
+    xMediaCache.set(tweetId, {
+      media,
+      savedAt: Date.now(),
+    })
+    changed = true
+  }
+  if (changed) persistXMediaCache()
+}
+
+function getXMedia(tweetId) {
+  const cached = xMediaCache.get(String(tweetId || ''))
+  if (!cached) return []
+  if (Date.now() - (cached.savedAt || 0) > X_MEDIA_CACHE_MAX_AGE_MS) {
+    xMediaCache.delete(String(tweetId || ''))
+    persistXMediaCache()
+    return []
+  }
+  return cached.media || []
+}
+
+async function loadXMediaCache() {
+  try {
+    const stored = await chrome.storage.local.get(X_MEDIA_CACHE_KEY)
+    const rows = stored[X_MEDIA_CACHE_KEY] || {}
+    for (const [tweetId, value] of Object.entries(rows)) {
+      if (Date.now() - (value.savedAt || 0) <= X_MEDIA_CACHE_MAX_AGE_MS) {
+        xMediaCache.set(tweetId, value)
+      }
+    }
+  } catch {
+    // Storage may be unavailable during extension startup; cache will refill.
+  }
+}
+
+function persistXMediaCache() {
+  const rows = {}
+  const now = Date.now()
+  for (const [tweetId, value] of xMediaCache.entries()) {
+    if (now - (value.savedAt || 0) <= X_MEDIA_CACHE_MAX_AGE_MS) rows[tweetId] = value
+  }
+  chrome.storage.local.set({ [X_MEDIA_CACHE_KEY]: rows }).catch(() => {})
+}
+
+loadXMediaCache()
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.type === 'nekobooru-cursor') {
@@ -74,8 +152,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       type: msg.mediaType || 'video',
       fetch: msg.fetch || 'link',
     })
+    const xTweetId = msg.xTweetId || tweetIdFromUrl(msg.page || target)
+    if (xTweetId) params.set('xTweetId', xTweetId)
     openPopup('upload.html', params, sender.tab)
     return
+  }
+
+  if (msg && msg.type === 'nekobooru-x-media-cache') {
+    cacheXMedia(msg.entries)
+    return
+  }
+
+  if (msg && msg.type === 'nekobooru-get-x-media') {
+    ;(async () => {
+      if (!xMediaCache.has(String(msg.tweetId || ''))) await loadXMediaCache()
+      sendResponse({
+        ok: true,
+        media: getXMedia(msg.tweetId),
+      })
+    })()
+    return true
   }
 
   if (msg && msg.type === 'nekobooru-start-local-app') {
@@ -165,6 +261,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       type: 'video',
       fetch: 'link', // the src is a page for the server to fetch, not media to preview
     })
+    const xTweetId = tweetIdFromUrl(target)
+    if (xTweetId) params.set('xTweetId', xTweetId)
     openPopup('upload.html', params, tab)
     return
   }

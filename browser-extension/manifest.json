@@ -10,6 +10,12 @@
   },
   "content_scripts": [
     {
+      "matches": ["*://twitter.com/*", "*://mobile.twitter.com/*", "*://x.com/*", "*://*.x.com/*"],
+      "js": ["x-media-capture.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
       "matches": ["*://*/*"],
       "js": ["track-cursor.js"],
       "run_at": "document_start",

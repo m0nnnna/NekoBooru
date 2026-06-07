@@ -5,6 +5,7 @@ const params = new URLSearchParams(location.search)
 const srcUrl = params.get('src') || ''
 const pageUrl = params.get('page') || ''
 const mediaType = params.get('type') || 'image'
+const xTweetId = params.get('xTweetId') || tweetIdFromUrl(pageUrl) || tweetIdFromUrl(srcUrl)
 // 'link' when src is a page URL the server should fetch (yt-dlp), not direct
 // media to preview inline (e.g. an X tweet whose <video> is a blob URL).
 const fetchMode = params.get('fetch') || ''
@@ -175,7 +176,9 @@ function renderPreview() {
   if (fetchMode === 'link') {
     const note = document.createElement('div')
     note.className = 'fetch-note'
-    note.textContent = '\u{1F3AC} The server will download this video on upload.'
+    note.textContent = xTweetId
+      ? '\u{1F3AC} NekoBooru will use captured X media when available, then fall back to yt-dlp.'
+      : '\u{1F3AC} The server will download this video on upload.'
     els.preview.appendChild(note)
     return
   }
@@ -392,6 +395,18 @@ function setStatus(message, kind) {
   els.status.textContent = message
   els.status.className = `status ${kind || ''}`
   els.status.classList.remove('hidden')
+}
+
+function tweetIdFromUrl(raw) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    if (!/(^|\.)x\.com$|(^|\.)twitter\.com$/.test(host)) return ''
+    return url.pathname.match(/\/status\/(\d+)/)?.[1] || ''
+  } catch {
+    return ''
+  }
 }
 
 function setXCookieStatus(message, kind) {
@@ -1031,6 +1046,79 @@ function formatNetscapeCookie(cookie) {
   return [domain, includeSubdomains, path, secure, expires, cookie.name, cookie.value].join('\t')
 }
 
+async function capturedXMediaCandidates() {
+  if (!xTweetId) return []
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'nekobooru-get-x-media',
+      tweetId: xTweetId,
+    })
+    const media = Array.isArray(response?.media) ? response.media : []
+    return media.filter((item) => item?.url && (item.type === 'image' || item.type === 'video'))
+  } catch {
+    return []
+  }
+}
+
+async function uploadMediaUrl(url, typeHint = '') {
+  try {
+    const res = await fetch(`${instanceUrl}/api/uploads/from-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.token) return data.token
+    }
+  } catch {
+    if (!(await checkBackendHealth())) throw new BackendOfflineError()
+  }
+
+  const mediaRes = await fetch(url, {
+    credentials: 'include',
+    cache: 'no-store',
+  })
+  if (!mediaRes.ok) throw new Error(`could not fetch captured media (HTTP ${mediaRes.status})`)
+  const blob = await mediaRes.blob()
+
+  const formData = new FormData()
+  formData.append('content', blob, filenameFromUrl(url, blob.type || typeHint))
+
+  const upRes = await fetch(`${instanceUrl}/api/uploads`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!upRes.ok) {
+    const err = await upRes.json().catch(() => ({}))
+    throw new Error(err.detail || `upload failed (HTTP ${upRes.status})`)
+  }
+  const data = await upRes.json()
+  if (!data.token) throw new Error('no upload token returned')
+  return data.token
+}
+
+async function uploadCapturedXMedia() {
+  const candidates = await capturedXMediaCandidates()
+  if (!candidates.length) return ''
+  const ordered = [
+    ...candidates.filter((item) => item.type === mediaType),
+    ...candidates.filter((item) => item.type !== mediaType),
+  ]
+  let lastError = ''
+  for (const candidate of ordered) {
+    if (!candidate?.url) continue
+    try {
+      setStatus('Using captured X media...', 'working')
+      return await uploadMediaUrl(candidate.url, candidate.type === 'video' ? 'video/mp4' : 'image/jpeg')
+    } catch (error) {
+      lastError = error?.message || String(error)
+    }
+  }
+  if (lastError) setStatus(`Captured X media failed, trying yt-dlp fallback: ${lastError}`, 'working')
+  return ''
+}
+
 // Get an upload token. For known video-platform pages, let the server run yt-dlp
 // on the page URL first. Otherwise prefer the server-side fetch (it sends a
 // proper Referer, which works for most boorus/CDNs). If both fail, fall back to
@@ -1038,6 +1126,13 @@ function formatNetscapeCookie(cookie) {
 async function getContentToken() {
   if (contentToken) return contentToken
   await ensureBackendReady()
+  if (xTweetId) {
+    const capturedToken = await uploadCapturedXMedia()
+    if (capturedToken) {
+      contentToken = capturedToken
+      return contentToken
+    }
+  }
   // RedGifs/X/YouTube/etc.: the watch page (or a video element's page) is what
   // yt-dlp understands, not the blob/CDN src the browser exposes. In link-fetch
   // mode the src already *is* that page URL, so use it directly. In direct mode
