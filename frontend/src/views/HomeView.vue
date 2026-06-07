@@ -29,6 +29,11 @@
           </label>
         </div>
         <div class="sort-controls">
+          <select v-model.number="perPage" @change="onPerPageChange" aria-label="Posts per page">
+            <option v-for="option in perPageOptions" :key="option" :value="option">
+              {{ option }} per page
+            </option>
+          </select>
           <select v-model="sortBy" @change="fetchPosts">
             <option value="date">Date</option>
             <option value="id">ID</option>
@@ -66,6 +71,8 @@ const postsStore = usePostsStore()
 const sortBy = ref('date')
 const sortOrder = ref('desc')
 const page = ref(1)
+const perPageOptions = [24, 42, 60, 100]
+const perPage = ref(loadPerPage())
 
 // Load safety filter from localStorage or default to all enabled
 const defaultSafety = { safe: true, sketchy: true, unsafe: true }
@@ -95,6 +102,9 @@ onMounted(() => {
   if (route.query.q) {
     postsStore.setQuery(route.query.q)
   }
+  if (route.query.limit) {
+    perPage.value = normalizePerPage(route.query.limit)
+  }
   if (route.query.page) {
     page.value = parseInt(route.query.page) || 1
   }
@@ -112,9 +122,25 @@ watch(
     } else {
       page.value = 1
     }
+    if (newQuery.limit) {
+      perPage.value = normalizePerPage(newQuery.limit)
+    }
     fetchPosts()
   }
 )
+
+function loadPerPage() {
+  try {
+    return normalizePerPage(localStorage.getItem('postsPerPage') || 42)
+  } catch {
+    return 42
+  }
+}
+
+function normalizePerPage(value) {
+  const parsed = Number.parseInt(value, 10)
+  return perPageOptions.includes(parsed) ? parsed : 42
+}
 
 async function fetchPosts() {
   loading.value = true
@@ -134,7 +160,7 @@ async function fetchPosts() {
     }
 
     const result = await fetch(
-      `/api/posts?q=${encodeURIComponent(query)}&page=${page.value}&sort=${sortBy.value}&order=${sortOrder.value}`
+      `/api/posts?q=${encodeURIComponent(query)}&page=${page.value}&limit=${perPage.value}&sort=${sortBy.value}&order=${sortOrder.value}`
     ).then(r => r.json())
 
     posts.value = result.results
@@ -153,10 +179,28 @@ function onSafetyChange() {
   fetchPosts()
 }
 
+function onPerPageChange() {
+  perPage.value = normalizePerPage(perPage.value)
+  localStorage.setItem('postsPerPage', String(perPage.value))
+  page.value = 1
+  router.push({
+    query: {
+      ...route.query,
+      page: undefined,
+      limit: perPage.value === 42 ? undefined : perPage.value,
+    }
+  })
+  fetchPosts()
+}
+
 function onPageChange(newPage) {
   page.value = newPage
   router.push({
-    query: { ...route.query, page: newPage > 1 ? newPage : undefined }
+    query: {
+      ...route.query,
+      page: newPage > 1 ? newPage : undefined,
+      limit: perPage.value === 42 ? undefined : perPage.value,
+    }
   })
   fetchPosts()
 }
