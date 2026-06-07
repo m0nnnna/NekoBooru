@@ -394,6 +394,9 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertFalse(_meaningful_ocr_text(""))
         self.assertFalse(_meaningful_ocr_text(" . "))
         self.assertFalse(_meaningful_ocr_text("??"))
+        self.assertFalse(_meaningful_ocr_text("TAX"))
+        self.assertFalse(_meaningful_ocr_text("logo"))
+        self.assertTrue(_meaningful_ocr_text("subtitle line"))
         self.assertTrue(_meaningful_ocr_text("hello world"))
         self.assertTrue(_meaningful_ocr_text("2026 election"))
 

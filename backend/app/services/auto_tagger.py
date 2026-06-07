@@ -1749,13 +1749,11 @@ def _whisper_tags_from_text(text: str) -> list[str]:
 
 def _meaningful_ocr_text(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", str(text or "")).strip()
-    if len(normalized) < 3:
-        return False
     alnum = re.findall(r"[a-zA-Z0-9]", normalized)
-    if len(alnum) < 3:
+    if len(alnum) < 6:
         return False
     words = re.findall(r"[a-zA-Z0-9]{2,}", normalized)
-    return bool(words)
+    return len(words) >= 2 or len(alnum) >= 10
 
 
 def _parse_semantic_json(raw: str) -> dict:
