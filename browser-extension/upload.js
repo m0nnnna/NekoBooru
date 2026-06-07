@@ -544,6 +544,11 @@ function onTagKeydown(e) {
 function parseTags() {
   // Fold any half-typed tag still sitting in the input into the pill list.
   commitInput()
+  const tweetTag = twitterPostTag()
+  if (tweetTag && !tags.includes(tweetTag)) {
+    tags.push(tweetTag)
+    renderPills()
+  }
   return [...tags]
 }
 
@@ -601,6 +606,10 @@ function tweetIdFromUrl(raw) {
   } catch {
     return ''
   }
+}
+
+function twitterPostTag() {
+  return xTweetId ? `twitter_${xTweetId}` : ''
 }
 
 function getXCookiePermissionSpec() {
