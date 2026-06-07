@@ -481,6 +481,20 @@ class AutoTagUnitTests(unittest.TestCase):
         capped = validate_options({"semanticPrompt": "x" * 5000})
         self.assertEqual(len(capped.semanticPrompt), 4000)
 
+    def test_remote_infer_requires_token_when_bound_to_network(self):
+        from fastapi import HTTPException
+        from app.routers import auto_tags
+
+        with patch("app.routers.auto_tags.tagger_worker_token", return_value=None):
+            with patch.object(auto_tags.settings, "host", "127.0.0.1"):
+                auto_tags._require_worker_token(None)
+
+            with patch.object(auto_tags.settings, "host", "0.0.0.0"):
+                with self.assertRaises(HTTPException) as ctx:
+                    auto_tags._require_worker_token(None)
+
+        self.assertEqual(ctx.exception.status_code, 403)
+
     def test_qwen_device_map_respects_cpu_and_gpu_availability(self):
         from app.services.auto_tagger import _qwen_device_map
 
