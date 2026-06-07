@@ -24,7 +24,7 @@ if exist "venv\Scripts\python.exe" (
 )
 if "%NEED_INSTALL%"=="1" (
     echo AI stack not found in venv; installing GPU stack via install-ai.ps1 ...
-    echo ^(for a CPU-only worker, run: powershell -File install-ai.ps1 -CPU^)
+    echo ^(CPU-only worker: install-ai.ps1 -CPU  ^|  older Pascal GPU/GTX 10-series: install-ai.ps1 -Legacy^)
     powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-ai.ps1"
     if errorlevel 1 (
         echo ERROR: AI install failed. See output above.

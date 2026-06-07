@@ -179,22 +179,32 @@ stack (torch/CUDA, onnxruntime, transformers) is large, so you install it only w
 The easiest way is the installer script, which creates/uses the project venv,
 installs everything, and verifies torch/onnxruntime:
 ```bash
-# Windows (GPU by default; add -CPU for a CPU-only install):
-.\install-ai.ps1
-.\install-ai.ps1 -CPU
-# Linux / macOS (add --cpu for a CPU-only install):
-./install-ai.sh
-./install-ai.sh --cpu
+# Windows:
+.\install-ai.ps1            # NVIDIA GPU (CUDA 12.8)
+.\install-ai.ps1 -CPU       # CPU only
+.\install-ai.ps1 -Legacy    # older Pascal GPU (GTX 10-series, CUDA 12.6)
+# Linux / macOS:
+./install-ai.sh             # NVIDIA GPU (CUDA 12.8)
+./install-ai.sh --cpu       # CPU only
+./install-ai.sh --legacy    # older Pascal GPU (GTX 10-series, CUDA 12.6)
 ```
 Or install manually into the Python environment running NekoBooru:
 ```bash
-# NVIDIA GPU (CUDA):
+# NVIDIA GPU (CUDA 12.8):
 pip install -r backend/requirements-tagger.txt
+# Older Pascal GPU — GTX 10-series / sm_61 (CUDA 12.6):
+pip install -r backend/requirements-tagger-legacy.txt
 # CPU only (slower; large models may be impractical):
 pip install -r backend/requirements-tagger-cpu.txt
 ```
 Then open **Settings → Auto Tagging**, toggle **Enable AI features**, and download the models you want.
 The web UI also shows these commands and a CPU/GPU picker when the runtime isn't installed yet.
+
+> **Older NVIDIA GPUs:** PyTorch's default CUDA 12.8 builds dropped Maxwell/Pascal/Volta
+> support, so on a GTX 10-series card (e.g. 1060, `sm_61`) the standard GPU install fails
+> with *"no kernel image is available for execution on the device"*. Use the **Legacy**
+> option above (CUDA 12.6 wheels, which still include `sm_61`). Maxwell cards (GTX 9-series,
+> `sm_50/52`) aren't in CUDA 12.6 either — use the CPU stack there.
 
 > **Note:** the AI stack only works from a source checkout. The shipped Windows
 > `nekobooru.exe` excludes torch/onnxruntime/transformers and cannot load them,

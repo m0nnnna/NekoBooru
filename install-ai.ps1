@@ -15,16 +15,23 @@
 .PARAMETER CPU
     Install the CPU-only tagger stack (no NVIDIA GPU required).
 
+.PARAMETER Legacy
+    Install the CUDA 12.6 stack for older Pascal GPUs (GTX 10-series, sm_61).
+    The default GPU stack (CUDA 12.8) dropped Pascal support, so a 1060/1070/1080
+    hits "no kernel image is available for execution on the device" without this.
+
 .PARAMETER VenvPath
     Virtual environment to install into. Default: .\venv
 
 .EXAMPLE
     ./install-ai.ps1
     ./install-ai.ps1 -CPU
+    ./install-ai.ps1 -Legacy
 #>
 [CmdletBinding()]
 param(
     [switch]$CPU,
+    [switch]$Legacy,
     [string]$VenvPath = "venv"
 )
 
@@ -46,8 +53,15 @@ if (-not (Test-Path $venvPython)) {
     }
 }
 
-$tagReqs = if ($CPU) { "backend\requirements-tagger-cpu.txt" } else { "backend\requirements-tagger.txt" }
-$mode = if ($CPU) { "CPU-only" } else { "GPU (CUDA)" }
+if ($CPU -and $Legacy) { throw "Use either -CPU or -Legacy, not both." }
+$tagReqs =
+    if ($CPU) { "backend\requirements-tagger-cpu.txt" }
+    elseif ($Legacy) { "backend\requirements-tagger-legacy.txt" }
+    else { "backend\requirements-tagger.txt" }
+$mode =
+    if ($CPU) { "CPU-only" }
+    elseif ($Legacy) { "GPU (CUDA 12.6, legacy Pascal/sm_61)" }
+    else { "GPU (CUDA 12.8)" }
 Write-Host "Installing AI auto-tagging stack [$mode] into $VenvPath ..." -ForegroundColor Cyan
 
 # Always install with the venv's own python so packages land in the right place.
@@ -68,5 +82,8 @@ Write-Host "  1. Start NekoBooru from source: start.bat (main app) or start-work
 Write-Host "  2. Open Settings -> Auto Tagging, enable AI features, and download the models you want."
 if (-not $CPU) {
     Write-Host "`nNote: if 'cuda' printed False above, your NVIDIA driver/GPU isn't visible to torch;" -ForegroundColor Yellow
-    Write-Host "      tagging will fall back to CPU. Re-run with -CPU to install the lighter CPU stack." -ForegroundColor Yellow
+    Write-Host "      tagging will fall back to CPU. Re-run with -CPU for the lighter CPU stack." -ForegroundColor Yellow
+    if (-not $Legacy) {
+        Write-Host "      On an older Pascal GPU (GTX 10-series) instead re-run with -Legacy." -ForegroundColor Yellow
+    }
 }
