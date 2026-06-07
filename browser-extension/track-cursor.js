@@ -266,6 +266,14 @@ function installXButtonStyle() {
       transition: background-color 120ms ease, color 120ms ease;
       vertical-align: middle;
     }
+    .nekobooru-x-download-native-shell {
+      align-items: center;
+      display: flex;
+      justify-content: center;
+    }
+    .nekobooru-x-download-native-shell .nekobooru-x-download {
+      margin-left: 0;
+    }
     .nekobooru-x-download svg {
       display: block;
       height: 22px;
@@ -289,6 +297,26 @@ function installXButtonStyle() {
   document.documentElement.appendChild(style)
 }
 
+function nativeActionShell(actionGroup, innerButton) {
+  const sampleButton = actionGroup.querySelector('[data-testid="reply"], [data-testid="retweet"], [data-testid="like"], [role="button"], button, a')
+  if (!sampleButton) return innerButton
+
+  let shell = sampleButton
+  while (shell.parentElement && shell.parentElement !== actionGroup) {
+    shell = shell.parentElement
+  }
+  if (!shell || shell === actionGroup) return innerButton
+
+  const clonedShell = shell.cloneNode(false)
+  clonedShell.classList.add('nekobooru-x-download-native-shell')
+  clonedShell.removeAttribute('data-testid')
+  clonedShell.removeAttribute('aria-label')
+  clonedShell.removeAttribute('role')
+  clonedShell.removeAttribute('tabindex')
+  clonedShell.appendChild(innerButton)
+  return clonedShell
+}
+
 function openUploadForTarget(target) {
   if (!target?.src) return
   try {
@@ -307,13 +335,13 @@ function openUploadForTarget(target) {
 
 function injectXButton(article) {
   if (!article) return
-  const existing = article.querySelector('.nekobooru-x-download')
+  const existing = article.querySelector('.nekobooru-x-download, .nekobooru-x-download-native-shell')
   const hasMedia = hasUploadableXMedia(article)
   if (existing && !hasMedia) existing.remove()
   if (existing || !hasMedia) return
 
   const actionGroups = Array.from(article.querySelectorAll('[role="group"]'))
-  const actionGroup = actionGroups.find((group) => group.querySelector('button, a'))
+  const actionGroup = actionGroups.find((group) => group.querySelector('[data-testid="reply"], [role="button"], button, a'))
   if (!actionGroup) return
 
   const button = document.createElement('button')
@@ -334,19 +362,7 @@ function injectXButton(article) {
     if (target) openUploadForTarget(target)
   })
 
-  // Put the button beside the last native action (the share icon). Appending to
-  // the group makes it a `justify-content: space-between` sibling that floats to
-  // the far edge on a full-width standalone post; the share slot on its own lays
-  // children out stacked. So nest it in the share slot AND force that slot to a
-  // single inline row (see `.nekobooru-x-slot`), so the button sits immediately
-  // to the right of share — hugging it identically on every page.
-  const slot = actionGroup.lastElementChild
-  if (slot) {
-    slot.classList.add('nekobooru-x-slot')
-    slot.appendChild(button)
-  } else {
-    actionGroup.appendChild(button)
-  }
+  actionGroup.appendChild(nativeActionShell(actionGroup, button))
 }
 
 function scanXPosts(root = document) {
