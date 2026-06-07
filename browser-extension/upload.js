@@ -12,6 +12,10 @@ const fetchMode = params.get('fetch') || ''
 const AI_TAG_PROFILES = {
   anime: {
     label: 'Anime / Booru',
+    resolve: () => (mediaType === 'video' ? 'anime_video' : 'anime_image'),
+  },
+  anime_image: {
+    label: 'Anime / Booru Image',
     settings: {
       wdEnabled: false,
       characterModelEnabled: true,
@@ -22,6 +26,21 @@ const AI_TAG_PROFILES = {
       generalThreshold: 0.35,
       characterThreshold: 0.45,
       maxTags: 40,
+    },
+  },
+  anime_video: {
+    label: 'Anime / Booru Video',
+    settings: {
+      wdEnabled: false,
+      characterModelEnabled: true,
+      ocrEnabled: true,
+      whisperEnabled: true,
+      qwenEnabled: false,
+      semanticPoliticalEnabled: false,
+      generalThreshold: 0.35,
+      characterThreshold: 0.45,
+      maxTags: 40,
+      videoMaxFrames: 4,
     },
   },
   realistic_image: {
