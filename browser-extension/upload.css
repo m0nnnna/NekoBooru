@@ -645,6 +645,18 @@ select:focus {
   font-weight: 600;
 }
 
+.status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.status-action-btn {
+  padding: 0.45rem 0.7rem;
+  font-size: 0.8rem;
+}
+
 /* Media picker (browse NekoBooru) */
 .picker-controls {
   margin-bottom: 0.75rem;

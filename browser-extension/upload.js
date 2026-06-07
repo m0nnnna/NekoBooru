@@ -118,6 +118,7 @@ let autoTagModelOverrides = {}
 let modelLoadPollTimer = null
 let bootPromise = null
 let viewportTooltip = null
+let duplicatePost = null
 
 class BackendOfflineError extends Error {
   constructor() {
@@ -552,14 +553,15 @@ function setStatus(message, kind) {
   els.status.classList.remove('hidden')
 }
 
-function setDuplicateStatus(post) {
+function setDuplicateStatus(post, options = {}) {
   const postId = post?.id
+  duplicatePost = post || null
   els.status.textContent = ''
   els.status.className = 'status success'
   els.status.classList.remove('hidden')
 
   const message = document.createElement('span')
-  message.textContent = 'Same post detected. '
+  message.textContent = options.updated ? 'Updated existing post. ' : 'Same post detected. '
   els.status.appendChild(message)
 
   if (postId) {
@@ -570,9 +572,21 @@ function setDuplicateStatus(post) {
     link.rel = 'noopener noreferrer'
     link.textContent = `Open existing post #${postId}`
     els.status.appendChild(link)
+
+    const actions = document.createElement('div')
+    actions.className = 'status-actions'
+
+    const overwrite = document.createElement('button')
+    overwrite.type = 'button'
+    overwrite.className = 'btn btn-secondary status-action-btn'
+    overwrite.textContent = 'Overwrite Tags'
+    overwrite.title = 'Replace the existing post tags, rating, and source URL with the current upload form values.'
+    overwrite.addEventListener('click', overwriteDuplicateTags)
+    actions.appendChild(overwrite)
+    els.status.appendChild(actions)
   } else {
     const fallback = document.createElement('span')
-    fallback.textContent = 'It already exists in NekoBooru.'
+    fallback.textContent = 'It already exists in NekoBooru, but this backend response did not include a post link. Restart the backend and try again.'
     els.status.appendChild(fallback)
   }
 }
@@ -641,7 +655,12 @@ async function doUpload() {
       createdPost = post
       setDuplicateStatus(post)
       notify('Same post detected', e.message)
-      convertUploadButtonToPostLink(post, { duplicate: true })
+      if (post.id) {
+        convertUploadButtonToPostLink(post, { duplicate: true })
+      } else {
+        els.submit.disabled = false
+        setAiProfileButtonsDisabled(false)
+      }
       return
     }
     const message = await friendlyBackendError(e)
@@ -674,6 +693,9 @@ async function createPostFromPopup(options = {}) {
     if (res.status === 409 && err.detail?.code === 'duplicate_post') {
       throw new DuplicatePostError(err.detail)
     }
+    if (res.status === 409 && /content already exists/i.test(String(err.detail || ''))) {
+      throw new DuplicatePostError({ message: 'Same post detected. Restart the backend to show a direct post link and overwrite option.' })
+    }
     throw new Error(formatBackendError(err.detail || `HTTP ${res.status}`))
   }
   createdPost = await res.json()
@@ -699,6 +721,38 @@ async function updateCreatedPost() {
   }
   createdPost = await res.json()
   return createdPost
+}
+
+async function overwriteDuplicateTags() {
+  if (!duplicatePost?.id) {
+    setStatus('Cannot overwrite tags because the duplicate response did not include a post id. Restart the backend and try again.', 'error')
+    return
+  }
+
+  const confirmed = confirm(
+    `Overwrite tags on existing post #${duplicatePost.id} with the current form tags, rating, and source URL?`,
+  )
+  if (!confirmed) return
+
+  els.submit.disabled = true
+  setAiProfileButtonsDisabled(true)
+  setStatus(`Overwriting tags on existing post #${duplicatePost.id}...`, 'working')
+
+  try {
+    createdPost = duplicatePost
+    const post = await updateCreatedPost()
+    duplicatePost = post
+    await chrome.storage.sync.set({ lastSafety: els.safety.value })
+    setDuplicateStatus(post, { updated: true })
+    notify('NekoBooru post updated', `Tags were overwritten on post #${post.id}.`)
+    convertUploadButtonToPostLink(post, { duplicate: true })
+  } catch (e) {
+    const message = await friendlyBackendError(e)
+    setStatus('Overwrite failed: ' + message, 'error')
+    notify('NekoBooru overwrite failed', message)
+    els.submit.disabled = false
+    setAiProfileButtonsDisabled(false)
+  }
 }
 
 async function runAiTag(event) {
