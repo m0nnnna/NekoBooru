@@ -9,6 +9,51 @@ const xTweetId = params.get('xTweetId') || tweetIdFromUrl(pageUrl) || tweetIdFro
 // 'link' when src is a page URL the server should fetch (yt-dlp), not direct
 // media to preview inline (e.g. an X tweet whose <video> is a blob URL).
 const fetchMode = params.get('fetch') || ''
+const AI_TAG_PROFILES = {
+  anime: {
+    label: 'Anime / Booru',
+    settings: {
+      wdEnabled: true,
+      characterModelEnabled: true,
+      ocrEnabled: false,
+      whisperEnabled: false,
+      qwenEnabled: false,
+      semanticPoliticalEnabled: false,
+      generalThreshold: 0.35,
+      characterThreshold: 0.45,
+      maxTags: 40,
+    },
+  },
+  realistic_image: {
+    label: 'Realistic Image',
+    settings: {
+      wdEnabled: false,
+      characterModelEnabled: false,
+      ocrEnabled: true,
+      whisperEnabled: false,
+      qwenEnabled: true,
+      semanticPoliticalEnabled: true,
+      generalThreshold: 0.5,
+      characterThreshold: 0.6,
+      maxTags: 18,
+    },
+  },
+  realistic_video: {
+    label: 'Realistic Video',
+    settings: {
+      wdEnabled: false,
+      characterModelEnabled: false,
+      ocrEnabled: true,
+      whisperEnabled: true,
+      qwenEnabled: true,
+      semanticPoliticalEnabled: true,
+      generalThreshold: 0.5,
+      characterThreshold: 0.6,
+      maxTags: 20,
+      videoMaxFrames: 4,
+    },
+  },
+}
 
 const els = {
   needsSetup: document.getElementById('needs-setup'),
@@ -24,6 +69,7 @@ const els = {
   safety: document.getElementById('safety'),
   includeSource: document.getElementById('include-source'),
   aiTag: document.getElementById('ai-tag'),
+  aiProfileButtons: Array.from(document.querySelectorAll('[data-ai-profile]')),
   submit: document.getElementById('submit'),
   aiModelPicker: document.getElementById('ai-model-picker'),
   aiModelList: document.getElementById('ai-model-list'),
@@ -83,7 +129,7 @@ async function init() {
   if (await checkBackendHealth()) loadAutoTagControls()
 
   els.submit.addEventListener('click', doUpload)
-  els.aiTag.addEventListener('click', runAiTag)
+  els.aiProfileButtons.forEach((button) => button.addEventListener('click', runAiTag))
   els.testXCookies.addEventListener('click', testXCookieAccess)
 }
 
@@ -169,6 +215,12 @@ function setButtonBusy(button, label) {
     button.disabled = wasDisabled
     button.classList.remove('loading')
   }
+}
+
+function setAiProfileButtonsDisabled(disabled) {
+  els.aiProfileButtons.forEach((button) => {
+    button.disabled = disabled
+  })
 }
 
 function renderPreview() {
@@ -480,7 +532,7 @@ async function doUpload() {
   }
 
   els.submit.disabled = true
-  els.aiTag.disabled = true
+  setAiProfileButtonsDisabled(true)
   setStatus('Fetching media...', 'working')
 
   try {
@@ -502,7 +554,7 @@ async function doUpload() {
     setStatus('Upload failed: ' + message, 'error')
     notify('NekoBooru upload failed', message)
     els.submit.disabled = false
-    els.aiTag.disabled = false
+    setAiProfileButtonsDisabled(false)
   }
 }
 
@@ -552,8 +604,11 @@ async function updateCreatedPost() {
   return createdPost
 }
 
-async function runAiTag() {
-  els.aiTag.disabled = true
+async function runAiTag(event) {
+  const button = event?.currentTarget || els.aiTag
+  const profileId = button?.dataset?.aiProfile || 'anime'
+  const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
+  setAiProfileButtonsDisabled(true)
   els.submit.disabled = true
   els.aiPreview.classList.add('hidden')
   autoTagSuggestion = null
@@ -561,13 +616,14 @@ async function runAiTag() {
   try {
     await ensureBackendReady({
       autoStart: true,
-      button: els.aiTag,
+      button,
       label: 'Booting NekoBooru...',
     })
-    setStatus('Preparing media for AI tagging...', 'working')
+    setStatus(`Preparing media for ${profile.label} AI preview...`, 'working')
     const token = await getContentToken()
 
     await loadAutoTagControls()
+    applyAiTagProfile(profileId)
     if (!autoTagStatus.enabled) {
       throw new Error('AI tagging is disabled. Enable Auto Tagging in NekoBooru Settings first.')
     }
@@ -580,7 +636,7 @@ async function runAiTag() {
 
     await loadEnabledAutoTagModels()
 
-    setStatus('Analyzing media...', 'working')
+    setStatus(`Analyzing media with ${profile.label} profile...`, 'working')
     const res = await fetch(`${instanceUrl}/api/uploads/${encodeURIComponent(token)}/auto-tags/preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -601,13 +657,13 @@ async function runAiTag() {
     setTags(autoTagSuggestion.suggestedTags || tags)
     els.safety.value = autoTagSuggestion.suggestedSafety || els.safety.value || 'safe'
     renderAiPreview(autoTagSuggestion)
-    setStatus('AI suggestions are in the form. Review or edit them, then upload.', 'success')
+    setStatus(`${profile.label} AI suggestions are in the form. Review or edit them, then upload.`, 'success')
   } catch (e) {
     const message = await friendlyBackendError(e)
     setStatus('AI tag failed: ' + message, 'error')
     notify('NekoBooru AI tag failed', message)
   } finally {
-    els.aiTag.disabled = false
+    setAiProfileButtonsDisabled(false)
     els.submit.disabled = false
   }
 }
@@ -716,7 +772,7 @@ function convertUploadButtonToPostLink(post) {
   els.submit.disabled = false
   els.submit.textContent = 'Open Post in NekoBooru'
   els.submit.classList.add('uploaded')
-  els.aiTag.disabled = true
+  setAiProfileButtonsDisabled(true)
 }
 
 async function loadAutoTagControls() {
@@ -840,6 +896,15 @@ function modelInfoTitle(model) {
     `Memory: ${model.loaded ? 'loaded' : 'not loaded'}`,
     model.providers?.length ? `Provider: ${model.providers.join(', ')}` : null,
   ].filter(Boolean).join('\n')
+}
+
+function applyAiTagProfile(profileId) {
+  const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
+  Object.entries(profile.settings).forEach(([key, value]) => {
+    autoTagSettings[key] = value
+    autoTagModelOverrides[key] = value
+  })
+  renderAiModelPicker()
 }
 
 function autoTagRunSettings() {

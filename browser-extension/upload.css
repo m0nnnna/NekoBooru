@@ -375,9 +375,23 @@ select:focus {
   width: 100%;
 }
 
+.ai-profile-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.ai-profile-actions .btn {
+  min-height: 42px;
+  padding: 0.55rem 0.65rem;
+  width: 100%;
+  white-space: normal;
+}
+
 .upload-actions {
   display: grid;
-  grid-template-columns: minmax(150px, 0.72fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.6rem;
   margin-bottom: 0.75rem;
 }
