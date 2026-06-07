@@ -51,12 +51,27 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
         sha256 = calculate_sha256(temp_path)
 
         # Check for duplicate
-        existing = await db.execute(select(Post).where(Post.sha256 == sha256))
-        if existing.scalars().first():
+        existing = await db.execute(
+            select(Post)
+            .options(selectinload(Post.tags), selectinload(Post.favorite))
+            .where(Post.sha256 == sha256, Post.deleted_at.is_(None))
+        )
+        existing_post = existing.scalars().first()
+        if existing_post:
             # Clean up temp file
             temp_path.unlink(missing_ok=True)
             remove_upload_token(request.contentToken)
-            raise HTTPException(status_code=409, detail="Post with this content already exists")
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "duplicate_post",
+                    "message": "Same post detected. This content already exists in NekoBooru.",
+                    "post": existing_post.to_dict(),
+                    "postId": existing_post.id,
+                    "postUrl": f"/post/{existing_post.id}",
+                    "sha256": sha256,
+                },
+            )
 
         # Get file info
         extension = temp_path.suffix.lower()

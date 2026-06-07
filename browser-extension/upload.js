@@ -107,6 +107,16 @@ class BackendOfflineError extends Error {
   }
 }
 
+class DuplicatePostError extends Error {
+  constructor(detail) {
+    super(detail?.message || 'Same post detected. This content already exists in NekoBooru.')
+    this.name = 'DuplicatePostError'
+    this.detail = detail || {}
+    this.post = this.detail.post || null
+    this.postId = this.detail.postId || this.post?.id || null
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -523,6 +533,31 @@ function setStatus(message, kind) {
   els.status.classList.remove('hidden')
 }
 
+function setDuplicateStatus(post) {
+  const postId = post?.id
+  els.status.textContent = ''
+  els.status.className = 'status success'
+  els.status.classList.remove('hidden')
+
+  const message = document.createElement('span')
+  message.textContent = 'Same post detected. '
+  els.status.appendChild(message)
+
+  if (postId) {
+    const link = document.createElement('a')
+    link.className = 'view-link'
+    link.href = `${instanceUrl}/post/${postId}`
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    link.textContent = `Open existing post #${postId}`
+    els.status.appendChild(link)
+  } else {
+    const fallback = document.createElement('span')
+    fallback.textContent = 'It already exists in NekoBooru.'
+    els.status.appendChild(fallback)
+  }
+}
+
 function tweetIdFromUrl(raw) {
   if (!raw) return ''
   try {
@@ -582,6 +617,14 @@ async function doUpload() {
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
     convertUploadButtonToPostLink(post)
   } catch (e) {
+    if (e instanceof DuplicatePostError) {
+      const post = e.post || { id: e.postId }
+      createdPost = post
+      setDuplicateStatus(post)
+      notify('Same post detected', e.message)
+      convertUploadButtonToPostLink(post, { duplicate: true })
+      return
+    }
     const message = await friendlyBackendError(e)
     setStatus('Upload failed: ' + message, 'error')
     notify('NekoBooru upload failed', message)
@@ -609,7 +652,10 @@ async function createPostFromPopup(options = {}) {
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.detail || `HTTP ${res.status}`)
+    if (res.status === 409 && err.detail?.code === 'duplicate_post') {
+      throw new DuplicatePostError(err.detail)
+    }
+    throw new Error(formatBackendError(err.detail || `HTTP ${res.status}`))
   }
   createdPost = await res.json()
   return createdPost
@@ -801,10 +847,10 @@ function applyAiVisibility(enabled) {
   if (!enabled) els.aiPreview.classList.add('hidden')
 }
 
-function convertUploadButtonToPostLink(post) {
+function convertUploadButtonToPostLink(post, options = {}) {
   if (!post?.id) return
   els.submit.disabled = false
-  els.submit.textContent = 'Open Post in NekoBooru'
+  els.submit.textContent = options.duplicate ? 'Open Existing Post' : 'Open Post in NekoBooru'
   els.submit.classList.add('uploaded')
   setAiProfileButtonsDisabled(true)
 }

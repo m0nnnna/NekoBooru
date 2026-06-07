@@ -60,6 +60,15 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(upload.status_code, 200, upload.text)
         return upload.json()["token"]
 
+    def _upload_specific_image_token(self, image_path):
+        with image_path.open("rb") as fh:
+            upload = self.client.post(
+                "/api/uploads",
+                files={"content": (image_path.name, fh, "image/png")},
+            )
+        self.assertEqual(upload.status_code, 200, upload.text)
+        return upload.json()["token"]
+
     def _enable_auto_tags(self):
         settings = self.client.get("/api/auto-tags/settings").json()
         settings["enabled"] = True
@@ -104,6 +113,33 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(body["suggestedSafety"], "safe")
         self.assertEqual(body["error"], "disabled")
         self.assertNotIn("auto_tagged", body["categories"])
+
+    def test_duplicate_post_response_includes_existing_post_link_data(self):
+        from PIL import Image
+
+        image_path = Path(self.tmp.name) / f"duplicate-{time.time_ns()}.png"
+        Image.new("RGB", (32, 32), (10, 20, 30)).save(image_path)
+
+        first_token = self._upload_specific_image_token(image_path)
+        created = self.client.post(
+            "/api/posts",
+            json={"contentToken": first_token, "tags": [], "safety": "safe", "autoTag": False},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        post = created.json()
+
+        second_token = self._upload_specific_image_token(image_path)
+        duplicate = self.client.post(
+            "/api/posts",
+            json={"contentToken": second_token, "tags": [], "safety": "safe", "autoTag": False},
+        )
+
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        detail = duplicate.json()["detail"]
+        self.assertEqual(detail["code"], "duplicate_post")
+        self.assertEqual(detail["postId"], post["id"])
+        self.assertEqual(detail["postUrl"], f"/post/{post['id']}")
+        self.assertEqual(detail["post"]["id"], post["id"])
 
     def test_per_post_apply_adds_tags_categories_and_promotes_unsafe(self):
         self._enable_auto_tags()
