@@ -848,6 +848,7 @@ const VIDEO_PLATFORMS = [
 ]
 
 const X_COOKIE_URLS = ['https://x.com/', 'https://twitter.com/']
+const X_COOKIE_DOMAINS = ['x.com', '.x.com', 'twitter.com', '.twitter.com']
 
 // Return the URL if its host is a known video platform, else ''. Instagram only
 // carries video on reels/posts.
@@ -886,20 +887,45 @@ function getBrowserCookies(details) {
   })
 }
 
+function getCookieStores() {
+  return new Promise((resolve) => {
+    if (!chrome.cookies?.getAllCookieStores) {
+      resolve([{ id: undefined }])
+      return
+    }
+    try {
+      chrome.cookies.getAllCookieStores((stores) => resolve(stores?.length ? stores : [{ id: undefined }]))
+    } catch {
+      resolve([{ id: undefined }])
+    }
+  })
+}
+
 async function ytdlpCookiesForUrl(url) {
   if (!isXUrl(url) || !chrome.cookies?.getAll) return ''
-  const cookieLists = await Promise.all(
-    X_COOKIE_URLS.map((cookieUrl) => getBrowserCookies({ url: cookieUrl })),
-  )
+  const stores = await getCookieStores()
+  const queries = []
+  for (const store of stores) {
+    const storeQuery = store.id ? { storeId: store.id } : {}
+    for (const cookieUrl of X_COOKIE_URLS) queries.push(getBrowserCookies({ ...storeQuery, url: cookieUrl }))
+    for (const domain of X_COOKIE_DOMAINS) queries.push(getBrowserCookies({ ...storeQuery, domain }))
+  }
+  const cookieLists = await Promise.all(queries)
   const seen = new Set()
   const cookies = []
   for (const cookie of cookieLists.flat()) {
-    const key = `${cookie.domain}\t${cookie.path}\t${cookie.name}`
+    const key = `${cookie.storeId || ''}\t${cookie.domain}\t${cookie.path}\t${cookie.name}`
     if (seen.has(key)) continue
     seen.add(key)
     cookies.push(cookie)
   }
-  if (!cookies.length) return ''
+
+  const hasAuthToken = cookies.some((cookie) => cookie.name === 'auth_token' && cookie.value)
+  if (!hasAuthToken) {
+    throw new Error(
+      'X/Twitter auth cookies were not available to the extension. Reload the NekoBooru extension, approve the cookies permission, and make sure this Brave profile is logged into an account that can view the protected post.',
+    )
+  }
 
   return [
     '# Netscape HTTP Cookie File',
