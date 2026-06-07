@@ -528,11 +528,7 @@ class WhisperTagger:
             text = str(result.get("text") if isinstance(result, dict) else result).strip()
         finally:
             wav_path.unlink(missing_ok=True)
-        tags = []
-        if text:
-            tags.append("has_speech")
-        if _looks_political(text):
-            tags.append("political_audio")
+        tags = _whisper_tags_from_text(text)
         return AutoTagResult(
             tags=tags,
             categories={tag: "general" for tag in tags},
@@ -602,7 +598,9 @@ class QwenSemanticTagger:
         prompt = (
             "Return compact JSON only with keys tags, safety, rationale. "
             "Use snake_case tags. Include political_edit, meme_edit, amv, music_video, "
-            "captioned, protest, politician, propaganda only when visually supported."
+            "captioned, protest, politician, propaganda only when visually supported. "
+            "Use national_socialism only for clear Nazi/far-right symbols such as a swastika, sonnenrad, or black_sun. "
+            "Use communism only for clear communist symbols such as a hammer_and_sickle or communist red star."
         )
         if context:
             prompt += f" Context: {json.dumps(context)[:1000]}"
@@ -1725,6 +1723,28 @@ def _looks_political(text: str) -> bool:
         "war", "protest", "propaganda", "minister", "parliament",
     ]
     return any(needle in haystack for needle in needles)
+
+
+def _looks_like_music_transcript(text: str) -> bool:
+    haystack = str(text or "").lower()
+    if "♪" in haystack or "♫" in haystack:
+        return True
+    needles = [
+        "[music]", "(music)", "background music", "song", "singing", "sings",
+        "lyrics", "chorus", "verse", "instrumental", "melody", "beat drops",
+    ]
+    return any(needle in haystack for needle in needles)
+
+
+def _whisper_tags_from_text(text: str) -> list[str]:
+    tags = []
+    if str(text or "").strip():
+        tags.append("has_speech")
+    if _looks_political(text):
+        tags.append("political_audio")
+    if _looks_like_music_transcript(text):
+        tags.extend(["music", "edit"])
+    return _dedupe_tags(tags)
 
 
 def _meaningful_ocr_text(text: str) -> bool:

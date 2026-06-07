@@ -869,10 +869,18 @@ function applyAiTagProfile(profileId) {
     renderAiModelPicker()
     return
   }
+  const useSemanticQwen = profileId.startsWith('realistic_')
+    && Boolean(autoTagSettings.qwenEnabled || autoTagSettings.semanticPoliticalEnabled)
   Object.entries(profile.settings).forEach(([key, value]) => {
     autoTagSettings[key] = value
     autoTagModelOverrides[key] = value
   })
+  if (useSemanticQwen) {
+    autoTagSettings.qwenEnabled = true
+    autoTagSettings.semanticPoliticalEnabled = true
+    autoTagModelOverrides.qwenEnabled = true
+    autoTagModelOverrides.semanticPoliticalEnabled = true
+  }
   renderAiModelPicker()
 }
 

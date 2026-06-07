@@ -397,6 +397,15 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertTrue(_meaningful_ocr_text("hello world"))
         self.assertTrue(_meaningful_ocr_text("2026 election"))
 
+    def test_whisper_song_transcript_adds_music_and_edit_tags(self):
+        from app.services.auto_tagger import _whisper_tags_from_text
+
+        tags = _whisper_tags_from_text("[Music] singing starts")
+
+        self.assertIn("music", tags)
+        self.assertIn("edit", tags)
+        self.assertIn("has_speech", tags)
+
     def test_wd_can_be_disabled_for_per_run_overrides(self):
         from app.services.auto_tagger import AutoTagOptions, _tag_image
 
