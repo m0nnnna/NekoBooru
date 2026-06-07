@@ -26,7 +26,6 @@ const els = {
   submit: document.getElementById('submit'),
   aiModelPicker: document.getElementById('ai-model-picker'),
   aiModelList: document.getElementById('ai-model-list'),
-  grantXCookies: document.getElementById('grant-x-cookies'),
   testXCookies: document.getElementById('test-x-cookies'),
   xCookieStatus: document.getElementById('x-cookie-status'),
   aiPreview: document.getElementById('ai-preview'),
@@ -83,7 +82,6 @@ async function init() {
 
   els.submit.addEventListener('click', doUpload)
   els.aiTag.addEventListener('click', runAiTag)
-  els.grantXCookies.addEventListener('click', grantXCookieAccess)
   els.testXCookies.addEventListener('click', testXCookieAccess)
 }
 
@@ -418,39 +416,10 @@ function containsPermission(spec) {
   })
 }
 
-function requestPermission(spec) {
-  return new Promise((resolve) => {
-    if (!chrome.permissions?.request) {
-      resolve(false)
-      return
-    }
-    chrome.permissions.request(spec, (granted) => resolve(Boolean(granted)))
-  })
-}
-
-async function ensureXCookiePermission({ interactive = false } = {}) {
+async function ensureXCookiePermission() {
   const spec = getXCookiePermissionSpec()
   if (await containsPermission(spec)) return true
-  if (!interactive) return false
-  return requestPermission(spec)
-}
-
-async function grantXCookieAccess() {
-  els.grantXCookies.disabled = true
-  els.grantXCookies.textContent = 'Granting...'
-  setXCookieStatus('Waiting for Brave to grant X/Twitter cookie access...', '')
-  try {
-    const granted = await ensureXCookiePermission({ interactive: true })
-    if (!granted) {
-      setXCookieStatus('Permission was not granted. Brave must allow cookies plus x.com/twitter.com site access for protected posts.', 'error')
-      return
-    }
-    setXCookieStatus('Permission granted. Checking for X/Twitter auth cookies...', 'success')
-    await testXCookieAccess()
-  } finally {
-    els.grantXCookies.disabled = false
-    els.grantXCookies.textContent = 'Grant Access'
-  }
+  return Boolean(chrome.cookies?.getAll)
 }
 
 async function testXCookieAccess() {
@@ -1033,9 +1002,9 @@ async function collectXCookieDiagnostics() {
 
 async function ytdlpCookiesForUrl(url) {
   if (!isXUrl(url)) return ''
-  const hasPermission = await ensureXCookiePermission({ interactive: true })
+  const hasPermission = await ensureXCookiePermission()
   if (!hasPermission) {
-    throw new Error('X/Twitter cookie access was not granted. Protected posts need Brave cookie access so yt-dlp can authenticate.')
+    throw new Error('X/Twitter cookie access is not available. Reload extension version 1.2.5 so Brave applies the required cookies permission.')
   }
   const diagnostics = await collectXCookieDiagnostics()
   if (!diagnostics.available) {
