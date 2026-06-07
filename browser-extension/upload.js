@@ -57,6 +57,10 @@ const AI_TAG_PROFILES = {
     label: 'Realistic',
     resolve: () => (mediaType === 'video' ? 'realistic_video' : 'realistic_image'),
   },
+  custom: {
+    label: 'Custom',
+    settings: null,
+  },
 }
 
 const els = {
@@ -861,6 +865,10 @@ function modelInfoTitle(model) {
 function applyAiTagProfile(profileId) {
   profileId = resolveAiTagProfileId(profileId)
   const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
+  if (!profile.settings) {
+    renderAiModelPicker()
+    return
+  }
   Object.entries(profile.settings).forEach(([key, value]) => {
     autoTagSettings[key] = value
     autoTagModelOverrides[key] = value

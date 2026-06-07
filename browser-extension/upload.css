@@ -377,7 +377,7 @@ select:focus {
 
 .ai-profile-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
   margin-bottom: 0.65rem;
 }
@@ -385,8 +385,39 @@ select:focus {
 .ai-profile-actions .btn {
   min-height: 42px;
   padding: 0.55rem 0.65rem;
+  position: relative;
   width: 100%;
   white-space: normal;
+}
+
+.ai-profile-actions .btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  width: min(260px, 82vw);
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: #11161d;
+  color: var(--text-primary);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  text-align: left;
+  transform: translate(-50%, 4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: normal;
+}
+
+.ai-profile-actions .btn:hover::after,
+.ai-profile-actions .btn:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .upload-actions {

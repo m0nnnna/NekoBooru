@@ -54,8 +54,25 @@
       </div>
 
       <div class="ai-profile-actions" aria-label="AI tag preview profiles">
-        <button id="ai-tag" class="btn btn-secondary" data-ai-profile="anime" title="Anime and illustration tagging with WD/Camie.">Anime / Booru</button>
-        <button class="btn btn-secondary" data-ai-profile="realistic" title="Real-life photos, screenshots, videos, edits, and memes using OCR plus semantic models.">Realistic</button>
+        <button
+          id="ai-tag"
+          class="btn btn-secondary"
+          data-ai-profile="anime"
+          data-tooltip="Best for anime, manga, illustrations, and booru-style art. Uses WD and Camie defaults for character/source style tags."
+          title="Best for anime, manga, illustrations, and booru-style art. Uses WD and Camie defaults for character/source style tags."
+        >Anime / Booru</button>
+        <button
+          class="btn btn-secondary"
+          data-ai-profile="realistic"
+          data-tooltip="Best for real-life photos, screenshots, videos, edits, and memes. Uses OCR/Qwen, and adds Whisper automatically for videos."
+          title="Best for real-life photos, screenshots, videos, edits, and memes. Uses OCR/Qwen, and adds Whisper automatically for videos."
+        >Realistic</button>
+        <button
+          class="btn btn-secondary"
+          data-ai-profile="custom"
+          data-tooltip="Runs exactly the model checkboxes currently selected in Advanced AI model settings. It does not change your selections."
+          title="Runs exactly the model checkboxes currently selected in Advanced AI model settings. It does not change your selections."
+        >Custom</button>
       </div>
 
       <div class="upload-actions">
