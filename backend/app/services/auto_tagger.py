@@ -31,6 +31,37 @@ SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 SUPPORTED_VIDEO_EXTS = {".webm", ".mp4"}
 WD_MODEL_ID = "SmilingWolf/wd-eva02-large-tagger-v3"
 WHISPER_MAX_AUDIO_SECONDS = 30
+MEDIA_TYPE_TAGS = {
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".png": "image",
+    ".webp": "image",
+    ".gif": "gif",
+    ".mp4": "video",
+    ".webm": "video",
+}
+DEFAULT_NOISY_TAGS = {
+    "absurdres",
+    "best_quality",
+    "card_medium",
+    "commentary_request",
+    "compression_artifacts",
+    "high_quality",
+    "highres",
+    "jpeg_artifacts",
+    "low_quality",
+    "lowres",
+    "medium_quality",
+    "outline",
+    "signature",
+    "text_focus",
+    "thumbnail",
+    "transparent_background",
+    "twitter_username",
+    "username",
+    "watermark",
+    "worst_quality",
+}
 
 MODEL_REGISTRY = {
     "wd": {
@@ -1532,7 +1563,7 @@ def _combine_results(results: list[AutoTagResult]) -> AutoTagResult:
 
 
 def merge_with_existing(existing: list[str], result: AutoTagResult, opts: AutoTagOptions) -> tuple[list[str], dict[str, str]]:
-    excluded = {normalize_tag(t) for t in opts.excludedTags}
+    excluded = _excluded_tags(opts)
     raw = list(existing or [])
     raw.extend(result.all_tags)
     if opts.addProvenanceTag and result.all_tags:
@@ -1547,6 +1578,7 @@ def merge_with_existing(existing: list[str], result: AutoTagResult, opts: AutoTa
         if tag and tag not in excluded and tag not in seen:
             seen.add(tag)
             out.append(tag)
+    categories = {tag: category for tag, category in categories.items() if normalize_tag(tag) in seen}
     return out, categories
 
 
@@ -1575,6 +1607,36 @@ def _dedupe_tags(tags: list[str]) -> list[str]:
             seen.add(norm)
             out.append(norm)
     return out
+
+
+def _excluded_tags(opts: AutoTagOptions) -> set[str]:
+    return {normalize_tag(t) for t in [*DEFAULT_NOISY_TAGS, *(opts.excludedTags or [])] if normalize_tag(t)}
+
+
+def _media_type_tag(path: Path) -> str | None:
+    return MEDIA_TYPE_TAGS.get(Path(path).suffix.lower())
+
+
+def _append_media_type_tag(result: AutoTagResult, path: Path) -> None:
+    tag = _media_type_tag(path)
+    if not tag:
+        return
+    result.tags.append(tag)
+    result.categories[normalize_tag(tag)] = "meta"
+
+
+def _apply_tag_filters(result: AutoTagResult, opts: AutoTagOptions) -> AutoTagResult:
+    excluded = _excluded_tags(opts)
+    result.tags = [tag for tag in _dedupe_tags(result.tags) if tag not in excluded]
+    result.character_tags = [tag for tag in _dedupe_tags(result.character_tags) if tag not in excluded]
+    result.copyright_tags = [tag for tag in _dedupe_tags(result.copyright_tags) if tag not in excluded]
+    allowed = set(result.all_tags)
+    result.categories = {
+        normalize_tag(tag): category
+        for tag, category in result.categories.items()
+        if normalize_tag(tag) in allowed
+    }
+    return result
 
 
 def _higher_safety(left: str | None, right: str | None) -> str | None:
@@ -1698,6 +1760,7 @@ def safety_from_rating(rating: dict[str, float], opts: AutoTagOptions) -> str | 
 
 
 def _post_process(result: AutoTagResult, path: Path, opts: AutoTagOptions) -> AutoTagResult:
+    _append_media_type_tag(result, path)
     for rule in opts.keywordRules:
         try:
             needle = normalize_tag(rule.get("contains", ""))
@@ -1709,7 +1772,7 @@ def _post_process(result: AutoTagResult, path: Path, opts: AutoTagOptions) -> Au
                 result.categories[tag] = "general"
         except Exception:
             continue
-    return result
+    return _apply_tag_filters(result, opts)
 
 
 def _tag_video(path: Path, opts: AutoTagOptions) -> AutoTagResult:

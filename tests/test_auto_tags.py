@@ -358,6 +358,36 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertEqual(result.safety, "unsafe")
         self.assertEqual(result.categories["hatsune_miku"], "character")
 
+    def test_post_process_adds_media_type_tag(self):
+        from app.services.auto_tagger import AutoTagOptions, AutoTagResult, _post_process
+
+        image = _post_process(AutoTagResult(tags=["meme"]), Path("sample.jpg"), AutoTagOptions())
+        video = _post_process(AutoTagResult(tags=["meme"]), Path("sample.mp4"), AutoTagOptions())
+        gif = _post_process(AutoTagResult(tags=["meme"]), Path("sample.gif"), AutoTagOptions())
+
+        self.assertIn("image", image.tags)
+        self.assertIn("video", video.tags)
+        self.assertIn("gif", gif.tags)
+        self.assertEqual(video.categories["video"], "meta")
+
+    def test_post_process_filters_default_noisy_tags(self):
+        from app.services.auto_tagger import AutoTagOptions, AutoTagResult, _post_process
+
+        result = _post_process(
+            AutoTagResult(
+                tags=["meme", "card_medium", "outline"],
+                categories={"meme": "general", "card_medium": "general", "outline": "general"},
+            ),
+            Path("sample.png"),
+            AutoTagOptions(),
+        )
+
+        self.assertIn("meme", result.tags)
+        self.assertIn("image", result.tags)
+        self.assertNotIn("card_medium", result.tags)
+        self.assertNotIn("outline", result.tags)
+        self.assertNotIn("card_medium", result.categories)
+
     def test_wd_can_be_disabled_for_per_run_overrides(self):
         from app.services.auto_tagger import AutoTagOptions, _tag_image
 
