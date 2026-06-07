@@ -121,15 +121,33 @@ function fileInputScore(input, file) {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type !== 'nekobooru-paste-media-file') return
-  try {
-    const file = new File([msg.bytes], msg.filename || 'nekobooru-media', {
-      type: msg.mime || 'application/octet-stream',
-    })
-    sendResponse(pasteFileIntoEditable(file))
-  } catch (e) {
-    sendResponse({ ok: false, error: e.message || String(e) })
-  }
+  ;(async () => {
+    try {
+      const blob = await dataUrlToBlob(msg.dataUrl)
+      const file = new File([blob], msg.filename || 'nekobooru-media', {
+        type: msg.mime || blob.type || 'application/octet-stream',
+      })
+      const result = pasteFileIntoEditable(file)
+      sendResponse({
+        ...result,
+        fileSize: file.size,
+        expectedSize: msg.size || null,
+      })
+    } catch (e) {
+      sendResponse({ ok: false, error: e.message || String(e) })
+    }
+  })()
+  return true
 })
+
+async function dataUrlToBlob(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') {
+    throw new Error('No media bytes were received.')
+  }
+  const response = await fetch(dataUrl)
+  if (!response.ok) throw new Error('Could not decode media bytes.')
+  return response.blob()
+}
 
 function isXHost() {
   return /(^|\.)x\.com$|(^|\.)twitter\.com$/.test(location.hostname.toLowerCase())

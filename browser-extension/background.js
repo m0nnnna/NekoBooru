@@ -204,16 +204,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (!tabId || !msg.url) throw new Error('Missing target tab or media URL.')
         const response = await fetch(msg.url)
         if (!response.ok) throw new Error(`Could not fetch media (HTTP ${response.status}).`)
-        const bytes = await response.arrayBuffer()
+        const blob = await response.blob()
         const filename = msg.filename || filenameFromUrl(msg.url, response.headers.get('content-type') || '')
-        const mime = msg.mime || response.headers.get('content-type') || mediaMimeFromFilename(filename)
+        const mime = msg.mime || blob.type || response.headers.get('content-type') || mediaMimeFromFilename(filename)
+        const dataUrl = await blobToDataUrl(blob)
         chrome.tabs.sendMessage(
           tabId,
           {
             type: 'nekobooru-paste-media-file',
             filename,
             mime,
-            bytes,
+            dataUrl,
+            size: blob.size,
           },
           { frameId: Number.isInteger(msg.frameId) ? msg.frameId : 0 },
           (result) => {
@@ -252,6 +254,15 @@ function mediaMimeFromFilename(filename = '') {
   if (lower.endsWith('.png')) return 'image/png'
   if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
   return 'application/octet-stream'
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error || new Error('Could not encode media file.'))
+    reader.readAsDataURL(blob)
+  })
 }
 
 function createMenu() {

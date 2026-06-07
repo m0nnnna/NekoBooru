@@ -163,7 +163,8 @@ async function selectPost(post, kind) {
       const pasteText = pasteResult.ok
         ? (pasteResult.method === 'file-input' ? 'attached through X upload' : 'sent to the editor')
         : 'copied as a path'
-      setStatus(`Video ${pasteText} and downloading — attach the file if X rejects paste.`, 'success')
+      const sizeText = pasteResult.fileSize ? ` (${formatBytes(pasteResult.fileSize)})` : ''
+      setStatus(`Video ${pasteText}${sizeText} and downloading — attach the file if X rejects paste.`, 'success')
     }
     // Auto-close so the picker gets out of the way. The clipboard contents and
     // the browser download both live on independently of this popup.
@@ -196,6 +197,12 @@ function mimeForPost(post, kind) {
   if (ext === '.webm') return 'video/webm'
   if (ext === '.gif') return 'image/gif'
   return kind === 'video' ? 'video/mp4' : 'application/octet-stream'
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return ''
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function closeSoon() {
