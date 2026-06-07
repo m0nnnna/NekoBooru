@@ -13,9 +13,9 @@ const AI_TAG_PROFILES = {
   anime: {
     label: 'Anime / Booru',
     settings: {
-      wdEnabled: true,
+      wdEnabled: false,
       characterModelEnabled: true,
-      ocrEnabled: false,
+      ocrEnabled: true,
       whisperEnabled: false,
       qwenEnabled: false,
       semanticPoliticalEnabled: false,
@@ -27,7 +27,7 @@ const AI_TAG_PROFILES = {
   realistic_image: {
     label: 'Realistic Image',
     settings: {
-      wdEnabled: false,
+      wdEnabled: true,
       characterModelEnabled: false,
       ocrEnabled: true,
       whisperEnabled: false,
@@ -41,7 +41,7 @@ const AI_TAG_PROFILES = {
   realistic_video: {
     label: 'Realistic Video',
     settings: {
-      wdEnabled: false,
+      wdEnabled: true,
       characterModelEnabled: false,
       ocrEnabled: true,
       whisperEnabled: true,
@@ -893,7 +893,11 @@ function enabledModels() {
 }
 
 async function loadEnabledAutoTagModels() {
-  for (const model of enabledModels()) {
+  const pending = enabledModels().filter((model) => model.downloaded && model.runtimeAvailable && !model.loaded)
+  if (pending.length) {
+    setStatus(`Loading model weights: ${pending.map((model) => model.name).join(', ')}...`, 'working')
+  }
+  for (const model of pending) {
     if (!model.downloaded || !model.runtimeAvailable || model.loaded) continue
     await loadAutoTagModel(model.id, { keepStatus: true })
   }
@@ -940,7 +944,11 @@ function pollModelLoad() {
         const res = await fetch(`${instanceUrl}/api/auto-tags/models/load-job`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const job = await res.json()
-        if (job?.message) setStatus(job.message, 'working')
+        if (job?.message) {
+          const progress = Number.isFinite(Number(job.progress)) ? ` (${Math.round(Number(job.progress))}%)` : ''
+          const model = job.model ? `${job.model}: ` : ''
+          setStatus(`${model}${job.message}${progress}`, 'working')
+        }
         if (!job || !['queued', 'running'].includes(job.status)) {
           clearInterval(modelLoadPollTimer)
           modelLoadPollTimer = null

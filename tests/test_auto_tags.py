@@ -388,6 +388,15 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertNotIn("outline", result.tags)
         self.assertNotIn("card_medium", result.categories)
 
+    def test_meaningful_ocr_text_filters_blank_or_junk_text(self):
+        from app.services.auto_tagger import _meaningful_ocr_text
+
+        self.assertFalse(_meaningful_ocr_text(""))
+        self.assertFalse(_meaningful_ocr_text(" . "))
+        self.assertFalse(_meaningful_ocr_text("??"))
+        self.assertTrue(_meaningful_ocr_text("hello world"))
+        self.assertTrue(_meaningful_ocr_text("2026 election"))
+
     def test_wd_can_be_disabled_for_per_run_overrides(self):
         from app.services.auto_tagger import AutoTagOptions, _tag_image
 

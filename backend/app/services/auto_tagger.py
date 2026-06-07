@@ -469,7 +469,7 @@ class OcrTagger:
         generated_ids = self._model.generate(pixel_values, max_new_tokens=96)
         text = self._processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
         tags = []
-        if text:
+        if _meaningful_ocr_text(text):
             tags.extend(["has_text", "text_overlay"])
         if _looks_political(text):
             tags.append("political_text")
@@ -1725,6 +1725,17 @@ def _looks_political(text: str) -> bool:
         "war", "protest", "propaganda", "minister", "parliament",
     ]
     return any(needle in haystack for needle in needles)
+
+
+def _meaningful_ocr_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(normalized) < 3:
+        return False
+    alnum = re.findall(r"[a-zA-Z0-9]", normalized)
+    if len(alnum) < 3:
+        return False
+    words = re.findall(r"[a-zA-Z0-9]{2,}", normalized)
+    return bool(words)
 
 
 def _parse_semantic_json(raw: str) -> dict:
