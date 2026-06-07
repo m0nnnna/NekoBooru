@@ -53,7 +53,11 @@ param(
     [string]$VenvPath = "venv"
 )
 
-$ErrorActionPreference = "Stop"
+# NOTE: intentionally NOT "Stop". In Windows PowerShell 5.1, EAP=Stop turns any
+# native-command stderr (a Python traceback, ordinary pip warnings) into a fatal
+# NativeCommandError that even 2>$null won't suppress. We check $LASTEXITCODE
+# explicitly and use throw (which stops regardless of EAP) for real failures.
+$ErrorActionPreference = "Continue"
 Set-Location $PSScriptRoot
 
 if (@($CPU, $Legacy, $GPU | Where-Object { $_ }).Count -gt 1) {
@@ -138,10 +142,10 @@ function Get-ReqFile {
 
 function Invoke-Install {
     param([string]$class)
-    & $venvPython -m pip install --upgrade pip | Out-Null
-    & $venvPython -m pip install -r "backend\requirements.txt"
+    & $venvPython -m pip install --upgrade pip 2>&1 | Out-Null
+    & $venvPython -m pip install -r "backend\requirements.txt" 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Base dependency install failed." }
-    & $venvPython -m pip install -r (Get-ReqFile $class)
+    & $venvPython -m pip install -r (Get-ReqFile $class) 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Tagger dependency install failed (see pip output above)." }
 }
 
