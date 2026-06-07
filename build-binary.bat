@@ -59,12 +59,15 @@ echo NekoBooru - Standalone Binary
 echo ==============================
 echo.
 echo Usage:
-echo   Simply run nekobooru.exe to start the server.
+echo   Run nekobooru.exe to start the server ^(binds to 127.0.0.1:8772^).
 echo   Everything is packed into the single exe.
 echo.
+echo   To change the bind address or port, edit and run start-neko.bat
+echo   instead ^(it sets NEKO_HOST / NEKO_PORT before launching^).
+echo.
 echo   The server will be available at:
-echo     - Application: http://localhost:8000
-echo     - API Docs:    http://localhost:8000/docs
+echo     - Application: http://localhost:8772
+echo     - API Docs:    http://localhost:8772/docs
 echo.
 echo   A "data" folder will be created next to the executable
 echo   for your database and uploaded files.
@@ -77,6 +80,23 @@ echo   - Place yt-dlp.exe next to nekobooru.exe for video downloads
 echo.
 echo No Python installation required!
 ) > "%OUTPUT_DIR%\README.txt"
+
+echo.
+echo Creating start-neko.bat launcher...
+(
+echo @echo off
+echo REM ===== NekoBooru launch settings =====
+echo REM NEKO_HOST: 127.0.0.1 = this PC only ^(default^). 0.0.0.0 = all interfaces / LAN.
+echo REM WARNING: NekoBooru has NO authentication. Only use 0.0.0.0 on a trusted LAN.
+echo set NEKO_HOST=127.0.0.1
+echo REM NEKO_PORT: TCP port to listen on. Default 8772.
+echo set NEKO_PORT=8772
+echo REM If you open the UI from another device's browser, also set the allowed origin, e.g.:
+echo REM set NEKO_CORS_ORIGINS=http://192.168.1.50:8772
+echo.
+echo nekobooru.exe
+echo pause
+) > "%OUTPUT_DIR%\start-neko.bat"
 
 echo.
 echo ========================================

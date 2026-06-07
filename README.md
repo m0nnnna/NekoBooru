@@ -176,7 +176,17 @@ AI tagging is **off by default and not part of the base install or the shipped b
 stack (torch/CUDA, onnxruntime, transformers) is large, so you install it only where you want it.
 
 ### Install the AI runtime
-In the Python environment running NekoBooru:
+The easiest way is the installer script, which creates/uses the project venv,
+installs everything, and verifies torch/onnxruntime:
+```bash
+# Windows (GPU by default; add -CPU for a CPU-only install):
+.\install-ai.ps1
+.\install-ai.ps1 -CPU
+# Linux / macOS (add --cpu for a CPU-only install):
+./install-ai.sh
+./install-ai.sh --cpu
+```
+Or install manually into the Python environment running NekoBooru:
 ```bash
 # NVIDIA GPU (CUDA):
 pip install -r backend/requirements-tagger.txt
@@ -185,6 +195,12 @@ pip install -r backend/requirements-tagger-cpu.txt
 ```
 Then open **Settings → Auto Tagging**, toggle **Enable AI features**, and download the models you want.
 The web UI also shows these commands and a CPU/GPU picker when the runtime isn't installed yet.
+
+> **Note:** the AI stack only works from a source checkout. The shipped Windows
+> `nekobooru.exe` excludes torch/onnxruntime/transformers and cannot load them,
+> so run the app from source (`start.bat`) on any machine that does tagging —
+> including a [remote GPU worker](#remote-gpu-worker-run-inference-on-another-machine)
+> (`start-worker.bat`).
 
 ### Remote GPU worker (run inference on another machine)
 If your GPU is on a different LAN machine, keep the main server light and offload tagging to a **worker**:
