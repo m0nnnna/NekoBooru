@@ -342,6 +342,26 @@ select:focus {
   cursor: default;
 }
 
+.btn.loading {
+  gap: 0.55rem;
+}
+
+.btn.loading::before {
+  content: '';
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .btn.uploaded {
   background: var(--success);
   color: #102017;

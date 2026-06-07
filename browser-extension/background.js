@@ -57,7 +57,7 @@ let lastCursor = null
 let lastHasVideo = false
 let lastPostUrl = ''
 
-chrome.runtime.onMessage.addListener((msg, sender) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.type === 'nekobooru-cursor') {
     lastCursor = { x: msg.x, y: msg.y }
     lastHasVideo = !!msg.hasVideo
@@ -85,21 +85,20 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       (response) => {
         const error = chrome.runtime.lastError
         if (error) {
-          chrome.runtime.sendMessage({
-            type: 'nekobooru-start-local-app-result',
+          sendResponse({
             ok: false,
             error: error.message || 'Native launcher is not installed.',
           })
           return
         }
-        chrome.runtime.sendMessage({
-          type: 'nekobooru-start-local-app-result',
+        sendResponse({
           ok: !!response?.ok,
           response,
           error: response?.error || '',
         })
       },
     )
+    return true
   }
 })
 

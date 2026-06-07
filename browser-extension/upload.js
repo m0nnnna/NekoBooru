@@ -40,6 +40,7 @@ let autoTagSettings = {}
 let autoTagStatus = {}
 let autoTagSuggestion = null
 let modelLoadPollTimer = null
+let bootPromise = null
 
 class BackendOfflineError extends Error {
   constructor() {
@@ -75,7 +76,6 @@ async function init() {
   renderPreview()
   setupTagAutocomplete()
   els.startLocalApp.addEventListener('click', startLocalApp)
-  chrome.runtime.onMessage.addListener(onRuntimeMessage)
   if (await checkBackendHealth()) loadAutoTagControls()
 
   els.submit.addEventListener('click', doUpload)
@@ -94,49 +94,76 @@ async function checkBackendHealth() {
   }
 }
 
-async function ensureBackendReady() {
+async function ensureBackendReady(options = {}) {
   if (await checkBackendHealth()) return
+  if (options.autoStart) {
+    await bootLocalApp(options)
+    if (await checkBackendHealth()) return
+  }
   throw new BackendOfflineError()
 }
 
 async function startLocalApp() {
-  els.startLocalApp.disabled = true
-  els.serverHelperNote.textContent = 'Starting local backend and frontend...'
-  setStatus('Starting NekoBooru...', 'working')
   try {
-    chrome.runtime.sendMessage({ type: 'nekobooru-start-local-app' })
+    await bootLocalApp({ button: els.startLocalApp, label: 'Starting NekoBooru...' })
+    setStatus('NekoBooru is running. You can continue.', 'success')
+    loadAutoTagControls()
   } catch (e) {
-    els.startLocalApp.disabled = false
-    els.serverHelperNote.textContent = 'Native launcher is unavailable. Run browser-extension/native-host/install-native-host.ps1 once.'
-    setStatus('Could not contact native launcher: ' + e.message, 'error')
+    setStatus('Could not start NekoBooru: ' + e.message, 'error')
   }
 }
 
-function onRuntimeMessage(msg) {
-  if (!msg || msg.type !== 'nekobooru-start-local-app-result') return
-  if (!msg.ok) {
-    els.startLocalApp.disabled = false
-    els.serverHelperNote.textContent = msg.error || 'Native launcher is unavailable. Run browser-extension/native-host/install-native-host.ps1 once.'
-    setStatus('Could not start NekoBooru: ' + (msg.error || 'native launcher failed'), 'error')
-    return
+async function bootLocalApp(options = {}) {
+  const button = options.button
+  const doneBusy = button ? setButtonBusy(button, options.label || 'Booting NekoBooru...') : null
+  if (!bootPromise) {
+    bootPromise = (async () => {
+      els.serverHelper.classList.remove('hidden')
+      els.serverHelperNote.textContent = 'Booting NekoBooru. This can take a few seconds...'
+      setStatus('Booting NekoBooru...', 'working')
+      const response = await chrome.runtime.sendMessage({ type: 'nekobooru-start-local-app' })
+      if (!response?.ok) {
+        const message = response?.error || 'Native launcher failed. Run browser-extension/native-host/install-native-host.ps1 once.'
+        els.serverHelperNote.textContent = message
+        throw new Error(message)
+      }
+      els.serverHelperNote.textContent = 'Launcher started. Waiting for the API...'
+      await waitForBackend()
+    })().finally(() => {
+      bootPromise = null
+    })
   }
-  els.serverHelperNote.textContent = 'Launcher started. Waiting for the API...'
-  waitForBackend()
+  try {
+    await bootPromise
+  } finally {
+    if (doneBusy) doneBusy()
+  }
 }
 
 async function waitForBackend() {
   for (let i = 0; i < 30; i += 1) {
     if (await checkBackendHealth()) {
       els.startLocalApp.disabled = false
-      setStatus('NekoBooru is running. You can continue.', 'success')
-      loadAutoTagControls()
       return
     }
     await new Promise((resolve) => setTimeout(resolve, 1000))
   }
   els.startLocalApp.disabled = false
   els.serverHelperNote.textContent = 'Launcher ran, but the API did not answer yet. Try again in a moment.'
-  setStatus('NekoBooru did not answer after startup.', 'error')
+  throw new Error('NekoBooru did not answer after startup.')
+}
+
+function setButtonBusy(button, label) {
+  const oldText = button.textContent
+  const wasDisabled = button.disabled
+  button.textContent = label
+  button.disabled = true
+  button.classList.add('loading')
+  return () => {
+    button.textContent = oldText
+    button.disabled = wasDisabled
+    button.classList.remove('loading')
+  }
 }
 
 function renderPreview() {
@@ -375,7 +402,12 @@ async function doUpload() {
   setStatus('Fetching media...', 'working')
 
   try {
-    await ensureBackendReady()
+    await ensureBackendReady({
+      autoStart: true,
+      button: els.submit,
+      label: 'Booting NekoBooru...',
+    })
+    setStatus('Fetching media...', 'working')
     const post = await createPostFromPopup({})
 
     await chrome.storage.sync.set({ lastSafety: els.safety.value })
@@ -445,7 +477,11 @@ async function runAiTag() {
   autoTagSuggestion = null
 
   try {
-    await ensureBackendReady()
+    await ensureBackendReady({
+      autoStart: true,
+      button: els.aiTag,
+      label: 'Booting NekoBooru...',
+    })
     setStatus('Preparing media for AI tagging...', 'working')
     const token = await getContentToken()
 
