@@ -42,6 +42,7 @@ let createdPost = null
 let autoTagSettings = {}
 let autoTagStatus = {}
 let autoTagSuggestion = null
+let autoTagModelOverrides = {}
 let modelLoadPollTimer = null
 let bootPromise = null
 
@@ -728,6 +729,10 @@ async function loadAutoTagControls() {
     if (!settingsRes.ok || !statusRes.ok) throw new Error('AI tag status unavailable')
     autoTagSettings = await settingsRes.json()
     autoTagSettings.wdEnabled = autoTagSettings.wdEnabled !== false
+    autoTagSettings = {
+      ...autoTagSettings,
+      ...autoTagModelOverrides,
+    }
     autoTagStatus = await statusRes.json()
     applyAiVisibility(Boolean(autoTagStatus.enabled))
     renderAiModelPicker()
@@ -763,7 +768,9 @@ function renderAiModelPicker() {
     checkbox.id = `ai-model-${model.id}`
     checkbox.checked = Boolean(autoTagSettings[modelSettingKey(model.id)])
     checkbox.addEventListener('change', () => {
-      autoTagSettings[modelSettingKey(model.id)] = checkbox.checked
+      const key = modelSettingKey(model.id)
+      autoTagModelOverrides[key] = checkbox.checked
+      autoTagSettings[key] = checkbox.checked
     })
     const enabledText = document.createElement('span')
     enabledText.textContent = 'Use'
