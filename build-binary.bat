@@ -83,7 +83,7 @@ echo.
 echo No Python installation required!
 ) > "%OUTPUT_DIR%\README.txt"
 
-powershell -NoProfile -Command "Get-FileHash '%OUTPUT_DIR%\nekobooru.exe' -Algorithm SHA256 | Format-List" > "%OUTPUT_DIR%\SHA256SUMS.txt"
+certutil -hashfile "%OUTPUT_DIR%\nekobooru.exe" SHA256 > "%OUTPUT_DIR%\SHA256SUMS.txt"
 
 echo.
 echo Creating start-neko.bat launcher...
