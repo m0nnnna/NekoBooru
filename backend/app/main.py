@@ -112,6 +112,21 @@ async def debug_paths():
     }
 
 
+# Honest 404 for unmatched API paths. Must be registered after every real API
+# route (concrete routes match first) but before the SPA catch-all below.
+# Otherwise an unknown /api route falls through to ``GET /{full_path:path}`` and
+# a non-GET request returns a confusing 405 Method Not Allowed instead of 404.
+@app.api_route(
+    "/api/{rest:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    include_in_schema=False,
+)
+async def api_not_found(rest: str):
+    from fastapi import HTTPException
+
+    raise HTTPException(status_code=404, detail="Not found")
+
+
 # Serve static files in production (must be after all API routes)
 # Check if frontend build exists (relative to backend directory)
 # Try multiple paths to find frontend build
