@@ -20,9 +20,9 @@
     is installed instead - and when auto-detecting it will fall back
     standard -> legacy -> cpu until one actually runs.
 
-    The compiled nekobooru.exe excludes this stack and can never use it, so AI
-    features require a source checkout running from this venv (start.bat for the
-    main app, start-worker.bat for a remote GPU worker).
+    Packaged installs place this stack in a managed AI venv and link that venv
+    into the app process on startup. Source checkouts can also use this script
+    against .\venv or another explicit venv path.
 
 .PARAMETER CPU
     Force the CPU-only stack.
@@ -50,7 +50,8 @@ param(
     [switch]$Legacy,
     [switch]$GPU,
     [switch]$Force,
-    [string]$VenvPath = "venv"
+    [string]$VenvPath = "venv",
+    [string]$ReceiptPath = ""
 )
 
 # NOTE: intentionally NOT "Stop". In Windows PowerShell 5.1, EAP=Stop turns any
@@ -216,7 +217,28 @@ Write-Host "`nVerifying install ..." -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw "Verification failed: torch/onnxruntime not importable in $VenvPath." }
 
 Write-Host "`nAI auto-tagging stack ready in $VenvPath (target: $target)." -ForegroundColor Green
+if ($ReceiptPath) {
+    $receiptDir = Split-Path -Parent $ReceiptPath
+    if ($receiptDir) { New-Item -ItemType Directory -Force -Path $receiptDir | Out-Null }
+    $profile = switch ($target) {
+        "cpu" { "cpu" }
+        "legacy" { "gpu-cu126-legacy" }
+        default { "gpu-cu128" }
+    }
+    $receipt = [ordered]@{
+        profile = $profile
+        installedAt = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        python = (Resolve-Path $venvPython).Path
+        verified = $true
+        target = $target
+        installedBy = "install-ai.ps1"
+    }
+    $json = $receipt | ConvertTo-Json -Depth 5
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($ReceiptPath, $json, $utf8NoBom)
+    Write-Host "Wrote AI runtime receipt: $ReceiptPath" -ForegroundColor Green
+}
 Write-Host "Next steps:" -ForegroundColor Green
-Write-Host "  1. Start NekoBooru from source: start.bat (main app) or start-worker.bat (remote GPU worker)."
+Write-Host "  1. Restart NekoBooru if it was already running so the app links the managed AI venv."
 Write-Host "  2. Open Settings -> Auto Tagging, enable AI features, and download the models you want."
 Write-Host "  3. Optional: benchmark with  $venvPython benchmark-tagger.py"

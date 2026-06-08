@@ -33,6 +33,11 @@ Name: "nativehost"; Description: "Install browser native host registration"; Gro
 [Files]
 Source: "..\..\dist\nekobooru-binary\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "apply-installer-settings.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "..\..\install-ai.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\backend\requirements.txt"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "..\..\backend\requirements-tagger.txt"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "..\..\backend\requirements-tagger-cpu.txt"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "..\..\backend\requirements-tagger-legacy.txt"; DestDir: "{app}\backend"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\NekoBooru"; Filename: "{app}\{#MyAppExeName}"
@@ -44,6 +49,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\apply-installer-settings.ps1"" -BackendPort {code:GetBackendPort} -FrontendPort {code:GetFrontendPort} -AiProfile ""{code:GetAiProfile}"" -UpdateOwner ""{code:GetUpdateOwner}"" -UpdateRepo ""{code:GetUpdateRepo}"" -UpdateChannel ""{code:GetUpdateChannel}"""; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-ai.ps1"" {code:GetAiInstallSwitch} -VenvPath ""{localappdata}\NekoBooru\runtimes\python-ai"" -ReceiptPath ""{localappdata}\NekoBooru\runtimes\python-ai\nekobooru-ai-runtime.json"""; StatusMsg: "Installing selected AI runtime. This can download several GB and may take a while..."; Flags: waituntilterminated; Check: ShouldInstallLocalAi
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch NekoBooru"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
@@ -76,7 +82,7 @@ begin
       PortPage.ID,
       'Choose AI Runtime Setup',
       'Select how NekoBooru should prepare AI tagging.',
-      'The base installer does not bundle CUDA, Torch, or model weights. This choice is saved for first-run Settings so you can install the right AI runtime and download models from inside NekoBooru.',
+      'Local CPU/GPU choices install the selected Torch/ONNX/Transformers runtime during setup. Model weights are still downloaded from NekoBooru Settings so you can choose exactly which taggers to keep locally.',
       True,
       False
     );
@@ -191,6 +197,22 @@ begin
   else
     Result := 'skip';
   end;
+end;
+
+function GetAiInstallSwitch(Param: String): String;
+begin
+  case AiPage.SelectedValueIndex of
+    1: Result := '-CPU';
+    2: Result := '-GPU';
+    3: Result := '-Legacy';
+  else
+    Result := '';
+  end;
+end;
+
+function ShouldInstallLocalAi(): Boolean;
+begin
+  Result := (AiPage.SelectedValueIndex >= 1) and (AiPage.SelectedValueIndex <= 3);
 end;
 
 function GetUpdateOwner(Param: String): String;

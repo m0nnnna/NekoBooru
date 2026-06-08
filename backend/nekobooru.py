@@ -8,6 +8,10 @@ import sys
 from urllib.error import URLError
 from urllib.request import urlopen
 import uvicorn
+from app.ai_runtime_link import link_ai_runtime
+
+link_ai_runtime()
+
 from app.config import settings
 from app.main import app
 from app.runtime_paths import runtime_paths

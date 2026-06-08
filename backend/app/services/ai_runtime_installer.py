@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import threading
@@ -65,7 +66,24 @@ _process: subprocess.Popen | None = None
 
 
 def _repo_root() -> Path:
+    if runtime_paths.packaged:
+        return runtime_paths.app_dir
     return Path(__file__).resolve().parents[3]
+
+
+def _venv_bootstrap_python() -> list[str]:
+    if not runtime_paths.packaged:
+        return [sys.executable]
+    override = os.environ.get("NEKO_PYTHON")
+    if override:
+        return [override]
+    python = shutil.which("python")
+    if python:
+        return [python]
+    py = shutil.which("py")
+    if py:
+        return [py, "-3"]
+    raise RuntimeError("Python was not found. Install Python 3.10+ or set NEKO_PYTHON before installing the AI runtime.")
 
 
 def _python_in_venv() -> Path:
@@ -165,7 +183,7 @@ def _run_install(job_id: str, profile_id: str) -> None:
         runtime_paths.ai_venv_dir.mkdir(parents=True, exist_ok=True)
         py = _python_in_venv()
         if not py.exists():
-            _run(job_id, [sys.executable, "-m", "venv", str(runtime_paths.ai_venv_dir)], 15)
+            _run(job_id, [*_venv_bootstrap_python(), "-m", "venv", str(runtime_paths.ai_venv_dir)], 15)
 
         _set_job(job_id, progress=25, message="Installing base backend dependencies")
         _run(job_id, [str(py), "-m", "pip", "install", "--upgrade", "pip"], 30)
@@ -178,6 +196,12 @@ def _run_install(job_id: str, profile_id: str) -> None:
         _set_job(job_id, progress=90, message="Verifying AI runtime")
         verify = _verify_runtime(py)
         receipt = _write_receipt(profile_id, verify)
+        try:
+            from ..ai_runtime_link import link_ai_runtime
+
+            link_ai_runtime()
+        except Exception:
+            pass
         _set_job(
             job_id,
             status="completed",

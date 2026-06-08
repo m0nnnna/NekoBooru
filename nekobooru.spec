@@ -13,6 +13,10 @@ a = Analysis(
     datas=[
         # Bundle the frontend dist into the executable
         (os.path.join('frontend', 'dist'), 'frontend'),
+        (os.path.join('backend', 'requirements.txt'), os.path.join('backend')),
+        (os.path.join('backend', 'requirements-tagger.txt'), os.path.join('backend')),
+        (os.path.join('backend', 'requirements-tagger-cpu.txt'), os.path.join('backend')),
+        (os.path.join('backend', 'requirements-tagger-legacy.txt'), os.path.join('backend')),
     ],
     hiddenimports=[
         # Uvicorn internals
