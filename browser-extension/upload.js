@@ -935,21 +935,43 @@ function convertUploadButtonToPostLink(post, options = {}) {
   setAiProfileButtonsDisabled(true)
 }
 
-async function loadAutoTagControls() {
+let autoTagControlsPromise = null
+
+// Dedupe concurrent loads: init() fires this on popup open, and a click on the
+// AI button awaits it. Without this they'd each trigger a separate slow status
+// fetch. Settled loads clear the cache so later refreshes still re-fetch.
+function loadAutoTagControls() {
+  if (autoTagControlsPromise) return autoTagControlsPromise
+  autoTagControlsPromise = _loadAutoTagControls().finally(() => {
+    autoTagControlsPromise = null
+  })
+  return autoTagControlsPromise
+}
+
+async function _loadAutoTagControls() {
   try {
     await ensureBackendReady()
-    const [settingsRes, statusRes] = await Promise.all([
-      fetch(`${instanceUrl}/api/auto-tags/settings`),
-      fetch(`${instanceUrl}/api/auto-tags/status`),
-    ])
-    if (!settingsRes.ok || !statusRes.ok) throw new Error('AI tag status unavailable')
+    // Fetch the cheap settings first and reveal the AI buttons immediately. The
+    // status endpoint imports torch / probes CUDA and can take 30s+ (worse on a
+    // network-share install), so it must NOT gate button visibility — otherwise
+    // the Anime/Booru button is missing until that finishes.
+    const settingsRes = await fetch(`${instanceUrl}/api/auto-tags/settings`)
+    if (!settingsRes.ok) throw new Error('AI tag settings unavailable')
     autoTagSavedSettings = await settingsRes.json()
     autoTagSavedSettings.wdEnabled = autoTagSavedSettings.wdEnabled !== false
-    autoTagSettings = { ...autoTagSavedSettings }
-    autoTagSettings = {
-      ...autoTagSettings,
-      ...autoTagModelOverrides,
+    autoTagSettings = { ...autoTagSavedSettings, ...autoTagModelOverrides }
+    applyAiVisibility(Boolean(autoTagSavedSettings.enabled))
+    if (autoTagSavedSettings.enabled) {
+      els.aiModelList.innerHTML = ''
+      const loadingNote = document.createElement('div')
+      loadingNote.className = 'picker-note'
+      loadingNote.textContent = 'Loading AI model status...'
+      els.aiModelList.appendChild(loadingNote)
     }
+
+    // Then load the heavier runtime status to populate the model picker.
+    const statusRes = await fetch(`${instanceUrl}/api/auto-tags/status`)
+    if (!statusRes.ok) throw new Error('AI tag status unavailable')
     autoTagStatus = await statusRes.json()
     applyAiVisibility(Boolean(autoTagStatus.enabled))
     renderAiModelPicker()

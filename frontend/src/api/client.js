@@ -56,6 +56,13 @@ export const api = {
     return request(`/posts/${id}`, { method: 'DELETE' })
   },
 
+  async bulkDeletePosts(postIds) {
+    return request('/posts/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ postIds }),
+    })
+  },
+
   async toggleFavorite(id) {
     return request(`/posts/${id}/favorite`, { method: 'POST' })
   },

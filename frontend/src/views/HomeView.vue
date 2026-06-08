@@ -5,6 +5,14 @@
         <span :class="{ 'loading-fade': loading }">{{ total }} posts found</span>
       </div>
       <div class="toolbar-controls">
+        <button
+          type="button"
+          class="btn select-toggle"
+          :class="selectMode ? 'btn-primary' : 'btn-secondary'"
+          @click="toggleSelectMode"
+        >
+          {{ selectMode ? 'Done' : 'Select' }}
+        </button>
         <div class="safety-filter">
           <label
             class="safety-checkbox safe"
@@ -53,20 +61,83 @@
       @update:modelValue="onPageChange"
     />
 
-    <PostGrid :posts="posts" :loading="loading" />
+    <PostGrid
+      :posts="posts"
+      :loading="loading"
+      :select-mode="selectMode"
+      :selected-ids="selectedIds"
+      @toggle="toggleSelect"
+    />
 
     <Pagination
       v-model="page"
       :pages="pages"
       @update:modelValue="onPageChange"
     />
+
+    <!-- Bulk action bar: visible only in select mode -->
+    <div v-if="selectMode" class="bulk-bar">
+      <div class="bulk-info">
+        <strong>{{ selectedIds.length }}</strong> selected
+        <button type="button" class="link-btn" @click="selectAllVisible">Select page</button>
+        <button type="button" class="link-btn" @click="clearSelection" :disabled="!selectedIds.length">
+          Clear
+        </button>
+      </div>
+      <div class="bulk-actions">
+        <button type="button" class="btn btn-secondary" :disabled="!selectedIds.length || busy" @click="autotagSelected">
+          Autotag
+        </button>
+        <button type="button" class="btn btn-secondary" :disabled="!selectedIds.length || busy" @click="openPoolModal">
+          Add to pool
+        </button>
+        <button type="button" class="btn btn-danger" :disabled="!selectedIds.length || busy" @click="deleteSelected">
+          Delete
+        </button>
+      </div>
+    </div>
+
+    <div v-if="actionMessage" class="action-toast" :class="actionMessageKind">
+      {{ actionMessage }}
+    </div>
+
+    <!-- Add to pool modal -->
+    <div v-if="poolModalOpen" class="modal-overlay" @click.self="poolModalOpen = false">
+      <div class="modal">
+        <h3>Add {{ selectedIds.length }} post(s) to a pool</h3>
+        <div class="pool-list">
+          <label v-for="pool in pools" :key="pool.id" class="pool-option">
+            <input type="radio" name="pool" :value="pool.id" v-model="chosenPoolId" />
+            <span>{{ pool.name }} <small>({{ pool.postCount ?? (pool.posts ? pool.posts.length : 0) }})</small></span>
+          </label>
+          <label class="pool-option">
+            <input type="radio" name="pool" value="__new__" v-model="chosenPoolId" />
+            <span>Create new pool</span>
+          </label>
+          <input
+            v-if="chosenPoolId === '__new__'"
+            v-model="newPoolName"
+            class="new-pool-input"
+            type="text"
+            placeholder="New pool name"
+          />
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="poolModalOpen = false" :disabled="busy">Cancel</button>
+          <button type="button" class="btn btn-primary" @click="confirmAddToPool" :disabled="busy || !canConfirmPool">
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePostsStore } from '../stores/posts'
+import { api } from '../api/client'
 import PostGrid from '../components/PostGrid.vue'
 import Pagination from '../components/Pagination.vue'
 
@@ -104,6 +175,131 @@ const total = ref(0)
 const pages = ref(0)
 const loading = ref(false)
 const pendingScrollTop = ref(false)
+
+// --- Multi-select editing mode ---
+const selectMode = ref(false)
+const selectedIds = ref([])
+const busy = ref(false)
+const actionMessage = ref('')
+const actionMessageKind = ref('success')
+let actionMessageTimer = null
+
+// Add-to-pool modal
+const poolModalOpen = ref(false)
+const pools = ref([])
+const chosenPoolId = ref('')
+const newPoolName = ref('')
+
+const canConfirmPool = computed(() => {
+  if (chosenPoolId.value === '__new__') return newPoolName.value.trim().length > 0
+  return Boolean(chosenPoolId.value)
+})
+
+function toggleSelectMode() {
+  selectMode.value = !selectMode.value
+  if (!selectMode.value) clearSelection()
+}
+
+function toggleSelect(id) {
+  const idx = selectedIds.value.indexOf(id)
+  if (idx === -1) selectedIds.value.push(id)
+  else selectedIds.value.splice(idx, 1)
+}
+
+function selectAllVisible() {
+  const ids = posts.value.map((p) => p.id)
+  selectedIds.value = [...new Set([...selectedIds.value, ...ids])]
+}
+
+function clearSelection() {
+  selectedIds.value = []
+}
+
+function showMessage(text, kind = 'success') {
+  actionMessage.value = text
+  actionMessageKind.value = kind
+  if (actionMessageTimer) clearTimeout(actionMessageTimer)
+  actionMessageTimer = setTimeout(() => {
+    actionMessage.value = ''
+  }, 5000)
+}
+
+async function autotagSelected() {
+  if (!selectedIds.value.length || busy.value) return
+  busy.value = true
+  try {
+    const job = await api.createAutoTagJob({
+      mode: 'selected',
+      dryRun: false,
+      postIds: [...selectedIds.value],
+    })
+    showMessage(`Auto-tag job started for ${job.total ?? selectedIds.value.length} post(s). It runs in the background.`)
+    selectMode.value = false
+    clearSelection()
+  } catch (e) {
+    showMessage(`Auto-tag failed: ${e.message}`, 'error')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function openPoolModal() {
+  if (!selectedIds.value.length) return
+  chosenPoolId.value = ''
+  newPoolName.value = ''
+  try {
+    const res = await api.getPools({ limit: 100 })
+    pools.value = res.results || []
+  } catch {
+    pools.value = []
+  }
+  poolModalOpen.value = true
+}
+
+async function confirmAddToPool() {
+  if (!canConfirmPool.value || busy.value) return
+  busy.value = true
+  try {
+    let poolId = chosenPoolId.value
+    let poolName = ''
+    if (poolId === '__new__') {
+      const created = await api.createPool({ name: newPoolName.value.trim() })
+      poolId = created.id
+      poolName = created.name
+    } else {
+      poolId = Number(poolId)
+      poolName = pools.value.find((p) => p.id === poolId)?.name || 'pool'
+    }
+    await api.addPostsToPool(poolId, [...selectedIds.value])
+    showMessage(`Added ${selectedIds.value.length} post(s) to "${poolName}".`)
+    poolModalOpen.value = false
+    selectMode.value = false
+    clearSelection()
+  } catch (e) {
+    showMessage(`Add to pool failed: ${e.message}`, 'error')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function deleteSelected() {
+  if (!selectedIds.value.length || busy.value) return
+  if (!confirm(`Delete ${selectedIds.value.length} selected post(s)? They are soft-deleted and hidden from search.`)) {
+    return
+  }
+  busy.value = true
+  try {
+    const res = await api.bulkDeletePosts([...selectedIds.value])
+    showMessage(`Deleted ${res.deleted} post(s).`)
+    selectMode.value = false
+    clearSelection()
+    await fetchPosts()
+  } catch (e) {
+    showMessage(`Delete failed: ${e.message}`, 'error')
+  } finally {
+    busy.value = false
+  }
+}
 
 onMounted(() => {
   if (route.query.q) {
@@ -310,6 +506,130 @@ function scrollToTop() {
 
 .sort-controls select {
   padding: 0.5rem;
+}
+
+.select-toggle {
+  white-space: nowrap;
+}
+
+.bulk-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 -4px 16px var(--shadow);
+}
+
+.bulk-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+}
+
+.link-btn:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.bulk-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.action-toast {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.5rem;
+  color: white;
+  box-shadow: 0 4px 16px var(--shadow);
+  max-width: 90vw;
+}
+
+.action-toast.success {
+  background: var(--success, #22c55e);
+}
+
+.action-toast.error {
+  background: var(--coral, #f87171);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 420px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal h3 {
+  margin: 0 0 1rem;
+}
+
+.pool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.pool-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.pool-option small {
+  color: var(--text-muted);
+}
+
+.new-pool-input {
+  margin-top: 0.25rem;
+  padding: 0.5rem;
+  width: 100%;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 /* Mobile responsive styles */

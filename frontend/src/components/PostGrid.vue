@@ -4,7 +4,9 @@
       v-for="post in visiblePosts"
       :key="post.id"
       :post="post"
-      @click="$emit('select', post)"
+      :select-mode="selectMode"
+      :selected="selectedIds.includes(post.id)"
+      @toggle="$emit('toggle', $event)"
     />
     <div
       v-if="visiblePosts.length < posts.length"
@@ -42,9 +44,17 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  selectMode: {
+    type: Boolean,
+    default: false,
+  },
+  selectedIds: {
+    type: Array,
+    default: () => [],
+  },
 })
 
-defineEmits(['select'])
+defineEmits(['toggle'])
 
 const INITIAL_RENDER_LIMIT = 100
 const RENDER_BATCH_SIZE = 100
