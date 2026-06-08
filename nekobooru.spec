@@ -75,6 +75,7 @@ a = Analysis(
         'httpcore',
         'email.mime.multipart',
         'email.mime.text',
+        'timeit',
         # App modules
         'app',
         'app.main',

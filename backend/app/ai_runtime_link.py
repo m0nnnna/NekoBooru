@@ -43,18 +43,32 @@ def _site_packages_dir(venv: Path) -> Path:
 
 
 def _add_windows_dll_dirs(venv: Path, site_packages: Path) -> None:
-    if os.name != "nt" or not hasattr(os, "add_dll_directory"):
+    if os.name != "nt":
         return
     candidates = [
         venv,
         venv / "Scripts",
         site_packages,
+        site_packages / "torch" / "bin",
         site_packages / "torch" / "lib",
         site_packages / "onnxruntime" / "capi",
     ]
     nvidia_root = site_packages / "nvidia"
     if nvidia_root.exists():
         candidates.extend(path for path in nvidia_root.rglob("bin") if path.is_dir())
+    existing_path = os.environ.get("PATH", "")
+    existing_parts = [part for part in existing_path.split(os.pathsep) if part]
+    prepend: list[str] = []
+    for path in candidates:
+        if not path.exists():
+            continue
+        text = str(path)
+        if text not in existing_parts and text not in prepend:
+            prepend.append(text)
+    if prepend:
+        os.environ["PATH"] = os.pathsep.join([*prepend, *existing_parts])
+    if not hasattr(os, "add_dll_directory"):
+        return
     for path in candidates:
         if not path.exists():
             continue

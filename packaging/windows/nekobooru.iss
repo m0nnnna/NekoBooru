@@ -39,6 +39,7 @@ Source: "..\..\backend\requirements.txt"; DestDir: "{app}\backend"; Flags: ignor
 Source: "..\..\backend\requirements-tagger.txt"; DestDir: "{app}\backend"; Flags: ignoreversion
 Source: "..\..\backend\requirements-tagger-cpu.txt"; DestDir: "{app}\backend"; Flags: ignoreversion
 Source: "..\..\backend\requirements-tagger-legacy.txt"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "..\..\backend\*"; DestDir: "{app}\worker-backend"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "__pycache__\*,*.pyc"
 
 [Icons]
 Name: "{group}\NekoBooru"; Filename: "{app}\{#MyAppExeName}"
@@ -75,8 +76,8 @@ begin
     );
   PortPage.Add('Backend/API port:', False);
   PortPage.Add('Frontend/dev port reference:', False);
-  PortPage.Values[0] := '8772';
-  PortPage.Values[1] := '5173';
+  PortPage.Values[0] := '8773';
+  PortPage.Values[1] := '5174';
 
   AiPage :=
     CreateInputOptionPage(

@@ -561,8 +561,8 @@
             {{ recheckingRuntime ? 'Checking...' : 'Re-check runtime' }}
           </button>
           <span class="status-note">
-            Torch {{ autoTagStatus.torch?.version || 'not installed' }} ·
-            ONNX runtime {{ autoTagStatus.dependencies?.onnxruntime ? 'ready' : 'missing' }}
+            Torch {{ effectiveTorch.version || 'not installed' }} ·
+            ONNX runtime {{ effectiveOnnxReady ? 'ready' : 'missing' }}
           </span>
         </div>
       </div>
@@ -596,7 +596,7 @@
           </div>
           <div>
             <span>Compute</span>
-            <strong :class="autoTagStatus.torch?.cudaAvailable ? 'model-ok' : 'model-missing'">
+            <strong :class="effectiveTorch.cudaAvailable ? 'model-ok' : 'model-missing'">
               {{ torchSummary }}
             </strong>
           </div>
@@ -622,7 +622,7 @@
           Missing runtime packages: {{ missingRuntimeModels.map(model => model.name).join(', ') }}
         </p>
         <p class="status-note">
-          Torch {{ autoTagStatus.torch?.version || 'unknown' }} · {{ torchDeviceDetail }}
+          Torch {{ effectiveTorch.version || 'unknown' }} · {{ torchDeviceDetail }}
         </p>
       </div>
 
@@ -1460,8 +1460,24 @@ const aiSetupCommand = computed(() =>
   }[selectedAiRuntimeProfile.value] || 'nekobooru --install-ai --profile auto')
 )
 
+const effectiveTorch = computed(() => {
+  const remote = autoTagStatus.value.remote || {}
+  if (autoTagSettings.value.remoteEnabled && remote.reachable && remote.worker?.torch) {
+    return remote.worker.torch
+  }
+  return autoTagStatus.value.torch || {}
+})
+
+const effectiveOnnxReady = computed(() => {
+  const remote = autoTagStatus.value.remote || {}
+  if (autoTagSettings.value.remoteEnabled && remote.reachable && remote.worker?.onnx) {
+    return !!remote.worker.onnx.availableProviders?.length || !!remote.worker.onnx.available
+  }
+  return !!autoTagStatus.value.dependencies?.onnxruntime
+})
+
 const torchSummary = computed(() => {
-  const torch = autoTagStatus.value.torch || {}
+  const torch = effectiveTorch.value
   if (!torch.available) return 'Torch missing'
   if (!torch.cudaAvailable) return 'CPU only'
   const first = torch.devices?.[0]
@@ -1469,10 +1485,10 @@ const torchSummary = computed(() => {
 })
 
 const torchDeviceDetail = computed(() => {
-  const torch = autoTagStatus.value.torch || {}
+  const torch = effectiveTorch.value
   const qwen = autoTagStatus.value.qwenDevice || {}
   if (!torch.available) return 'Install torch before using Qwen, OCR, or Whisper.'
-  if (!torch.cudaAvailable) return 'CUDA is not available to this venv. Qwen will load on CPU unless you install a CUDA torch wheel.'
+  if (!torch.cudaAvailable) return 'CUDA is not available to the active AI runtime. Qwen will load on CPU unless you install a CUDA torch wheel or connect a GPU worker.'
   const devices = (torch.devices || [])
     .map((device) => `${device.name} ${device.totalMemoryGb} GB VRAM`)
     .join(', ')

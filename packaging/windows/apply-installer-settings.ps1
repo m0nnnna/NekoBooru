@@ -1,6 +1,6 @@
 param(
-  [int]$BackendPort = 8772,
-  [int]$FrontendPort = 5173,
+  [int]$BackendPort = 8773,
+  [int]$FrontendPort = 5174,
   [string]$AiProfile = "skip",
   [string]$UpdateOwner = "m0nnnna",
   [string]$UpdateRepo = "NekoBooru",
@@ -89,12 +89,16 @@ $settings["updates"] = @{
   releasesPageUrl = "https://github.com/$UpdateOwner/$UpdateRepo/releases"
 }
 
-if ($AiProfile -eq "remote") {
+if ($AiProfile -eq "remote" -or $AiProfile -eq "cpu" -or $AiProfile -eq "gpu-cu128" -or $AiProfile -eq "gpu-cu126-legacy") {
   $autoTagging = @{}
   if ($settings.Contains("auto_tagging") -and $settings["auto_tagging"]) {
     $autoTagging = ConvertTo-SettingsObject $settings["auto_tagging"]
   }
   $autoTagging["remoteEnabled"] = $true
+  if ($AiProfile -ne "remote") {
+    $autoTagging["remoteUrl"] = "http://127.0.0.1:$($BackendPort + 1)"
+    $autoTagging["remoteTimeoutSeconds"] = 120
+  }
   $settings["auto_tagging"] = $autoTagging
 }
 

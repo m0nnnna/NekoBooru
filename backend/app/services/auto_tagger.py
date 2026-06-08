@@ -798,6 +798,9 @@ def load_options() -> AutoTagOptions:
     # Env opt-in remains a hard enable convenience for dev/test.
     if settings.auto_tagger_enabled:
         data["enabled"] = True
+    if os.environ.get("NEKO_AI_WORKER"):
+        data["remoteEnabled"] = False
+        data["remoteUrl"] = ""
     return validate_options(data)
 
 
@@ -904,7 +907,7 @@ def _remote_worker_status(opts: AutoTagOptions) -> dict:
         response = httpx.get(
             f"{opts.remoteUrl.rstrip('/')}/api/auto-tags/status",
             headers=headers,
-            timeout=5.0,
+            timeout=min(60.0, max(5.0, float(opts.remoteTimeoutSeconds))),
         )
         if response.status_code == 200:
             worker = response.json()
@@ -1101,11 +1104,7 @@ def model_cache_status(model_id: str = "wd") -> dict:
         filenames = list(patterns)
     else:
         snapshot_root = _latest_snapshot_dir(repo_id)
-        filenames = [
-            str(path.relative_to(snapshot_root)).replace("\\", "/")
-            for path in snapshot_root.rglob("*")
-            if path.is_file()
-        ] if snapshot_root else []
+        filenames = _snapshot_file_names(snapshot_root) if snapshot_root else []
 
     for filename in filenames:
         try:
@@ -1133,6 +1132,21 @@ def model_cache_status(model_id: str = "wd") -> dict:
         "downloaded": bool(files) and all(meta["downloaded"] for meta in files.values()),
         "files": files,
     }
+
+
+def _snapshot_file_names(snapshot_root: Path) -> list[str]:
+    names: list[str] = []
+    try:
+        iterator = snapshot_root.rglob("*")
+        for path in iterator:
+            try:
+                if path.is_file():
+                    names.append(str(path.relative_to(snapshot_root)).replace("\\", "/"))
+            except OSError as exc:
+                logger.warning("Skipping unreadable model cache path %s: %s", path, exc)
+    except OSError as exc:
+        logger.warning("Could not scan model cache snapshot %s: %s", snapshot_root, exc)
+    return names
 
 
 def _latest_snapshot_dir(repo_id: str) -> Path | None:
