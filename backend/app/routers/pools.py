@@ -69,7 +69,13 @@ async def get_pool(pool_id: int, db: AsyncSession = Depends(get_db)):
     """Get a single pool with its posts."""
     result = await db.execute(
         select(Pool)
-        .options(selectinload(Pool.posts).selectinload(PoolPost.post).selectinload(Post.tags))
+        .options(
+            # Eager-load both children of each pooled post: to_dict() reads
+            # post.tags AND post.favorite, and a lazy load of either explodes
+            # with MissingGreenlet under the async engine.
+            selectinload(Pool.posts).selectinload(PoolPost.post).selectinload(Post.tags),
+            selectinload(Pool.posts).selectinload(PoolPost.post).selectinload(Post.favorite),
+        )
         .where(Pool.id == pool_id)
     )
     pool = result.scalars().first()

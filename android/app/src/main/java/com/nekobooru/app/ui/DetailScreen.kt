@@ -8,8 +8,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -19,9 +21,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -54,6 +58,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -72,9 +78,20 @@ import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
+fun DetailScreen(
+    vm: DetailViewModel,
+    sha: String,
+    shas: List<String> = emptyList(),
+    onBack: () -> Unit,
+    onNavigate: (String) -> Unit = {},
+) {
     LaunchedEffect(sha) { vm.load(sha) }
     val post by vm.post.collectAsStateWithLifecycle()
+
+    // Prev/next within the view this post was opened from (gallery or pool).
+    val index = remember(sha, shas) { shas.indexOf(sha) }
+    val prevSha = if (index > 0) shas[index - 1] else null
+    val nextSha = if (index in 0 until (shas.size - 1)) shas[index + 1] else null
     val pools by vm.pools.collectAsStateWithLifecycle()
     val localOriginal by vm.localOriginal.collectAsStateWithLifecycle()
     val sharing by vm.sharing.collectAsStateWithLifecycle()
@@ -179,7 +196,32 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            MediaPreview(p, vm.serverUrl, localOriginal, onImageClick = { fullscreen = true })
+            Box(
+                modifier = Modifier.fillMaxWidth().pointerInput(sha, prevSha, nextSha) {
+                    var total = 0f
+                    val threshold = 56.dp.toPx()
+                    detectHorizontalDragGestures(
+                        onDragStart = { total = 0f },
+                        onDragEnd = {
+                            // Swipe right -> previous, swipe left -> next.
+                            if (total > threshold) prevSha?.let(onNavigate)
+                            else if (total < -threshold) nextSha?.let(onNavigate)
+                        },
+                    ) { change, dragAmount -> total += dragAmount; change.consume() }
+                },
+            ) {
+                MediaPreview(p, vm.serverUrl, localOriginal, onImageClick = { fullscreen = true })
+                if (prevSha != null) {
+                    NavArrow(Alignment.CenterStart, Icons.AutoMirrored.Filled.ArrowBack, "Previous post") {
+                        onNavigate(prevSha)
+                    }
+                }
+                if (nextSha != null) {
+                    NavArrow(Alignment.CenterEnd, Icons.AutoMirrored.Filled.ArrowForward, "Next post") {
+                        onNavigate(nextSha)
+                    }
+                }
+            }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = vm::toggleFavorite) {
@@ -273,6 +315,26 @@ fun DetailScreen(vm: DetailViewModel, sha: String, onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** A translucent circular nav button overlaid on the media (prev/next post). */
+@Composable
+private fun BoxScope.NavArrow(
+    alignment: Alignment,
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .align(alignment)
+            .padding(8.dp)
+            .size(44.dp)
+            .background(Color.Black.copy(alpha = 0.4f), CircleShape),
+    ) {
+        Icon(icon, contentDescription = description, tint = Color.White)
     }
 }
 

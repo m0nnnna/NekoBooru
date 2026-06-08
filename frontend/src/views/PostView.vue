@@ -8,6 +8,22 @@
           :type="mediaType"
           @close="handleClose"
         />
+        <button
+          v-if="prevId != null"
+          type="button"
+          class="nav-arrow nav-prev"
+          title="Previous post (Left arrow)"
+          aria-label="Previous post"
+          @click="goToPrev"
+        >&#8249;</button>
+        <button
+          v-if="nextId != null"
+          type="button"
+          class="nav-arrow nav-next"
+          title="Next post (Right arrow)"
+          aria-label="Next post"
+          @click="goToNext"
+        >&#8250;</button>
       </div>
     </div>
 
@@ -294,6 +310,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api/client'
+import { usePostsStore } from '../stores/posts'
 import MediaViewer from '../components/MediaViewer.vue'
 import TagList from '../components/TagList.vue'
 import TagInput from '../components/TagInput.vue'
@@ -301,8 +318,11 @@ import CommentSection from '../components/CommentSection.vue'
 
 const route = useRoute()
 const router = useRouter()
+const postsStore = usePostsStore()
 
 const post = ref(null)
+const prevId = ref(null)
+const nextId = ref(null)
 const loading = ref(true)
 const showTagEditor = ref(false)
 const showPoolModal = ref(false)
@@ -446,6 +466,8 @@ const postModelRows = computed(() => {
 
 onMounted(async () => {
   await loadPost()
+  loadNeighbors()
+  window.addEventListener('keydown', onKeydown)
   await loadPools()
   await loadAutoTagControls()
 })
@@ -453,9 +475,52 @@ onMounted(async () => {
 onUnmounted(() => {
   stopAutoLoadPolling()
   stopAutoTagTimer()
+  window.removeEventListener('keydown', onKeydown)
 })
 
-watch(() => route.params.id, loadPost)
+watch(() => route.params.id, async () => {
+  await loadPost()
+  loadNeighbors()
+})
+
+async function loadNeighbors() {
+  prevId.value = null
+  nextId.value = null
+  try {
+    const ctx = postsStore.browseContext || {}
+    const result = await api.getPostNeighbors(route.params.id, {
+      q: ctx.query || '',
+      sort: ctx.sort || 'date',
+      order: ctx.order || 'desc',
+    })
+    prevId.value = result.prev
+    nextId.value = result.next
+  } catch (e) {
+    // Navigation is a convenience; ignore failures (e.g. direct deep link).
+  }
+}
+
+function goToPrev() {
+  if (prevId.value != null) router.push(`/post/${prevId.value}`)
+}
+
+function goToNext() {
+  if (nextId.value != null) router.push(`/post/${nextId.value}`)
+}
+
+function onKeydown(e) {
+  // Don't hijack arrows while typing or when a modal/overlay is open.
+  if (showTagEditor.value || showPoolModal.value || showAutoTagModal.value || showAutoProcessModal.value) return
+  const el = e.target
+  const tag = el?.tagName?.toLowerCase()
+  if (tag === 'input' || tag === 'textarea' || tag === 'select' || el?.isContentEditable) return
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+  if (e.key === 'ArrowLeft') {
+    if (prevId.value != null) { e.preventDefault(); goToPrev() }
+  } else if (e.key === 'ArrowRight') {
+    if (nextId.value != null) { e.preventDefault(); goToNext() }
+  }
+}
 
 function modelSettingKey(id) {
   return {
@@ -922,11 +987,54 @@ function formatDate(dateStr) {
 }
 
 .media-container {
+  position: relative;
   height: 100%;
   width: 100%;
   border-radius: 0.75rem;
   overflow: hidden;
   background: var(--bg-secondary);
+}
+
+.nav-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 64px;
+  border: none;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.nav-arrow:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.nav-prev {
+  left: 0.5rem;
+}
+
+.nav-next {
+  right: 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .nav-arrow {
+    width: 38px;
+    height: 54px;
+    font-size: 1.6rem;
+  }
 }
 
 .post-sidebar {

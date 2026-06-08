@@ -12,6 +12,18 @@ export const usePostsStore = defineStore('posts', () => {
   const loading = ref(false)
   const error = ref(null)
 
+  // Effective browse context (the exact query/sort/order the grid last fetched,
+  // including safety exclusions) so the post view can navigate prev/next through
+  // the same filtered, sorted set the user is looking at.
+  const browseContext = ref({ query: '', sort: 'date', order: 'desc' })
+  function setBrowseContext(ctx) {
+    browseContext.value = {
+      query: ctx.query || '',
+      sort: ctx.sort || 'date',
+      order: ctx.order || 'desc',
+    }
+  }
+
   const pages = computed(() => Math.ceil(total.value / limit.value))
 
   async function fetchPosts(params = {}) {
@@ -111,6 +123,8 @@ export const usePostsStore = defineStore('posts', () => {
     query,
     loading,
     error,
+    browseContext,
+    setBrowseContext,
     fetchPosts,
     fetchPost,
     updatePost,

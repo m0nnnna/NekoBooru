@@ -797,7 +797,10 @@ async function runAiTag(event) {
     await loadEnabledAutoTagModels()
 
     setStatus(`Analyzing media with ${profile.label} profile...`, 'working')
-    const res = await fetch(`${instanceUrl}/api/uploads/${encodeURIComponent(token)}/auto-tags/preview`, {
+    // Start a background preview job and poll it. Running inference inline as a
+    // single long request times out behind a reverse proxy (HTTP 504); short
+    // poll requests never do.
+    const startRes = await fetch(`${instanceUrl}/api/uploads/${encodeURIComponent(token)}/auto-tags/preview/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -808,12 +811,13 @@ async function runAiTag(event) {
         settings: autoTagRunSettings(),
       }),
     })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || `HTTP ${res.status}`)
+    if (!startRes.ok) {
+      const err = await startRes.json().catch(() => ({}))
+      throw new Error(err.detail || `HTTP ${startRes.status}`)
     }
+    const { jobId } = await startRes.json()
 
-    autoTagSuggestion = await res.json()
+    autoTagSuggestion = await pollAutoTagPreview(jobId)
     if (autoTagSuggestion.error) throw new Error(autoTagSuggestion.error)
 
     setTags(autoTagSuggestion.suggestedTags || tags)
@@ -937,21 +941,43 @@ function convertUploadButtonToPostLink(post, options = {}) {
   setAiProfileButtonsDisabled(true)
 }
 
-async function loadAutoTagControls() {
+let autoTagControlsPromise = null
+
+// Dedupe concurrent loads: init() fires this on popup open, and a click on the
+// AI button awaits it. Without this they'd each trigger a separate slow status
+// fetch. Settled loads clear the cache so later refreshes still re-fetch.
+function loadAutoTagControls() {
+  if (autoTagControlsPromise) return autoTagControlsPromise
+  autoTagControlsPromise = _loadAutoTagControls().finally(() => {
+    autoTagControlsPromise = null
+  })
+  return autoTagControlsPromise
+}
+
+async function _loadAutoTagControls() {
   try {
     await ensureBackendReady()
-    const [settingsRes, statusRes] = await Promise.all([
-      fetch(`${instanceUrl}/api/auto-tags/settings`),
-      fetch(`${instanceUrl}/api/auto-tags/status`),
-    ])
-    if (!settingsRes.ok || !statusRes.ok) throw new Error('AI tag status unavailable')
+    // Fetch the cheap settings first and reveal the AI buttons immediately. The
+    // status endpoint imports torch / probes CUDA and can take 30s+ (worse on a
+    // network-share install), so it must NOT gate button visibility — otherwise
+    // the Anime/Booru button is missing until that finishes.
+    const settingsRes = await fetch(`${instanceUrl}/api/auto-tags/settings`)
+    if (!settingsRes.ok) throw new Error('AI tag settings unavailable')
     autoTagSavedSettings = await settingsRes.json()
     autoTagSavedSettings.wdEnabled = autoTagSavedSettings.wdEnabled !== false
-    autoTagSettings = { ...autoTagSavedSettings }
-    autoTagSettings = {
-      ...autoTagSettings,
-      ...autoTagModelOverrides,
+    autoTagSettings = { ...autoTagSavedSettings, ...autoTagModelOverrides }
+    applyAiVisibility(Boolean(autoTagSavedSettings.enabled))
+    if (autoTagSavedSettings.enabled) {
+      els.aiModelList.innerHTML = ''
+      const loadingNote = document.createElement('div')
+      loadingNote.className = 'picker-note'
+      loadingNote.textContent = 'Loading AI model status...'
+      els.aiModelList.appendChild(loadingNote)
     }
+
+    // Then load the heavier runtime status to populate the model picker.
+    const statusRes = await fetch(`${instanceUrl}/api/auto-tags/status`)
+    if (!statusRes.ok) throw new Error('AI tag status unavailable')
     autoTagStatus = await statusRes.json()
     applyAiVisibility(Boolean(autoTagStatus.enabled))
     renderAiModelPicker()
@@ -1144,6 +1170,33 @@ async function unloadAutoTagModel(modelId) {
   autoTagStatus = await res.json()
   renderAiModelPicker()
   setStatus(`${model?.name || 'AI'} model unloaded.`, 'success')
+}
+
+// Poll a background AI tag preview job until it finishes. Each request is
+// short, so a slow inference run never trips a gateway timeout (HTTP 504).
+function pollAutoTagPreview(jobId) {
+  return new Promise((resolve, reject) => {
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(`${instanceUrl}/api/uploads/auto-tags/preview-jobs/${encodeURIComponent(jobId)}`)
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err.detail || `HTTP ${res.status}`)
+        }
+        const job = await res.json()
+        if (job.status === 'completed') {
+          clearInterval(timer)
+          resolve(job.result || {})
+        } else if (job.status === 'failed') {
+          clearInterval(timer)
+          reject(new Error(job.error || 'AI tagging failed'))
+        }
+      } catch (e) {
+        clearInterval(timer)
+        reject(e)
+      }
+    }, 1000)
+  })
 }
 
 function pollModelLoad() {

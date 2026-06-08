@@ -1,0 +1,31 @@
+# Legacy NVIDIA GPU auto-tagging dependencies (Pascal / GTX 10-series, sm_61).
+#
+# PyTorch's CUDA 12.8 (cu128) builds — what requirements-tagger.txt installs —
+# dropped Maxwell/Pascal/Volta support starting with torch 2.8. On Pascal GPUs
+# such as the GTX 1060/1070/1080 (compute capability sm_61) that produces:
+#   "CUDA error: no kernel image is available for execution on the device"
+# (or a silent fall back to CPU).
+#
+# This file pins the CUDA 12.6 (cu126) build instead, whose arch list still
+# includes sm_61 (verified: torch.cuda.get_arch_list() ->
+# ['sm_61','sm_70','sm_75','sm_80','sm_86','sm_90']). Use it on Pascal GPUs.
+# Note: Maxwell (sm_50/sm_52) is NOT in cu126 either — those need the CPU stack.
+#
+# Install in addition to requirements.txt:
+#   pip install -r backend/requirements-tagger-legacy.txt
+# Or via the installer:
+#   install-ai.ps1 -Legacy        (Windows)
+#   ./install-ai.sh --legacy      (Linux/macOS)
+
+huggingface-hub>=0.27,<1.0
+onnxruntime-gpu==1.26.0; platform_system == "Windows"
+onnxruntime>=1.20,<2.0; platform_system != "Windows"
+numpy>=2.0,<3.0
+transformers>=4.51,<5.0
+# CUDA 12.6 wheels still ship Pascal (sm_61) kernels; cu128/cu129 do not.
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch==2.11.0+cu126
+torchvision==0.26.0+cu126
+torchaudio==2.11.0+cu126
+accelerate>=1.0,<2.0
+qwen-vl-utils>=0.0.8,<1.0

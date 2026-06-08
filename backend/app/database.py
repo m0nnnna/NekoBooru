@@ -13,11 +13,18 @@ class Base(DeclarativeBase):
 DATABASE_URL = f"sqlite+aiosqlite:///{settings.database_path}"
 engine = create_async_engine(DATABASE_URL, echo=settings.debug)
 
-# Enable foreign keys for SQLite
+# Configure SQLite for safe concurrent access. The default rollback journal
+# allows only one writer at a time and a busy_timeout of 0, so a background
+# auto-tag job writing per-post collides with web/API writes and fails
+# instantly with "database is locked". WAL lets readers run alongside a writer,
+# and busy_timeout makes writers wait for the lock instead of erroring.
 @event.listens_for(engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.close()
 
 

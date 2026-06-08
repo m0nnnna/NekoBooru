@@ -86,22 +86,24 @@ def tokenize(query: str) -> list[Token]:
     return tokens
 
 
-async def search_posts(
-    session: AsyncSession,
-    query: str = "",
-    page: int = 1,
-    per_page: int = 42,
-    sort: str = "date",
-    sort_order: str = "desc",
-) -> tuple[list[Post], int]:
-    """Search posts with tag-based query syntax."""
-    tokens = tokenize(query) if query else []
+def _order_column(sort: str):
+    """Map a sort key to the Post column it orders by."""
+    return {
+        "date": Post.created_at,
+        "id": Post.id,
+        "size": Post.file_size,
+        "width": Post.width,
+        "height": Post.height,
+    }.get(sort, Post.created_at)
 
-    # Base query with eager loading
-    stmt = select(Post).options(
-        selectinload(Post.tags),
-        selectinload(Post.favorite),
-    )
+
+def build_conditions(query: str) -> list:
+    """Translate a search query into a list of SQLAlchemy WHERE conditions.
+
+    Shared by :func:`search_posts` and :func:`get_post_neighbors` so the gallery
+    list and the prev/next navigation always agree on which posts match.
+    """
+    tokens = tokenize(query) if query else []
 
     # Track conditions. Always exclude soft-deleted posts.
     and_conditions = [Post.deleted_at.is_(None)]
@@ -110,7 +112,6 @@ async def search_posts(
 
     for token in tokens:
         if token.type == TokenType.TAG:
-            # Tag must be present
             subq = select(PostTag.c.post_id).join(Tag).where(Tag.name == token.value)
             condition = Post.id.in_(subq)
             if current_or_group:
@@ -119,12 +120,10 @@ async def search_posts(
                 and_conditions.append(condition)
 
         elif token.type == TokenType.NEGATED_TAG:
-            # Tag must NOT be present
             subq = select(PostTag.c.post_id).join(Tag).where(Tag.name == token.value)
             and_conditions.append(not_(Post.id.in_(subq)))
 
         elif token.type == TokenType.OR:
-            # Start collecting for OR group
             if and_conditions:
                 current_or_group = [and_conditions.pop()]
 
@@ -138,18 +137,80 @@ async def search_posts(
             if condition is not None:
                 and_conditions.append(not_(condition))
 
-        # If we have an OR group and encounter something else, close it
         if current_or_group and token.type not in (TokenType.OR,) and token.type == TokenType.TAG:
             if len(current_or_group) > 1:
                 or_groups.append(or_(*current_or_group))
                 current_or_group = []
 
-    # Handle any remaining OR group
     if current_or_group:
         or_groups.append(or_(*current_or_group))
 
-    # Combine all conditions
-    all_conditions = and_conditions + or_groups
+    return and_conditions + or_groups
+
+
+async def get_post_neighbors(
+    session: AsyncSession,
+    post_id: int,
+    query: str = "",
+    sort: str = "date",
+    sort_order: str = "desc",
+) -> dict:
+    """Return the prev/next post ids around ``post_id`` within a filtered view.
+
+    "prev" and "next" follow display order: prev is the post shown before this
+    one in the list, next is the one after. So for the default newest-first
+    view, the latest post has no prev (left does nothing) and right advances to
+    the next-older post.
+    """
+    order_col = _order_column(sort)
+    current = (
+        await session.execute(
+            select(Post.id, order_col).where(
+                Post.id == post_id, Post.deleted_at.is_(None)
+            )
+        )
+    ).first()
+    if not current:
+        return {"prev": None, "next": None}
+
+    cur_id, cur_val = current[0], current[1]
+    conditions = build_conditions(query)
+    descending = sort_order != "asc"
+
+    # Strictly-before / strictly-after in value, breaking ties by id.
+    less = or_(order_col < cur_val, and_(order_col == cur_val, Post.id < cur_id))
+    greater = or_(order_col > cur_val, and_(order_col == cur_val, Post.id > cur_id))
+
+    async def first_id(extra, ordering):
+        stmt = select(Post.id).where(and_(*conditions, extra)).order_by(*ordering).limit(1)
+        return (await session.execute(stmt)).scalars().first()
+
+    if descending:  # list is (val desc, id desc): next = smaller, prev = larger
+        nxt = await first_id(less, (order_col.desc(), Post.id.desc()))
+        prev = await first_id(greater, (order_col.asc(), Post.id.asc()))
+    else:  # list is (val asc, id asc): next = larger, prev = smaller
+        nxt = await first_id(greater, (order_col.asc(), Post.id.asc()))
+        prev = await first_id(less, (order_col.desc(), Post.id.desc()))
+
+    return {"prev": prev, "next": nxt}
+
+
+async def search_posts(
+    session: AsyncSession,
+    query: str = "",
+    page: int = 1,
+    per_page: int = 42,
+    sort: str = "date",
+    sort_order: str = "desc",
+) -> tuple[list[Post], int]:
+    """Search posts with tag-based query syntax."""
+    # Base query with eager loading
+    stmt = select(Post).options(
+        selectinload(Post.tags),
+        selectinload(Post.favorite),
+    )
+
+    all_conditions = build_conditions(query)
     if all_conditions:
         stmt = stmt.where(and_(*all_conditions))
 
@@ -160,24 +221,13 @@ async def search_posts(
     total_result = await session.execute(count_stmt)
     total = total_result.scalar() or 0
 
-    # Apply sorting
-    if sort == "date":
-        order_col = Post.created_at
-    elif sort == "id":
-        order_col = Post.id
-    elif sort == "size":
-        order_col = Post.file_size
-    elif sort == "width":
-        order_col = Post.width
-    elif sort == "height":
-        order_col = Post.height
-    else:
-        order_col = Post.created_at
-
+    # Apply sorting. Break ties by id (same direction) so the order is stable and
+    # matches get_post_neighbors() exactly.
+    order_col = _order_column(sort)
     if sort_order == "asc":
-        stmt = stmt.order_by(order_col.asc())
+        stmt = stmt.order_by(order_col.asc(), Post.id.asc())
     else:
-        stmt = stmt.order_by(order_col.desc())
+        stmt = stmt.order_by(order_col.desc(), Post.id.desc())
 
     # Apply pagination
     stmt = stmt.offset((page - 1) * per_page).limit(per_page)

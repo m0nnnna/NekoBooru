@@ -35,6 +35,10 @@ class UpdatePostRequest(BaseModel):
     source: Optional[str] = None
 
 
+class BulkDeleteRequest(BaseModel):
+    postIds: list[int]
+
+
 @router.post("/posts")
 async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get_db)):
     """
@@ -183,6 +187,24 @@ async def list_posts(
     }
 
 
+@router.get("/posts/{post_id}/neighbors")
+async def post_neighbors(
+    post_id: int,
+    q: str = Query("", description="Search query (same syntax as the list)"),
+    sort: str = Query("date"),
+    order: str = Query("desc"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Prev/next post ids around this one within the given filtered/sorted view.
+
+    Powers arrow-key and on-screen navigation between posts that obeys the
+    current search and sort. Returns ``{"prev": id|null, "next": id|null}``.
+    """
+    from ..services.search import get_post_neighbors
+
+    return await get_post_neighbors(db, post_id, q, sort, order)
+
+
 @router.get("/posts/{post_id}")
 async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
     """Get a single post by ID."""
@@ -286,6 +308,29 @@ async def delete_post(post_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
     return {"success": True}
+
+
+@router.post("/posts/bulk-delete")
+async def bulk_delete_posts(request: BulkDeleteRequest, db: AsyncSession = Depends(get_db)):
+    """Soft-delete many posts in one transaction (multi-select editing).
+
+    Mirrors :func:`delete_post`: each row is marked with ``deleted_at`` (kept for
+    sync tombstones), committed together so the change log captures every one.
+    """
+    from datetime import datetime
+
+    if not request.postIds:
+        return {"deleted": 0}
+
+    result = await db.execute(
+        select(Post).where(Post.id.in_(request.postIds), Post.deleted_at.is_(None))
+    )
+    posts = list(result.scalars().all())
+    now = datetime.utcnow()
+    for post in posts:
+        post.deleted_at = now
+    await db.commit()
+    return {"deleted": len(posts)}
 
 
 @router.post("/posts/{post_id}/favorite")
