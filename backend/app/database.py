@@ -63,6 +63,13 @@ def _migrate(conn):
             "CREATE INDEX IF NOT EXISTS ix_posts_deleted_at ON posts(deleted_at)"
         )
 
+    # Perceptual hash for near-duplicate / similarity search.
+    if not _column_exists(conn, "posts", "phash"):
+        conn.exec_driver_sql("ALTER TABLE posts ADD COLUMN phash VARCHAR(16)")
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_posts_phash ON posts(phash)"
+        )
+
     # Stable cross-device uuids on pools/notes/comments (+ backfill existing rows).
     for table in ("pools", "notes", "comments"):
         if not _column_exists(conn, table, "uuid"):

@@ -147,6 +147,27 @@
         </template>
       </div>
 
+      <div class="sidebar-section">
+        <h3>Similar</h3>
+        <button class="btn btn-secondary similar-btn" @click="loadSimilar" :disabled="similarLoading">
+          {{ similarLoading ? 'Searching...' : 'Find Similar' }}
+        </button>
+        <div v-if="similarLoaded && !similar.length" class="similar-empty">
+          No visually similar posts found.
+        </div>
+        <div v-if="similar.length" class="similar-grid">
+          <router-link
+            v-for="item in similar"
+            :key="item.post.id"
+            :to="`/post/${item.post.id}`"
+            class="similar-thumb"
+            :title="`distance ${item.distance}`"
+          >
+            <img :src="item.post.thumbUrl" :alt="item.post.filename" loading="lazy" />
+          </router-link>
+        </div>
+      </div>
+
       <div class="sidebar-section actions">
         <button
           class="btn"
@@ -388,6 +409,9 @@ const post = ref(null)
 const prevId = ref(null)
 const nextId = ref(null)
 const loading = ref(true)
+const similar = ref([])
+const similarLoading = ref(false)
+const similarLoaded = ref(false)
 const showTagEditor = ref(false)
 const showPoolModal = ref(false)
 const showAutoTagModal = ref(false)
@@ -611,7 +635,22 @@ onUnmounted(() => {
 watch(() => route.params.id, async () => {
   await loadPost()
   loadNeighbors()
+  similar.value = []
+  similarLoaded.value = false
 })
+
+async function loadSimilar() {
+  similarLoading.value = true
+  try {
+    const result = await api.getSimilarPosts(route.params.id)
+    similar.value = result.results || []
+    similarLoaded.value = true
+  } catch (e) {
+    alert('Failed to find similar posts: ' + e.message)
+  } finally {
+    similarLoading.value = false
+  }
+}
 
 async function loadNeighbors() {
   prevId.value = null
@@ -1417,6 +1456,37 @@ function tweetIdFromUrl(raw) {
 .edit-tags-btn {
   margin-top: 0.75rem;
   width: 100%;
+}
+
+.similar-btn {
+  width: 100%;
+}
+
+.similar-empty {
+  margin-top: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.similar-grid {
+  margin-top: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+}
+
+.similar-thumb {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 0.4rem;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+
+.similar-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .ai-profile-actions {

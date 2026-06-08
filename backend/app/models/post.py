@@ -27,6 +27,9 @@ class Post(Base):
     duration = Column(Float)  # For videos, in seconds
     safety = Column(String(10), default="safe")  # safe, sketchy, unsafe
     source = Column(Text)
+    # 64-bit perceptual hash (dHash) as 16-char hex, for near-duplicate
+    # detection and "find similar". Null = not yet computed; "" = unhashable.
+    phash = Column(String(16), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     # Soft-delete marker so deletions can propagate through sync (tombstone).
