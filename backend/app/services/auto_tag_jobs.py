@@ -46,6 +46,16 @@ async def create_job(
     opts = validate_options(raw)
     async with async_session() as db:
         candidates = await candidate_post_ids(db, mode=mode, opts=opts, post_ids=post_ids)
+        # A non-dry-run job rewrites tags/safety on every candidate, which is
+        # destructive and irreversible. Snapshot the DB first so a bad bulk run
+        # (e.g. auto-tagging the whole library) can be restored.
+        if not dry_run and candidates:
+            try:
+                from .backup import create_backup
+
+                await create_backup(label=f"pre-autotag-{mode}")
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"could not create pre-auto-tag backup: {exc}")
         job = AutoTagJob(
             status="queued",
             mode=mode,
@@ -271,6 +281,15 @@ async def apply_job_suggestions(job_id: int) -> dict:
             )
         )
         suggestions = list(result.scalars().all())
+        # Applying a whole job's suggestions rewrites tags across many posts;
+        # back up first so the bulk change can be rolled back if needed.
+        if suggestions:
+            try:
+                from .backup import create_backup
+
+                await create_backup(label=f"pre-apply-job-{job_id}")
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"could not create pre-apply backup: {exc}")
         applied = 0
         for suggestion in suggestions:
             post = (
