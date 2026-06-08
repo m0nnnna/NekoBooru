@@ -648,7 +648,10 @@ async function doUpload() {
 
     setStatus('Uploaded to NekoBooru.', 'success')
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
-    convertUploadButtonToPostLink(post)
+    // Upload succeeded: close the popup so it doesn't linger. It only stays
+    // open on failure (or a duplicate, handled below) so the user can react.
+    // A short delay lets the success notification register before we close.
+    setTimeout(() => window.close(), 300)
   } catch (e) {
     if (e instanceof DuplicatePostError) {
       const post = e.post || { id: e.postId }
@@ -788,7 +791,10 @@ async function runAiTag(event) {
     await loadEnabledAutoTagModels()
 
     setStatus(`Analyzing media with ${profile.label} profile...`, 'working')
-    const res = await fetch(`${instanceUrl}/api/uploads/${encodeURIComponent(token)}/auto-tags/preview`, {
+    // Start a background preview job and poll it. Running inference inline as a
+    // single long request times out behind a reverse proxy (HTTP 504); short
+    // poll requests never do.
+    const startRes = await fetch(`${instanceUrl}/api/uploads/${encodeURIComponent(token)}/auto-tags/preview/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -799,12 +805,13 @@ async function runAiTag(event) {
         settings: autoTagRunSettings(),
       }),
     })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || `HTTP ${res.status}`)
+    if (!startRes.ok) {
+      const err = await startRes.json().catch(() => ({}))
+      throw new Error(err.detail || `HTTP ${startRes.status}`)
     }
+    const { jobId } = await startRes.json()
 
-    autoTagSuggestion = await res.json()
+    autoTagSuggestion = await pollAutoTagPreview(jobId)
     if (autoTagSuggestion.error) throw new Error(autoTagSuggestion.error)
 
     setTags(autoTagSuggestion.suggestedTags || tags)
@@ -1135,6 +1142,33 @@ async function unloadAutoTagModel(modelId) {
   autoTagStatus = await res.json()
   renderAiModelPicker()
   setStatus(`${model?.name || 'AI'} model unloaded.`, 'success')
+}
+
+// Poll a background AI tag preview job until it finishes. Each request is
+// short, so a slow inference run never trips a gateway timeout (HTTP 504).
+function pollAutoTagPreview(jobId) {
+  return new Promise((resolve, reject) => {
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(`${instanceUrl}/api/uploads/auto-tags/preview-jobs/${encodeURIComponent(jobId)}`)
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err.detail || `HTTP ${res.status}`)
+        }
+        const job = await res.json()
+        if (job.status === 'completed') {
+          clearInterval(timer)
+          resolve(job.result || {})
+        } else if (job.status === 'failed') {
+          clearInterval(timer)
+          reject(new Error(job.error || 'AI tagging failed'))
+        }
+      } catch (e) {
+        clearInterval(timer)
+        reject(e)
+      }
+    }, 1000)
+  })
 }
 
 function pollModelLoad() {

@@ -1,4 +1,5 @@
 import re
+import time
 import uuid
 import asyncio
 import logging
@@ -125,13 +126,7 @@ async def auto_tags_for_upload(token: str):
     }
 
 
-@router.post("/{token}/auto-tags/preview")
-async def preview_auto_tags_for_upload(token: str, request: UploadAutoTagPreviewRequest):
-    """Preview AI tag suggestions for a temporary upload token without creating a post."""
-    temp_path = get_upload_path(token)
-    if not temp_path or not temp_path.exists():
-        raise HTTPException(status_code=404, detail="Invalid or expired content token")
-
+async def _compute_auto_tag_preview(temp_path: Path, request: UploadAutoTagPreviewRequest) -> dict:
     from ..services.auto_tag_jobs import _tag_media_async
     from ..services.auto_tagger import load_options, merge_with_existing, promote_safety, validate_options
 
@@ -148,6 +143,83 @@ async def preview_auto_tags_for_upload(token: str, request: UploadAutoTagPreview
         "evidence": result.evidence,
         "model": result.model,
         "error": result.error,
+    }
+
+
+@router.post("/{token}/auto-tags/preview")
+async def preview_auto_tags_for_upload(token: str, request: UploadAutoTagPreviewRequest):
+    """Preview AI tag suggestions for a temporary upload token without creating a post.
+
+    Synchronous variant kept for backwards compatibility. Clients behind a
+    reverse proxy should prefer the async start/poll endpoints below, since AI
+    inference (video frames, Whisper, etc.) can exceed a proxy's gateway
+    timeout and surface as an HTTP 504.
+    """
+    temp_path = get_upload_path(token)
+    if not temp_path or not temp_path.exists():
+        raise HTTPException(status_code=404, detail="Invalid or expired content token")
+    return await _compute_auto_tag_preview(temp_path, request)
+
+
+# Async AI-preview jobs. Inference runs in a background task so each HTTP
+# request returns immediately; the client polls for the result. This avoids
+# gateway 504s on long-running model runs (video/Whisper/Qwen) when the
+# instance is reached through a reverse proxy or tunnel.
+# job_id -> {status, result, error, created, task}
+preview_jobs: dict[str, dict] = {}
+PREVIEW_JOB_TTL_SECONDS = 900
+
+
+def _prune_preview_jobs() -> None:
+    now = time.time()
+    stale = [
+        jid for jid, job in preview_jobs.items()
+        if now - job.get("created", now) > PREVIEW_JOB_TTL_SECONDS
+    ]
+    for jid in stale:
+        preview_jobs.pop(jid, None)
+
+
+async def _run_preview_job(job_id: str, temp_path: Path, request: UploadAutoTagPreviewRequest) -> None:
+    try:
+        result = await _compute_auto_tag_preview(temp_path, request)
+        job = preview_jobs.get(job_id)
+        if job is not None:
+            job.update(status="completed", result=result)
+    except Exception as exc:  # noqa: BLE001 - surfaced to the client via the job
+        logger.warning("auto-tag preview job %s failed: %s", job_id, exc)
+        job = preview_jobs.get(job_id)
+        if job is not None:
+            job.update(status="failed", error=str(exc))
+
+
+@router.post("/{token}/auto-tags/preview/start")
+async def start_preview_auto_tags_for_upload(token: str, request: UploadAutoTagPreviewRequest):
+    """Kick off an AI tag preview in the background and return a job id to poll."""
+    temp_path = get_upload_path(token)
+    if not temp_path or not temp_path.exists():
+        raise HTTPException(status_code=404, detail="Invalid or expired content token")
+
+    _prune_preview_jobs()
+    job_id = str(uuid.uuid4())
+    job = {"status": "running", "result": None, "error": None, "created": time.time()}
+    preview_jobs[job_id] = job
+    # Hold a reference so the task is not garbage-collected mid-run.
+    job["task"] = asyncio.create_task(_run_preview_job(job_id, temp_path, request))
+    return {"jobId": job_id, "status": "running"}
+
+
+@router.get("/auto-tags/preview-jobs/{job_id}")
+async def get_preview_auto_tags_job(job_id: str):
+    """Poll an AI tag preview job started via the start endpoint."""
+    job = preview_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Preview job not found or expired")
+    return {
+        "jobId": job_id,
+        "status": job["status"],
+        "result": job.get("result"),
+        "error": job.get("error"),
     }
 
 
