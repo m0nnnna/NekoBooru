@@ -1,4 +1,4 @@
-; NekoBooru Windows installer skeleton.
+; NekoBooru Windows installer.
 ; Build after running build-binary.bat and installing Inno Setup.
 
 #define MyAppName "NekoBooru"
@@ -31,7 +31,7 @@ Name: "startup"; Description: "Start NekoBooru when Windows starts"; GroupDescri
 Name: "nativehost"; Description: "Install browser native host registration"; GroupDescription: "Browser integration"
 
 [Files]
-Source: "..\..\dist\nekobooru-core\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\dist\nekobooru-binary\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\NekoBooru"; Filename: "{app}\{#MyAppExeName}"

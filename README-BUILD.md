@@ -29,6 +29,16 @@ This creates:
 - Just run `nekobooru.exe`; it creates `data/` and `config/` folders alongside itself
 - Optional: place `ffmpeg.exe` / `yt-dlp.exe` next to it for video thumbnails / downloads
 
+Build the Windows installer wizard:
+
+```batch
+build-installer.bat
+```
+
+This requires Inno Setup 6 and creates:
+- `dist/installer/NekoBooruSetup-<version>.exe` - install/upgrade/uninstall wizard
+- The installer packages the already-built `dist/nekobooru-binary` app
+
 Create a ZIP archive:
 ```powershell
 powershell Compress-Archive -Path "dist\nekobooru-binary\*" -DestinationPath "dist\nekobooru-windows-1.0.0.zip" -Force
