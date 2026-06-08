@@ -81,10 +81,10 @@ begin
       False
     );
   AiPage.Add('Skip AI setup for now');
-  AiPage.Add('Local CPU AI - easiest install, slower tagging');
-  AiPage.Add('Local NVIDIA GPU AI - best for RTX/modern CUDA desktops');
-  AiPage.Add('Local legacy NVIDIA GPU AI - CUDA 12.6/Pascal compatibility');
-  AiPage.Add('Remote/server AI - use another GPU machine');
+  AiPage.Add('Local CPU AI - easiest install, slower tagging (~3-5 GB download, 0 GB VRAM)');
+  AiPage.Add('Local NVIDIA GPU AI - RTX/modern CUDA desktops (~6-8 GB CUDA/Torch runtime download)');
+  AiPage.Add('Local legacy NVIDIA GPU AI - CUDA 12.6/Pascal compatibility (~6-8 GB runtime download)');
+  AiPage.Add('Remote/server AI - use another GPU machine (no local CUDA runtime download)');
   AiPage.SelectedValueIndex := 0;
 
   UpdatePage :=

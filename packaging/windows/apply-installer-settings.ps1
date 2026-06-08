@@ -98,4 +98,6 @@ if ($AiProfile -eq "remote") {
   $settings["auto_tagging"] = $autoTagging
 }
 
-$settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $settingsPath -Encoding UTF8
+$json = $settings | ConvertTo-Json -Depth 20
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($settingsPath, $json, $utf8NoBom)

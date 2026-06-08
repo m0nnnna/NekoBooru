@@ -19,7 +19,7 @@ class SettingsManager:
         """Load settings from config file."""
         if self.config_file.exists():
             try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
+                with open(self.config_file, 'r', encoding='utf-8-sig') as f:
                     return json.load(f)
             except Exception as e:
                 logger.error(f"Failed to load settings: {e}")
