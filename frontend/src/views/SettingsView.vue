@@ -91,7 +91,6 @@
           <strong>Autocomplete character given names</strong>
           <small>
             Allows partial-name searches like konata to suggest tags such as izumi_konata.
-            Exact and prefix matches still rank first.
           </small>
         </span>
       </label>

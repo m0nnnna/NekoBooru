@@ -91,8 +91,9 @@ function onArrowUp() {
 }
 
 function onEnter() {
-  if (suggestions.value.length > 0 && selectedIndex.value >= 0) {
-    selectTag(suggestions.value[selectedIndex.value])
+  if (suggestions.value.length > 0) {
+    const index = selectedIndex.value >= 0 ? selectedIndex.value : 0
+    selectTag(suggestions.value[index])
   } else {
     search()
   }

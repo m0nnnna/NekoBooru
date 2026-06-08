@@ -94,10 +94,10 @@ async def autocomplete_tags(
     if name_parts:
         match_condition = Tag.name.ilike(f"%{q}%")
         rank = case(
-            (name == needle, 0),
-            (name.like(f"{needle}%"), 1),
-            (name.like(f"%_{needle}"), 2),
-            (name.like(f"%_{needle}_%"), 3),
+            (name.like(f"%_{needle}"), 0),
+            (name.like(f"%_{needle}_%"), 1),
+            (name.like(f"{needle}_%"), 2),
+            (name == needle, 3),
             else_=4,
         )
     else:
