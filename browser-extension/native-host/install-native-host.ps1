@@ -1,7 +1,8 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$ExtensionId,
-  [string]$AppPath = ""
+  [string]$AppPath = "",
+  [int]$BackendPort = 8772
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,7 +31,7 @@ $ConfigPath = Join-Path $ManifestDir "launcher-config.json"
 
 if ($AppPath) {
   $ResolvedAppPath = (Resolve-Path -LiteralPath $AppPath).Path
-  @{ appPath = $ResolvedAppPath } | ConvertTo-Json | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+  @{ appPath = $ResolvedAppPath; backendPort = $BackendPort } | ConvertTo-Json | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
 }
 
 $Manifest = Get-Content -Raw -LiteralPath $TemplatePath
@@ -51,4 +52,5 @@ foreach ($Key in $RegistryRoots) {
 Write-Host "Installed NekoBooru native launcher for extension $ExtensionId"
 Write-Host "Manifest: $ManifestPath"
 if ($AppPath) { Write-Host "Packaged app path: $ResolvedAppPath" }
+if ($AppPath) { Write-Host "Packaged backend port: $BackendPort" }
 Write-Host "Reload the extension in Brave/Chrome after installing."

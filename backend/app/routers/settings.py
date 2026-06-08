@@ -27,6 +27,7 @@ class SettingsResponse(BaseModel):
     uploads_dir: str
     host: str
     port: int
+    frontend_port: int
     cors_origins: str
     server_restart_required: bool = False
     ytdlp_cookies_configured: bool = False
@@ -49,6 +50,7 @@ class YtdlpUpdateRequest(BaseModel):
 class ServerSettingsRequest(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8772
+    frontend_port: int = 5173
     cors_origins: str = ""
 
 
@@ -101,6 +103,7 @@ async def get_settings():
         uploads_dir=str(settings.uploads_dir),
         host=settings.host,
         port=settings.port,
+        frontend_port=settings.frontend_port,
         cors_origins=settings.cors_origins,
         server_restart_required=False,
         ytdlp_cookies_configured=cookies_configured,
@@ -115,24 +118,32 @@ async def update_server_settings(request: ServerSettingsRequest):
         host = "127.0.0.1"
     if not (1 <= int(request.port) <= 65535):
         raise HTTPException(status_code=400, detail="Port must be between 1 and 65535")
+    if not (1 <= int(request.frontend_port) <= 65535):
+        raise HTTPException(status_code=400, detail="Frontend port must be between 1 and 65535")
 
     cors = str(request.cors_origins or "").strip()
     if not cors:
         cors = (
             f"http://localhost:{int(request.port)},http://127.0.0.1:{int(request.port)},"
-            "http://localhost:5173,http://127.0.0.1:5173"
+            f"http://localhost:{int(request.frontend_port)},http://127.0.0.1:{int(request.frontend_port)}"
         )
 
     server_settings = {
         "host": host,
         "port": int(request.port),
+        "frontendPort": int(request.frontend_port),
         "corsOrigins": cors,
     }
     SettingsManager(settings.config_file).set_server_settings(server_settings)
     return {
         **server_settings,
-        "restartRequired": host != settings.host or int(request.port) != settings.port or cors != settings.cors_origins,
-        "message": "Server settings saved. Restart NekoBooru for host/port changes to take effect.",
+        "restartRequired": (
+            host != settings.host
+            or int(request.port) != settings.port
+            or int(request.frontend_port) != settings.frontend_port
+            or cors != settings.cors_origins
+        ),
+        "message": "Server settings saved. Restart NekoBooru/dev frontend for port changes to take effect.",
     }
 
 

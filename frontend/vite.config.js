@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
   // another local env file if needed. Must match the backend's NEKO_PORT.
   const env = loadEnv(mode, process.cwd(), '')
   const backend = env.VITE_BACKEND || 'http://127.0.0.1:8772'
+  const frontendPort = Number(env.VITE_FRONTEND_PORT || env.NEKO_FRONTEND_PORT || 5173)
 
   return {
     plugins: [vue()],
@@ -16,7 +17,7 @@ export default defineConfig(({ mode }) => {
       assetsDir: 'assets',
     },
     server: {
-      port: 5173,
+      port: frontendPort,
       proxy: {
         '/api': {
           target: backend,

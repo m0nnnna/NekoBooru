@@ -46,6 +46,39 @@ def load_config() -> dict:
         return {}
 
 
+def source_server_config() -> dict:
+    path = repo_root() / "config" / "settings.json"
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return dict(data.get("server") or {})
+    except Exception:
+        return {}
+
+
+def source_backend_port() -> int:
+    try:
+        return int(source_server_config().get("port") or os.environ.get("NEKO_PORT") or BACKEND_PORT)
+    except Exception:
+        return BACKEND_PORT
+
+
+def source_frontend_port() -> int:
+    try:
+        return int(source_server_config().get("frontendPort") or os.environ.get("NEKO_FRONTEND_PORT") or FRONTEND_PORT)
+    except Exception:
+        return FRONTEND_PORT
+
+
+def packaged_backend_port() -> int:
+    cfg = load_config()
+    try:
+        return int(cfg.get("backendPort") or cfg.get("port") or BACKEND_PORT)
+    except Exception:
+        return BACKEND_PORT
+
+
 def registry_install_path() -> Path | None:
     if os.name != "nt":
         return None
@@ -127,7 +160,8 @@ def start_servers() -> dict:
 
 def start_packaged_app(app_path: Path) -> dict:
     logs = user_root() / "logs"
-    backend_running = is_port_open(BACKEND_PORT)
+    backend_port = packaged_backend_port()
+    backend_running = is_port_open(backend_port)
     if not backend_running:
         popen_hidden([str(app_path)], app_path.parent, logs / "native-packaged-app.log")
     return {
@@ -136,8 +170,8 @@ def start_packaged_app(app_path: Path) -> dict:
         "appPath": str(app_path),
         "backendAlreadyRunning": backend_running,
         "frontendAlreadyRunning": backend_running,
-        "backendUrl": f"http://{HOST}:{BACKEND_PORT}",
-        "frontendUrl": f"http://{HOST}:{BACKEND_PORT}",
+        "backendUrl": f"http://{HOST}:{backend_port}",
+        "frontendUrl": f"http://{HOST}:{backend_port}",
         "logs": str(logs),
     }
 
@@ -145,8 +179,10 @@ def start_packaged_app(app_path: Path) -> dict:
 def start_source_servers() -> dict:
     root = repo_root()
     logs = root / "logs"
-    backend_running = is_port_open(BACKEND_PORT)
-    frontend_running = is_port_open(FRONTEND_PORT)
+    backend_port = source_backend_port()
+    frontend_port = source_frontend_port()
+    backend_running = is_port_open(backend_port)
+    frontend_running = is_port_open(frontend_port)
 
     if not backend_running:
         python = root / "venv" / "Scripts" / "python.exe"
@@ -156,30 +192,32 @@ def start_source_servers() -> dict:
 
     if not frontend_running:
         npm = "npm.cmd" if os.name == "nt" else "npm"
-        popen_hidden([npm, "run", "dev", "--", "--host", HOST], root / "frontend", logs / "native-frontend.log")
+        popen_hidden([npm, "run", "dev", "--", "--host", HOST, "--port", str(frontend_port)], root / "frontend", logs / "native-frontend.log")
 
     return {
         "ok": True,
         "mode": "source",
         "backendAlreadyRunning": backend_running,
         "frontendAlreadyRunning": frontend_running,
-        "backendUrl": f"http://{HOST}:{BACKEND_PORT}",
-        "frontendUrl": f"http://{HOST}:{FRONTEND_PORT}",
+        "backendUrl": f"http://{HOST}:{backend_port}",
+        "frontendUrl": f"http://{HOST}:{frontend_port}",
     }
 
 
 def status() -> dict:
     app_path = installed_app_path()
-    backend_running = is_port_open(BACKEND_PORT)
-    frontend_running = is_port_open(FRONTEND_PORT)
+    backend_port = packaged_backend_port() if app_path else source_backend_port()
+    frontend_port = backend_port if app_path else source_frontend_port()
+    backend_running = is_port_open(backend_port)
+    frontend_running = is_port_open(frontend_port)
     return {
         "ok": True,
         "mode": "packaged" if app_path else "source",
         "appPath": str(app_path) if app_path else "",
         "backendRunning": backend_running,
         "frontendRunning": frontend_running,
-        "backendUrl": f"http://{HOST}:{BACKEND_PORT}",
-        "frontendUrl": f"http://{HOST}:{BACKEND_PORT}" if app_path else f"http://{HOST}:{FRONTEND_PORT}",
+        "backendUrl": f"http://{HOST}:{backend_port}",
+        "frontendUrl": f"http://{HOST}:{frontend_port}",
     }
 
 

@@ -119,6 +119,8 @@ def runtime_status() -> dict:
             "platform": platform.system().lower(),
             "appDir": str(runtime_paths.app_dir),
             "bundleDir": str(runtime_paths.bundle_dir),
+            "backendPort": settings.port,
+            "frontendPort": settings.frontend_port,
         },
         "paths": {
             "configDir": str(settings.config_dir),

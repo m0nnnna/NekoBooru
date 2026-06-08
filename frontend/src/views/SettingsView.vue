@@ -117,6 +117,13 @@
           </span>
           <input v-model.number="serverSettings.port" type="number" min="1" max="65535" />
         </label>
+        <label class="field-row">
+          <span class="label-with-help">
+            Dev frontend port
+            <button type="button" class="info-icon" :data-tooltip="serverHelp.frontendPort" :aria-label="serverHelp.frontendPort">?</button>
+          </span>
+          <input v-model.number="serverSettings.frontend_port" type="number" min="1" max="65535" />
+        </label>
       </div>
 
       <label class="field-row cors-field">
@@ -135,7 +142,10 @@
         <button class="btn" @click="saveServerSettings" :disabled="savingServer">
           {{ savingServer ? 'Saving...' : 'Save Server Settings' }}
         </button>
-        <span class="status-note">Current URL: http://{{ currentSettings.host || '127.0.0.1' }}:{{ currentSettings.port || 8772 }}</span>
+        <span class="status-note">
+          Packaged URL: http://{{ currentSettings.host || '127.0.0.1' }}:{{ currentSettings.port || 8772 }} ·
+          Dev frontend: http://127.0.0.1:{{ currentSettings.frontend_port || 5173 }}
+        </span>
       </div>
     </div>
 
@@ -1005,6 +1015,7 @@ const namePartAutocompleteEnabled = ref(false)
 const serverSettings = ref({
   host: '127.0.0.1',
   port: 8772,
+  frontend_port: 5173,
   cors_origins: '',
 })
 const savingServer = ref(false)
@@ -1090,6 +1101,7 @@ const thresholdHelp = {
 const serverHelp = {
   host: '127.0.0.1 keeps NekoBooru available only on this PC. Use 0.0.0.0 only if you intentionally want LAN devices to reach it; NekoBooru has no built-in user login.',
   port: 'The TCP port for the backend and packaged web UI. Change it if another app already uses 8772. Restart required.',
+  frontendPort: 'Dev/source mode only. Packaged installs serve the frontend from the backend port. Restart the Vite frontend dev server after changing this.',
   cors: 'Comma-separated browser origins allowed to call the API. Keep localhost/127.0.0.1 entries for the active port. Only add LAN origins you trust.',
 }
 const torchDeviceHelp = 'Auto uses CUDA/GPU when the installed torch build can see it, otherwise CPU. GPU only forces CUDA and reports an error if this venv has CPU-only torch. CPU only is slower but useful when you need VRAM free.'
@@ -1545,6 +1557,7 @@ async function loadSettings() {
     serverSettings.value = {
       host: currentSettings.value.host || '127.0.0.1',
       port: currentSettings.value.port || 8772,
+      frontend_port: currentSettings.value.frontend_port || 5173,
       cors_origins: currentSettings.value.cors_origins || '',
     }
   } catch (e) {
@@ -1559,13 +1572,14 @@ async function saveServerSettings() {
     const result = await api.updateServerSettings({
       host: serverSettings.value.host,
       port: Number(serverSettings.value.port || 8772),
+      frontend_port: Number(serverSettings.value.frontend_port || 5173),
       cors_origins: serverSettings.value.cors_origins,
     })
     serverStatus.value = {
       show: true,
       success: true,
       message: result.restartRequired
-        ? 'Server settings saved. Restart NekoBooru to use the new host/port.'
+        ? 'Server settings saved. Restart NekoBooru and the dev frontend to use new ports.'
         : 'Server settings saved.',
     }
     await loadSettings()

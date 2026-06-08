@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     # behind a reverse proxy with auth).
     host: str = "127.0.0.1"
     port: int = 8772
+    frontend_port: int = 5173
 
     # Browser origins allowed to call the API (CORS). Local-only by default:
     # the web UI is served same-origin and the extension/Android app aren't
@@ -89,6 +90,8 @@ class Settings(BaseSettings):
                 self.host = str(server.get("host"))
             if not os.environ.get("NEKO_PORT") and server.get("port"):
                 self.port = int(server.get("port"))
+            if not os.environ.get("NEKO_FRONTEND_PORT") and server.get("frontendPort"):
+                self.frontend_port = int(server.get("frontendPort"))
             if not os.environ.get("NEKO_CORS_ORIGINS") and server.get("corsOrigins"):
                 self.cors_origins = str(server.get("corsOrigins"))
         return self
