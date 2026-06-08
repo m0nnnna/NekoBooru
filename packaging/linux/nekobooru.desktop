@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=NekoBooru
+Comment=Local booru-style image and video library
+Exec=nekobooru
+Icon=nekobooru
+Terminal=false
+Categories=Graphics;Utility;

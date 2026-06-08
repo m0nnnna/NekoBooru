@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "profiles": {
+    "cpu": {
+      "label": "Local CPU AI",
+      "requirements": "backend/requirements-tagger-cpu.txt",
+      "downloadSize": "~3-5 GB",
+      "vram": "0 GB",
+      "torchIndex": "https://download.pytorch.org/whl/cpu"
+    },
+    "gpu-cu128": {
+      "label": "Local NVIDIA AI",
+      "requirements": "backend/requirements-tagger.txt",
+      "downloadSize": "~6-8 GB",
+      "vram": "Model dependent",
+      "torchIndex": "https://download.pytorch.org/whl/cu128",
+      "minComputeCapabilityMajor": 7
+    },
+    "gpu-cu126-legacy": {
+      "label": "Local legacy NVIDIA AI",
+      "requirements": "backend/requirements-tagger-legacy.txt",
+      "downloadSize": "~6-8 GB",
+      "vram": "Model dependent",
+      "torchIndex": "https://download.pytorch.org/whl/cu126",
+      "computeCapabilityMajor": 6
+    },
+    "remote": {
+      "label": "Remote/server AI",
+      "requirements": null,
+      "downloadSize": "0 GB on this client",
+      "vram": "Remote worker"
+    }
+  }
+}

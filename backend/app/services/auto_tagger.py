@@ -1136,7 +1136,7 @@ def model_cache_status(model_id: str = "wd") -> dict:
 
 
 def _latest_snapshot_dir(repo_id: str) -> Path | None:
-    repo_cache = Path.home() / ".cache" / "huggingface" / "hub" / f"models--{repo_id.replace('/', '--')}"
+    repo_cache = settings.models_dir / "huggingface" / "hub" / f"models--{repo_id.replace('/', '--')}"
     snapshots = repo_cache / "snapshots"
     if not snapshots.exists():
         return None

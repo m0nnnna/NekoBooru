@@ -246,6 +246,74 @@
     </div>
 
     <div class="settings-section">
+      <h2>Runtime & Packaging</h2>
+      <p class="section-description">
+        Installer-facing diagnostics for packaged paths, native host registration, tools, and optional AI runtime.
+      </p>
+
+      <div class="runtime-summary-grid">
+        <div>
+          <span>App mode</span>
+          <strong>{{ runtimeStatus.app?.packaged ? 'Packaged' : 'Source checkout' }}</strong>
+          <small>{{ runtimeStatus.app?.version || 'unknown version' }}</small>
+        </div>
+        <div>
+          <span>AI runtime</span>
+          <strong :class="runtimeStatus.ai?.runtimeInstalled ? 'model-ok' : 'model-missing'">
+            {{ runtimeStatus.ai?.runtimeInstalled ? 'Installed' : 'Not installed' }}
+          </strong>
+          <small>{{ runtimeAiSummary }}</small>
+        </div>
+        <div>
+          <span>Native host</span>
+          <strong :class="runtimeStatus.nativeHost?.installed ? 'model-ok' : 'model-missing'">
+            {{ runtimeStatus.nativeHost?.installed ? 'Registered' : 'Not registered' }}
+          </strong>
+          <small>Brave/Chrome companion launcher</small>
+        </div>
+        <div>
+          <span>Tools</span>
+          <strong>{{ runtimeToolSummary }}</strong>
+          <small>ffmpeg, ffprobe, yt-dlp</small>
+        </div>
+      </div>
+
+      <details class="runtime-details">
+        <summary>Runtime paths</summary>
+        <div class="info-grid">
+          <div class="info-item">
+            <label>Config</label>
+            <code>{{ runtimeStatus.paths?.configDir || 'N/A' }}</code>
+          </div>
+          <div class="info-item">
+            <label>Data</label>
+            <code>{{ runtimeStatus.paths?.dataDir || 'N/A' }}</code>
+          </div>
+          <div class="info-item">
+            <label>Models</label>
+            <code>{{ runtimeStatus.paths?.modelsDir || 'N/A' }}</code>
+          </div>
+          <div class="info-item">
+            <label>AI venv</label>
+            <code>{{ runtimeStatus.paths?.aiVenv || 'N/A' }}</code>
+          </div>
+          <div class="info-item">
+            <label>Logs</label>
+            <code>{{ runtimeStatus.paths?.logsDir || 'N/A' }}</code>
+          </div>
+          <div class="info-item">
+            <label>App</label>
+            <code>{{ runtimeStatus.app?.appDir || 'N/A' }}</code>
+          </div>
+        </div>
+      </details>
+
+      <div class="form-actions">
+        <button class="btn btn-secondary" @click="loadRuntimeStatus">Refresh Runtime Status</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h2>Server Statistics</h2>
       <div v-if="statsLoading" class="stats-loading">Loading statistics...</div>
       <div v-else-if="statsError" class="stats-error">{{ statsError }}</div>
@@ -305,25 +373,17 @@
         <div class="config-panel-head">
           <h3>Set up the AI runtime</h3>
           <p>
-            AI tagging needs an extra ML runtime that is not bundled with NekoBooru. Pick your
-            hardware, run the command below in your NekoBooru Python environment, then re-check.
-            The packaged executable cannot install this into itself — run NekoBooru from source
-            (or your own Python env) to use AI features.
+            AI tagging needs an extra ML runtime that is not bundled with the base installer.
+            Pick a local CPU/GPU runtime or configure a remote server AI worker.
           </p>
         </div>
-        <div class="ai-setup-target">
-          <label class="radio-row">
-            <input type="radio" value="cuda" v-model="aiSetupTarget" />
+        <div class="ai-setup-target ai-profile-grid">
+          <label v-for="profile in aiRuntimeProfileRows" :key="profile.id" class="radio-row">
+            <input type="radio" :value="profile.id" v-model="selectedAiRuntimeProfile" />
             <span>
-              <strong>NVIDIA GPU (CUDA)</strong>
-              <small>Fastest. Requires an NVIDIA GPU with recent drivers.</small>
-            </span>
-          </label>
-          <label class="radio-row">
-            <input type="radio" value="cpu" v-model="aiSetupTarget" />
-            <span>
-              <strong>CPU only</strong>
-              <small>Works anywhere, but much slower. The largest models may be impractical.</small>
+              <strong>{{ profile.label }}</strong>
+              <small>{{ profile.description }}</small>
+              <em>{{ profile.downloadSize }} · {{ profile.vram }}</em>
             </span>
           </label>
         </div>
@@ -333,7 +393,30 @@
             {{ aiSetupCopied ? 'Copied!' : 'Copy' }}
           </button>
         </div>
+        <div v-if="aiRuntimeJob" class="download-summary">
+          <div class="download-summary-head">
+            <strong>{{ aiRuntimeJob.message || aiRuntimeJob.status }}</strong>
+            <span>{{ aiRuntimeInstallProgress }}%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: aiRuntimeInstallProgress + '%' }"></div>
+          </div>
+          <p>{{ aiRuntimeJob.status }} · {{ aiRuntimeJob.profile }}</p>
+          <details v-if="aiRuntimeJob.output">
+            <summary>Installer output</summary>
+            <pre>{{ aiRuntimeJob.output }}</pre>
+          </details>
+        </div>
+        <div v-if="aiRuntimeMessage.show" class="cookies-status" :class="aiRuntimeMessage.success ? 'success' : 'error'">
+          <p><strong>{{ aiRuntimeMessage.message }}</strong></p>
+        </div>
         <div class="form-actions">
+          <button class="btn" @click="startAiRuntimeInstall" :disabled="aiRuntimeBusy">
+            {{ aiRuntimeBusy ? 'Installing...' : 'Install Selected Runtime' }}
+          </button>
+          <button class="btn btn-secondary" @click="cancelAiRuntimeInstall" :disabled="!aiRuntimeBusy">
+            Cancel Install
+          </button>
           <button class="btn" @click="recheckAiRuntime" :disabled="recheckingRuntime">
             {{ recheckingRuntime ? 'Checking...' : 'Re-check runtime' }}
           </button>
@@ -895,6 +978,16 @@ const ytdlpMessage = ref({
   success: false,
   message: '',
 })
+const runtimeStatus = ref({})
+const aiRuntimeProfiles = ref([])
+const selectedAiRuntimeProfile = ref('auto')
+const aiRuntimeJob = ref(null)
+const aiRuntimeBusy = ref(false)
+const aiRuntimeMessage = ref({
+  show: false,
+  success: false,
+  message: '',
+})
 
 const stats = ref({})
 const statsLoading = ref(true)
@@ -953,6 +1046,7 @@ const bulkActionHelp = {
 let autoTagPollTimer = null
 let modelDownloadPollTimer = null
 let ytdlpPollTimer = null
+let aiRuntimePollTimer = null
 
 const migrationPrompt = ref({
   show: false,
@@ -969,7 +1063,7 @@ const migrationStatus = ref({
 
 onMounted(async () => {
   loadSearchPredictionSetting()
-  await Promise.all([loadSettings(), loadStats(), loadAutoTags(), refreshYtdlpStatus()])
+  await Promise.all([loadSettings(), loadStats(), loadAutoTags(), refreshYtdlpStatus(), loadRuntimeStatus()])
 })
 
 function loadSearchPredictionSetting() {
@@ -989,6 +1083,7 @@ onUnmounted(() => {
   if (autoTagPollTimer) clearInterval(autoTagPollTimer)
   if (modelDownloadPollTimer) clearInterval(modelDownloadPollTimer)
   if (ytdlpPollTimer) clearInterval(ytdlpPollTimer)
+  if (aiRuntimePollTimer) clearInterval(aiRuntimePollTimer)
 })
 
 const autoTagJobRunning = computed(() =>
@@ -1029,6 +1124,34 @@ const ytdlpJobClass = computed(() => {
   if (status === 'completed') return 'model-ok'
   if (status === 'failed') return 'model-missing'
   return ''
+})
+
+const runtimeAiSummary = computed(() => {
+  const ai = runtimeStatus.value.ai || {}
+  if (ai.runtimeInstalled) return ai.profile || 'installed'
+  const receiptError = ai.receipt?.error
+  return receiptError ? `receipt error: ${receiptError}` : 'Install from Auto Tagging setup'
+})
+
+const runtimeToolSummary = computed(() => {
+  const tools = runtimeStatus.value.tools || {}
+  const ready = ['ffmpeg', 'ffprobe', 'ytdlp'].filter((key) => tools[key]?.available).length
+  return `${ready}/3 ready`
+})
+
+const aiRuntimeProfileRows = computed(() => aiRuntimeProfiles.value.length
+  ? aiRuntimeProfiles.value
+  : [
+      { id: 'auto', label: 'Auto-detect NVIDIA GPU', description: 'Pick GPU, legacy GPU, or CPU automatically.', downloadSize: '~3-8 GB', vram: 'Depends on models' },
+      { id: 'cpu', label: 'Local CPU AI', description: 'No CUDA required. Slower, but simple.', downloadSize: '~3-5 GB', vram: '0 GB' },
+      { id: 'gpu-cu128', label: 'Local NVIDIA AI', description: 'CUDA 12.8 for newer NVIDIA GPUs.', downloadSize: '~6-8 GB', vram: 'Model dependent' },
+      { id: 'gpu-cu126-legacy', label: 'Local legacy NVIDIA AI', description: 'CUDA 12.6 for GTX 10-series/Pascal.', downloadSize: '~6-8 GB', vram: 'Model dependent' },
+      { id: 'remote', label: 'Remote/server AI', description: 'Use another GPU machine instead of local CUDA wheels.', downloadSize: '0 GB on this client', vram: 'Remote worker' },
+    ])
+
+const aiRuntimeInstallProgress = computed(() => {
+  if (!aiRuntimeJob.value) return 0
+  return Math.max(0, Math.min(100, Number(aiRuntimeJob.value.progress || 0)))
 })
 
 const autoTagProgressPercent = computed(() => {
@@ -1155,9 +1278,13 @@ const remoteWorkerSummary = computed(() => {
 })
 
 const aiSetupCommand = computed(() =>
-  aiSetupTarget.value === 'cpu'
-    ? 'pip install -r backend/requirements-tagger-cpu.txt'
-    : 'pip install -r backend/requirements-tagger.txt'
+  ({
+    cpu: 'nekobooru --install-ai --profile cpu',
+    'gpu-cu128': 'nekobooru --install-ai --profile gpu-cu128',
+    'gpu-cu126-legacy': 'nekobooru --install-ai --profile gpu-cu126-legacy',
+    remote: 'Configure remote/server AI worker below; no local CUDA wheels are installed.',
+    auto: 'nekobooru --install-ai --profile auto',
+  }[selectedAiRuntimeProfile.value] || 'nekobooru --install-ai --profile auto')
 )
 
 const torchSummary = computed(() => {
@@ -1239,6 +1366,105 @@ async function loadStats() {
   } finally {
     statsLoading.value = false
   }
+}
+
+async function loadRuntimeStatus() {
+  try {
+    const [status, profiles] = await Promise.all([
+      api.getRuntimeStatus(),
+      api.getAiRuntimeProfiles(),
+    ])
+    runtimeStatus.value = status || {}
+    aiRuntimeProfiles.value = profiles.profiles || []
+    aiRuntimeJob.value = profiles.installJob || aiRuntimeJob.value
+    aiRuntimeBusy.value = ['queued', 'running', 'cancelling'].includes(aiRuntimeJob.value?.status)
+    if (aiRuntimeBusy.value) startAiRuntimePolling()
+  } catch (e) {
+    aiRuntimeMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to load runtime status: ' + e.message,
+    }
+  }
+}
+
+async function startAiRuntimeInstall() {
+  aiRuntimeBusy.value = true
+  aiRuntimeMessage.value = {
+    show: true,
+    success: true,
+    message: 'Starting AI runtime install. Large CUDA wheels can take a while.',
+  }
+  try {
+    aiRuntimeJob.value = await api.installAiRuntime(selectedAiRuntimeProfile.value)
+    if (aiRuntimeJob.value?.status === 'completed') {
+      aiRuntimeBusy.value = false
+      aiRuntimeMessage.value = {
+        show: true,
+        success: true,
+        message: aiRuntimeJob.value.message || 'AI runtime is already installed.',
+      }
+      await Promise.all([loadRuntimeStatus(), refreshAutoTagStatus()])
+      return
+    }
+    startAiRuntimePolling()
+  } catch (e) {
+    aiRuntimeBusy.value = false
+    aiRuntimeMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to start AI runtime install: ' + e.message,
+    }
+  }
+}
+
+async function cancelAiRuntimeInstall() {
+  try {
+    aiRuntimeJob.value = await api.cancelAiRuntimeInstall()
+    aiRuntimeMessage.value = {
+      show: true,
+      success: false,
+      message: 'AI runtime install cancellation requested.',
+    }
+  } catch (e) {
+    aiRuntimeMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to cancel AI runtime install: ' + e.message,
+    }
+  }
+}
+
+function startAiRuntimePolling() {
+  if (aiRuntimePollTimer) clearInterval(aiRuntimePollTimer)
+  aiRuntimePollTimer = setInterval(async () => {
+    try {
+      aiRuntimeJob.value = await api.getAiRuntimeInstallJob()
+      aiRuntimeBusy.value = ['queued', 'running', 'cancelling'].includes(aiRuntimeJob.value?.status)
+      if (!aiRuntimeBusy.value) {
+        clearInterval(aiRuntimePollTimer)
+        aiRuntimePollTimer = null
+        const ok = aiRuntimeJob.value?.status === 'completed'
+        aiRuntimeMessage.value = {
+          show: true,
+          success: ok,
+          message: ok
+            ? 'AI runtime install completed.'
+            : `AI runtime install failed: ${aiRuntimeJob.value?.error || 'open installer output for details'}`,
+        }
+        await Promise.all([loadRuntimeStatus(), refreshAutoTagStatus()])
+      }
+    } catch (e) {
+      clearInterval(aiRuntimePollTimer)
+      aiRuntimePollTimer = null
+      aiRuntimeBusy.value = false
+      aiRuntimeMessage.value = {
+        show: true,
+        success: false,
+        message: 'Failed to poll AI runtime install: ' + e.message,
+      }
+    }
+  }, 1500)
 }
 
 function formatDate(isoString) {
@@ -2249,6 +2475,47 @@ function startYtdlpPolling() {
   border-radius: 0.25rem;
 }
 
+.runtime-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.runtime-summary-grid > div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+}
+
+.runtime-summary-grid span {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.runtime-summary-grid strong {
+  color: var(--text-primary);
+}
+
+.runtime-summary-grid small {
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.runtime-details {
+  margin-top: 1rem;
+}
+
+.runtime-details summary {
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
 /* Stats Section */
 .stats-loading,
 .stats-error {
@@ -2484,6 +2751,18 @@ function startYtdlpPolling() {
   color: var(--text-secondary);
   font-size: 0.78rem;
   line-height: 1.35;
+}
+
+.radio-row em {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-style: normal;
+}
+
+.ai-profile-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .ai-setup-command {

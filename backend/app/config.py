@@ -1,23 +1,20 @@
+import os
 import sys
 from pathlib import Path
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
+from .runtime_paths import runtime_paths
 from .services.settings import SettingsManager
 
 
 def get_base_dir() -> Path:
     """Get the base directory, handling both normal and PyInstaller frozen modes."""
-    if getattr(sys, 'frozen', False):
-        # Running as PyInstaller bundle - use executable's directory
-        return Path(sys.executable).parent
-    return Path(__file__).parent.parent.parent
+    return runtime_paths.app_dir
 
 
 def get_bundle_dir() -> Path:
     """Get the bundle directory where internal resources are stored."""
-    if getattr(sys, 'frozen', False):
-        return Path(sys._MEIPASS)
-    return Path(__file__).parent.parent.parent
+    return runtime_paths.bundle_dir
 
 
 class Settings(BaseSettings):
@@ -27,10 +24,15 @@ class Settings(BaseSettings):
     # NEKO_DEBUG=true to re-enable query logging while troubleshooting.
     debug: bool = False
 
-    # Paths - base_dir is where data/config live (next to exe when frozen)
+    # Paths. In source mode these default to the checkout; in packaged mode
+    # runtime_paths moves generated files into user-writable app data folders.
     base_dir: Path = get_base_dir()
     config_dir: Path | None = None
     config_file: Path | None = None
+    logs_dir: Path = runtime_paths.logs_dir
+    models_dir: Path = runtime_paths.models_dir
+    runtimes_dir: Path = runtime_paths.runtimes_dir
+    ai_venv_dir: Path = runtime_paths.ai_venv_dir
 
     # Thumbnail settings
     thumb_size: int = 300
@@ -78,9 +80,9 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def set_derived_paths(self):
         if self.config_dir is None:
-            self.config_dir = self.base_dir / "config"
+            self.config_dir = runtime_paths.config_dir
         if self.config_file is None:
-            self.config_file = self.config_dir / "settings.json"
+            self.config_file = runtime_paths.config_file
         return self
 
     @property
@@ -91,11 +93,13 @@ class Settings(BaseSettings):
     @property
     def data_dir(self) -> Path:
         """Get data directory from settings file or use default."""
+        if os.environ.get("NEKO_DATA_DIR"):
+            return runtime_paths.data_dir
         settings_manager = SettingsManager(self.config_file)
         configured_dir = settings_manager.get_data_dir()
         if configured_dir:
             return Path(configured_dir).resolve()
-        return (self.base_dir / "data").resolve()
+        return runtime_paths.data_dir
     
     @property
     def database_path(self) -> Path:
@@ -120,6 +124,8 @@ class Settings(BaseSettings):
     @property
     def cache_dir(self) -> Path:
         """Get cache directory (e.g. on-demand video->gif conversions)."""
+        if os.environ.get("NEKO_CACHE_DIR") or runtime_paths.packaged:
+            return runtime_paths.cache_dir
         return self.data_dir / "cache"
 
 
@@ -132,3 +138,11 @@ settings.thumbs_dir.mkdir(parents=True, exist_ok=True)
 settings.uploads_dir.mkdir(parents=True, exist_ok=True)
 settings.cache_dir.mkdir(parents=True, exist_ok=True)
 settings.config_dir.mkdir(parents=True, exist_ok=True)
+settings.logs_dir.mkdir(parents=True, exist_ok=True)
+settings.models_dir.mkdir(parents=True, exist_ok=True)
+settings.runtimes_dir.mkdir(parents=True, exist_ok=True)
+
+# Keep downloaded model weights under NekoBooru's runtime model directory unless
+# the user explicitly configured Hugging Face caches themselves.
+os.environ.setdefault("HF_HOME", str(settings.models_dir / "huggingface"))
+os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(settings.models_dir / "huggingface" / "hub"))

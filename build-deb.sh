@@ -50,72 +50,45 @@ EOF
 
 # Create postinst script
 echo "[4/6] Creating installation script..."
-cat > "$DEB_DIR/DEBIAN/postinst" << 'EOF'
-#!/bin/bash
-set -e
-
-# Create virtual environment and install dependencies
-cd /opt/nekobooru/backend
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-fi
-source venv/bin/activate
-pip install -r requirements.txt --quiet
-
-# Create data directory
-mkdir -p /var/lib/nekobooru
-chown -R $SUDO_USER:$SUDO_USER /var/lib/nekobooru 2>/dev/null || true
-
-# Create config directory
-mkdir -p /etc/nekobooru
-chown -R $SUDO_USER:$SUDO_USER /etc/nekobooru 2>/dev/null || true
-
-# Install systemd service if systemd is available
-if command -v systemctl &> /dev/null; then
-    # Update service file with actual user
-    if [ -n "$SUDO_USER" ]; then
-        sed "s|%i|$SUDO_USER|g" /opt/nekobooru/nekobooru.service > /etc/systemd/system/nekobooru.service
-        systemctl daemon-reload
-        echo "Systemd service installed. Start with: sudo systemctl start nekobooru"
-    fi
-fi
-
-echo "NekoBooru installed successfully!"
-echo "Start the service with: sudo systemctl start nekobooru"
-echo "Or run manually: cd /opt/nekobooru && ./start.sh"
-EOF
+cp packaging/linux/debian/postinst "$DEB_DIR/DEBIAN/postinst"
 chmod +x "$DEB_DIR/DEBIAN/postinst"
 
 # Create prerm script
-cat > "$DEB_DIR/DEBIAN/prerm" << 'EOF'
-#!/bin/bash
-# Stop service before removal
-if command -v systemctl &> /dev/null; then
-    systemctl stop nekobooru 2>/dev/null || true
-    systemctl disable nekobooru 2>/dev/null || true
-fi
-EOF
+cp packaging/linux/debian/prerm "$DEB_DIR/DEBIAN/prerm"
 chmod +x "$DEB_DIR/DEBIAN/prerm"
 
 # Create postrm script
-cat > "$DEB_DIR/DEBIAN/postrm" << 'EOF'
-#!/bin/bash
-# Clean up after removal
-if command -v systemctl &> /dev/null; then
-    systemctl daemon-reload
-fi
-EOF
+cp packaging/linux/debian/postrm "$DEB_DIR/DEBIAN/postrm"
 chmod +x "$DEB_DIR/DEBIAN/postrm"
 
 # Create launcher script
 echo "[5/6] Creating launcher script..."
 cat > "$DEB_DIR/usr/bin/nekobooru" << 'EOF'
 #!/bin/bash
-cd /opt/nekobooru/backend
-source ../venv/bin/activate
-python3 run.py "$@"
+set -euo pipefail
+
+APP_DIR="/opt/nekobooru"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+VENV="$DATA_HOME/nekobooru/runtimes/python-core"
+LOG_DIR="$STATE_HOME/nekobooru/logs"
+
+mkdir -p "$LOG_DIR" "$(dirname "$VENV")"
+if [ ! -x "$VENV/bin/python" ]; then
+    python3 -m venv "$VENV"
+fi
+
+"$VENV/bin/python" -m pip install -r "$APP_DIR/backend/requirements.txt" --quiet
+
+export NEKO_PACKAGED=1
+export NEKO_APP_DIR="$APP_DIR"
+cd "$APP_DIR/backend"
+exec "$VENV/bin/python" run_prod.py "$@"
 EOF
 chmod +x "$DEB_DIR/usr/bin/nekobooru"
+
+mkdir -p "$DEB_DIR/usr/share/applications"
+cp packaging/linux/nekobooru.desktop "$DEB_DIR/usr/share/applications/nekobooru.desktop"
 
 # Build the package
 echo "[6/6] Building .deb package..."

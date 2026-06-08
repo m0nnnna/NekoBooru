@@ -1,5 +1,9 @@
 #!/usr/bin/env python
-"""Native messaging host that starts the local NekoBooru dev servers."""
+"""Native messaging host that starts local NekoBooru.
+
+In source mode it starts the backend plus Vite frontend. In packaged mode it
+starts the installed app executable and uses the backend-served UI.
+"""
 
 from __future__ import annotations
 
@@ -9,16 +13,81 @@ import socket
 import struct
 import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 
 
 HOST = "127.0.0.1"
 BACKEND_PORT = 8772
 FRONTEND_PORT = 5173
+APP_EXE = "nekobooru.exe"
 
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def user_root() -> Path:
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    return Path(base) / "NekoBooru"
+
+
+def config_path() -> Path:
+    return user_root() / "native-messaging-hosts" / "launcher-config.json"
+
+
+def load_config() -> dict:
+    path = config_path()
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def registry_install_path() -> Path | None:
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+
+        keys = [
+            r"Software\NekoBooru",
+            r"Software\Microsoft\Windows\CurrentVersion\Uninstall\NekoBooru",
+        ]
+        for key_name in keys:
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_name) as key:
+                    raw = winreg.QueryValueEx(key, "InstallLocation")[0]
+                    if raw:
+                        return Path(raw)
+            except OSError:
+                continue
+    except Exception:
+        return None
+    return None
+
+
+def installed_app_path() -> Path | None:
+    cfg = load_config()
+    candidates = []
+    if cfg.get("appPath"):
+        candidates.append(Path(cfg["appPath"]))
+    reg = registry_install_path()
+    if reg:
+        candidates.append(reg / APP_EXE if reg.is_dir() else reg)
+    candidates.extend([
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "NekoBooru" / APP_EXE,
+        user_root() / APP_EXE,
+    ])
+    for candidate in candidates:
+        try:
+            if candidate and candidate.exists():
+                return candidate.resolve()
+        except OSError:
+            continue
+    return None
 
 
 def is_port_open(port: int) -> bool:
@@ -50,6 +119,30 @@ def popen_hidden(args: list[str], cwd: Path, log_path: Path) -> None:
 
 
 def start_servers() -> dict:
+    app_path = installed_app_path()
+    if app_path:
+        return start_packaged_app(app_path)
+    return start_source_servers()
+
+
+def start_packaged_app(app_path: Path) -> dict:
+    logs = user_root() / "logs"
+    backend_running = is_port_open(BACKEND_PORT)
+    if not backend_running:
+        popen_hidden([str(app_path)], app_path.parent, logs / "native-packaged-app.log")
+    return {
+        "ok": True,
+        "mode": "packaged",
+        "appPath": str(app_path),
+        "backendAlreadyRunning": backend_running,
+        "frontendAlreadyRunning": backend_running,
+        "backendUrl": f"http://{HOST}:{BACKEND_PORT}",
+        "frontendUrl": f"http://{HOST}:{BACKEND_PORT}",
+        "logs": str(logs),
+    }
+
+
+def start_source_servers() -> dict:
     root = repo_root()
     logs = root / "logs"
     backend_running = is_port_open(BACKEND_PORT)
@@ -67,11 +160,34 @@ def start_servers() -> dict:
 
     return {
         "ok": True,
+        "mode": "source",
         "backendAlreadyRunning": backend_running,
         "frontendAlreadyRunning": frontend_running,
         "backendUrl": f"http://{HOST}:{BACKEND_PORT}",
         "frontendUrl": f"http://{HOST}:{FRONTEND_PORT}",
     }
+
+
+def status() -> dict:
+    app_path = installed_app_path()
+    backend_running = is_port_open(BACKEND_PORT)
+    frontend_running = is_port_open(FRONTEND_PORT)
+    return {
+        "ok": True,
+        "mode": "packaged" if app_path else "source",
+        "appPath": str(app_path) if app_path else "",
+        "backendRunning": backend_running,
+        "frontendRunning": frontend_running,
+        "backendUrl": f"http://{HOST}:{BACKEND_PORT}",
+        "frontendUrl": f"http://{HOST}:{BACKEND_PORT}" if app_path else f"http://{HOST}:{FRONTEND_PORT}",
+    }
+
+
+def open_ui() -> dict:
+    info = status()
+    url = info["frontendUrl"]
+    webbrowser.open(url)
+    return {**info, "opened": url}
 
 
 def read_message() -> dict | None:
@@ -96,6 +212,10 @@ def main() -> None:
             return
         if message.get("command") == "start":
             write_message(start_servers())
+        elif message.get("command") == "status":
+            write_message(status())
+        elif message.get("command") == "open":
+            write_message(open_ui())
         else:
             write_message({"ok": False, "error": "Unknown command"})
     except Exception as exc:  # noqa: BLE001

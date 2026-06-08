@@ -458,6 +458,30 @@ export const api = {
       body: JSON.stringify({ target }),
     })
   },
+
+  // Runtime / packaging
+  async getRuntimeStatus() {
+    return request('/runtime/status')
+  },
+
+  async getAiRuntimeProfiles() {
+    return request('/runtime/ai/profiles')
+  },
+
+  async installAiRuntime(profile = 'auto', force = false) {
+    return request('/runtime/ai/install', {
+      method: 'POST',
+      body: JSON.stringify({ profile, force }),
+    })
+  },
+
+  async getAiRuntimeInstallJob() {
+    return request('/runtime/ai/install-job')
+  },
+
+  async cancelAiRuntimeInstall() {
+    return request('/runtime/ai/cancel-install', { method: 'POST' })
+  },
 }
 
 export default api
