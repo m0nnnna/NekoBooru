@@ -3,10 +3,14 @@
 
 import atexit
 import json
+import logging
+import logging.config
 import os
 import subprocess
 import sys
+import threading
 import time
+from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 import uvicorn
@@ -17,9 +21,46 @@ link_ai_runtime()
 from app.config import settings
 from app.main import app
 from app.runtime_paths import runtime_paths
+from app.system_tray import start_windows_tray
 
 _INSTANCE_LOCK_FILE = None
 _AI_WORKER_PROCESS = None
+_WINDOWS_SHUTDOWN_EVENT = None
+_WINDOWS_SHUTDOWN_EVENT_NAME = r"Local\NekoBooruShutdown"
+
+
+def configure_packaged_logging() -> Path:
+    """Configure logging without console streams for windowed packaged builds."""
+    runtime_paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = runtime_paths.logs_dir / "nekobooru-server.log"
+    logging.config.dictConfig(
+        {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "default": {
+                    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                }
+            },
+            "handlers": {
+                "file": {
+                    "class": "logging.handlers.RotatingFileHandler",
+                    "formatter": "default",
+                    "filename": str(log_path),
+                    "maxBytes": 5_000_000,
+                    "backupCount": 3,
+                    "encoding": "utf-8",
+                }
+            },
+            "root": {"level": "INFO", "handlers": ["file"]},
+            "loggers": {
+                "uvicorn": {"level": "INFO", "handlers": ["file"], "propagate": False},
+                "uvicorn.error": {"level": "INFO", "handlers": ["file"], "propagate": False},
+                "uvicorn.access": {"level": "WARNING", "handlers": ["file"], "propagate": False},
+            },
+        }
+    )
+    return log_path
 
 
 def existing_instance_is_running() -> bool:
@@ -235,6 +276,45 @@ def stop_packaged_ai_worker() -> None:
     _AI_WORKER_PROCESS = None
 
 
+def start_windows_shutdown_event_listener(shutdown) -> None:
+    """Let the Windows installer request a graceful packaged-app shutdown."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateEventW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_bool, ctypes.c_wchar_p]
+        kernel32.CreateEventW.restype = ctypes.c_void_p
+        kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+        kernel32.ResetEvent.argtypes = [ctypes.c_void_p]
+        kernel32.ResetEvent.restype = ctypes.c_bool
+
+        handle = kernel32.CreateEventW(None, True, False, _WINDOWS_SHUTDOWN_EVENT_NAME)
+        if not handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+    except Exception as exc:
+        print(f"Could not create installer shutdown event: {exc}")
+        return
+
+    global _WINDOWS_SHUTDOWN_EVENT
+    _WINDOWS_SHUTDOWN_EVENT = handle
+
+    def wait_for_shutdown():
+        try:
+            while True:
+                result = kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)
+                if result == 0:
+                    kernel32.ResetEvent(handle)
+                    shutdown()
+                    return
+        except Exception as exc:
+            print(f"Installer shutdown listener stopped: {exc}")
+
+    threading.Thread(target=wait_for_shutdown, name="NekoBooruInstallerShutdown", daemon=True).start()
+
+
 def _settings_section(name: str) -> dict:
     try:
         with open(runtime_paths.config_file, "r", encoding="utf-8-sig") as handle:
@@ -253,6 +333,18 @@ def _health_ok(port: int) -> bool:
         return False
 
 
+def _tray_icon_path() -> Path | None:
+    candidates = [
+        runtime_paths.bundle_dir / "frontend" / "favicon.ico",
+        runtime_paths.app_dir / "frontend" / "favicon.ico",
+        runtime_paths.app_dir / "frontend" / "public" / "favicon.ico",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def main():
     if existing_instance_is_running():
         print(
@@ -268,6 +360,7 @@ def main():
         )
         return 0
 
+    log_path = configure_packaged_logging()
     start_packaged_ai_worker()
 
     print(f"\n{'='*50}")
@@ -277,15 +370,34 @@ def main():
     print(f"  API Docs: http://localhost:{settings.port}/docs")
     print(f"  Database: {settings.database_path}")
     print(f"  Data Dir: {settings.data_dir}")
+    print(f"  Log: {log_path}")
     print(f"{'='*50}\n")
 
-    uvicorn.run(
-        app,
-        host=settings.host,
-        port=settings.port,
-        log_level="info",
-        access_log=False,
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host=settings.host,
+            port=settings.port,
+            log_level="info",
+            access_log=False,
+            log_config=None,
+        )
     )
+    tray = start_windows_tray(
+        app_name=settings.app_name,
+        url=f"http://localhost:{settings.port}",
+        icon_path=_tray_icon_path(),
+        shutdown=lambda: setattr(server, "should_exit", True),
+    )
+    start_windows_shutdown_event_listener(lambda: setattr(server, "should_exit", True))
+    try:
+        server.run()
+    finally:
+        if tray is not None:
+            try:
+                tray.stop()
+            except Exception:
+                pass
     return 0
 
 

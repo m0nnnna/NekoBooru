@@ -148,6 +148,27 @@ Settings are written to:
 %LOCALAPPDATA%\NekoBooru\config\settings.json
 ```
 
+## Packaged App Tray
+
+The Windows packaged app starts without a console window and adds a system tray icon when the desktop shell is available.
+
+Tray menu:
+
+```text
+Open NekoBooru
+Shut Down NekoBooru
+```
+
+`Shut Down NekoBooru` requests a graceful server shutdown and also stops the packaged local AI worker through the normal process cleanup path.
+
+The windowed app does not rely on console streams for Uvicorn logging. Server logs are written to:
+
+```text
+%LOCALAPPDATA%\NekoBooru\logs\nekobooru-server.log
+```
+
+During install, upgrade, and uninstall, setup signals the same packaged-app shutdown event, waits briefly, then prompts before force-closing only the installed `{app}\nekobooru.exe` process if it is still running. Source/dev NekoBooru processes from a checkout are not targeted by this fallback.
+
 ## AI Runtime Behavior
 
 The base installer does not bundle Torch, CUDA wheels, or model weights.

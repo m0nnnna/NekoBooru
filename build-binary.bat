@@ -75,6 +75,11 @@ echo.
 echo   Your settings, logs, models, and optional AI runtimes are stored under:
 echo     %%LOCALAPPDATA%%\NekoBooru
 echo.
+echo System tray:
+echo   The packaged app adds a tray icon when the Windows desktop shell is available.
+echo   Use Open NekoBooru to open the browser UI.
+echo   Use Shut Down NekoBooru to gracefully stop the app.
+echo.
 echo Optional:
 echo   - Place ffmpeg.exe next to nekobooru.exe for video thumbnails
 echo   - Place yt-dlp.exe next to nekobooru.exe for video downloads

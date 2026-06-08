@@ -64,6 +64,9 @@ a = Analysis(
         'PIL',
         'PIL.Image',
         'PIL.ImageOps',
+        # Windows tray
+        'pystray',
+        'pystray._win32',
         # Other
         'h11',
         'anyio',

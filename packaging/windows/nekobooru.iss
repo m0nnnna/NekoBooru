@@ -24,6 +24,8 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MyAppExeName}
+CloseApplications=no
+RestartApplications=no
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts"
@@ -67,6 +69,122 @@ var
   UninstallDeleteAllUserData: Boolean;
   UninstallDeleteAiRuntime: Boolean;
   UninstallDeleteModels: Boolean;
+
+function PsSingleQuote(Value: String): String;
+begin
+  StringChangeEx(Value, '''', '''''', True);
+  Result := '''' + Value + '''';
+end;
+
+procedure SignalNekoBooruShutdown;
+var
+  ResultCode: Integer;
+begin
+  Exec(
+    'powershell.exe',
+    '-NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference=''SilentlyContinue''; ' +
+      'try { $e=[System.Threading.EventWaitHandle]::OpenExisting(''Local\NekoBooruShutdown''); ' +
+      '$e.Set() | Out-Null; $e.Dispose() } catch { }"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+end;
+
+function IsInstalledNekoBooruRunning: Boolean;
+var
+  ResultCode: Integer;
+  TargetExe: String;
+begin
+  TargetExe := ExpandConstant('{app}\{#MyAppExeName}');
+  Exec(
+    'powershell.exe',
+    '-NoProfile -ExecutionPolicy Bypass -Command "$target=[System.IO.Path]::GetFullPath(' + PsSingleQuote(TargetExe) + '); ' +
+      '$found=$false; ' +
+      'Get-Process -Name ''nekobooru'' -ErrorAction SilentlyContinue | ForEach-Object { ' +
+      'try { if ($_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq $target)) { $found=$true } } catch { } }; ' +
+      'if (-not $found) { Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq ''nekobooru.exe'' } | ForEach-Object { ' +
+      'try { if ($_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target)) { $found=$true } } catch { } } }; ' +
+      'if ($found) { exit 0 } else { exit 1 }"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+  Result := ResultCode = 0;
+end;
+
+procedure ForceStopInstalledNekoBooru;
+var
+  ResultCode: Integer;
+  TargetExe: String;
+begin
+  TargetExe := ExpandConstant('{app}\{#MyAppExeName}');
+  Exec(
+    'powershell.exe',
+    '-NoProfile -ExecutionPolicy Bypass -Command "$target=[System.IO.Path]::GetFullPath(' + PsSingleQuote(TargetExe) + '); ' +
+      '$ids=@(); ' +
+      'Get-Process -Name ''nekobooru'' -ErrorAction SilentlyContinue | ForEach-Object { ' +
+      'try { if ($_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq $target)) { $ids += [int]$_.Id } } catch { } }; ' +
+      'Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq ''nekobooru.exe'' } | ForEach-Object { ' +
+      'try { if ($_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target)) { $ids += [int]$_.ProcessId } } catch { } }; ' +
+      '$ids | Select-Object -Unique | ForEach-Object { try { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } catch { } }"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+end;
+
+procedure ShutDownRunningNekoBooru;
+var
+  I: Integer;
+begin
+  SignalNekoBooruShutdown;
+  for I := 1 to 10 do
+  begin
+    if not IsInstalledNekoBooruRunning then
+      Exit;
+    Sleep(500);
+  end;
+
+  ForceStopInstalledNekoBooru;
+  for I := 1 to 10 do
+  begin
+    if not IsInstalledNekoBooruRunning then
+      Exit;
+    Sleep(500);
+  end;
+
+  if not IsInstalledNekoBooruRunning then
+    Exit;
+
+  if MsgBox(
+    'NekoBooru is still running and must be closed before setup can continue.' + #13#10 + #13#10 +
+    'Choose Yes to shut down the installed NekoBooru app now.',
+    mbConfirmation,
+    MB_YESNO
+  ) <> IDYES then
+    Abort;
+
+  ForceStopInstalledNekoBooru;
+  for I := 1 to 10 do
+  begin
+    if not IsInstalledNekoBooruRunning then
+      Exit;
+    Sleep(500);
+  end;
+
+  MsgBox('NekoBooru is still running. Shut it down from the tray menu, then run setup again.', mbError, MB_OK);
+  Abort;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  ShutDownRunningNekoBooru;
+  Result := '';
+end;
 
 procedure InitializeWizard;
 begin
@@ -294,6 +412,12 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
+  if CurUninstallStep = usUninstall then
+  begin
+    ShutDownRunningNekoBooru;
+    Exit;
+  end;
+
   if CurUninstallStep <> usPostUninstall then
     Exit;
 
