@@ -1,389 +1,1009 @@
-# Desktop Packaging Stages for EXE and DEB
+# Desktop Packaging Implementation Plan
 
-This plan makes NekoBooru packageable without bundling the CUDA/PyTorch/model stack into the base app. The installer should ship a small, stable core and then offer explicit AI runtime profiles that can be installed locally, on a remote server, or skipped entirely.
+This document turns the EXE/DEB packaging roadmap into implementation-ready stages. The main rule is simple: ship a small core app, then install AI runtimes and model weights as explicit second-stage choices. CUDA wheels, Torch, ONNX Runtime GPU, Transformers, and Hugging Face model weights must not be bundled into the base Windows or Linux package.
 
-## Goals
+## Audit Summary
 
-- Build a Windows EXE installer and Linux DEB that can run the core booru without AI.
-- Keep CUDA wheels, Torch, ONNX Runtime GPU, Transformers, and model weights out of the base installer.
-- Let users choose where AI runs: bundled local backend, separate server/GPU worker, CPU-only local mode, or disabled.
-- Support model/runtime installation after first launch with progress, retry, resume, and clear failure logs.
-- Keep paths portable: no developer machine paths, no source-checkout assumptions, and no required admin rights for normal user installs.
+The repo already has the right broad direction, but several current scripts assume a source checkout or writable app directory. Those assumptions will break packaged installs.
 
-## Non-goals
+Current strengths:
 
-- Do not bundle Hugging Face model weights into the app installer.
-- Do not install NVIDIA drivers automatically.
-- Do not require AI packages for the browser extension, basic uploads, search, browsing, or tag editing.
+- `nekobooru.spec` excludes `torch`, `onnxruntime`, `transformers`, `huggingface_hub`, `safetensors`, and related AI packages from the PyInstaller binary.
+- `backend/requirements.txt` is separated from optional AI requirements.
+- `backend/requirements-tagger.txt`, `backend/requirements-tagger-legacy.txt`, and `backend/requirements-tagger-cpu.txt` already model the three main AI dependency profiles.
+- `install-ai.ps1` and `install-ai.sh` already detect NVIDIA capability, validate CUDA kernels, and repair mismatched Torch installs.
+- Settings already has model download, model status, model load/unload, yt-dlp, and AI defaults UI.
+- Browser extension native messaging already exists and can be evolved into a packaged launcher.
 
-## Current Repo Baseline
+Current blockers for production packaging:
 
-- `nekobooru.spec` already excludes `torch`, `onnxruntime`, `transformers`, `huggingface_hub`, `safetensors`, and related AI dependencies from the PyInstaller binary.
-- `backend/requirements.txt` is the core runtime.
-- `backend/requirements-tagger.txt` is the current NVIDIA/CUDA profile.
-- `backend/requirements-tagger-legacy.txt` supports older Pascal NVIDIA GPUs through CUDA 12.6 wheels.
-- `backend/requirements-tagger-cpu.txt` is the CPU-only AI profile.
-- `install-ai.ps1` already detects GPU capability and installs one of the GPU, legacy GPU, or CPU profiles into a venv.
-- Browser auto-start depends on the native messaging host under `browser-extension/native-host`.
+- `backend/app/config.py` uses `base_dir` next to the executable in frozen mode, which means packaged installs can write config/data beside the EXE. That is fragile for upgrades and wrong for `Program Files` or `/opt`.
+- `build-binary.bat` README still says a `data` folder is created next to the executable.
+- `build-deb.sh` creates a venv under `/opt/nekobooru/backend`, but `/opt` should be immutable after install.
+- `build-deb.sh` creates `/etc/nekobooru` and `/var/lib/nekobooru`, but the app does not yet consistently resolve packaged config/data paths through one resolver.
+- `browser-extension/native-host/nekobooru_launcher_host.py` starts source-tree dev servers using repo-relative `venv`, `backend`, and `frontend` paths. A packaged install needs to launch the installed app, not Vite/source.
+- `start-worker.bat` explicitly says the compiled EXE can never do AI inference. That will stop being true after we introduce a managed external AI runtime for packaged installs; the core EXE should be able to call an installed runtime or remote worker.
+- Build scripts are useful but not yet release-safe: they do not create installer metadata, upgrade detection, repair flows, checksums, or smoke tests.
 
-## Stage 1: Runtime Layout and Path Discipline
+## Target Architecture
 
-Create a packaged runtime layout that works the same in source, EXE, and DEB installs.
+NekoBooru should have four separable layers:
 
-Windows target layout:
+| Layer | Ships in base installer | Updates independently | Notes |
+| --- | --- | --- | --- |
+| Core app | Yes | Yes | Backend API, frontend static build, DB/media logic, extension integration |
+| Tooling runtime | Yes or optional small download | Yes | ffmpeg/ffprobe discovery, yt-dlp install/update/pinning |
+| AI Python runtime | No | Yes | Managed venv with CPU/GPU/legacy/server profile |
+| Model weights | No | Yes | Downloaded from Settings/model registry |
+
+The packaged core app must run without AI. AI buttons should show useful status when the AI runtime or model weights are absent.
+
+## Runtime Modes
+
+Installer and Settings must support these modes:
+
+| Mode | Runs UI/API | Runs AI inference | Uses local CUDA wheels | Best for |
+| --- | --- | --- | --- | --- |
+| Core only | Local machine | No | No | Browsing/uploading/manual tagging |
+| Local CPU AI | Local machine | Local machine | No | Simple installs, low VRAM, slower tagging |
+| Local NVIDIA AI | Local machine | Local machine | Yes | Normal GPU desktop install |
+| Local legacy NVIDIA AI | Local machine | Local machine | Yes, CUDA 12.6 profile | GTX 10-series/Pascal support |
+| Remote/server AI | Client machine | Remote GPU machine | No on client | Lightweight client, separate GPU box |
+| Hybrid server | Server machine | Same server | Optional | LAN/self-hosted booru with local AI |
+
+## Required New Artifacts
+
+Add these files before building real installers:
 
 ```text
-%LOCALAPPDATA%\NekoBooru\
-  config\
-  data\
-  logs\
-  models\
-  runtimes\
-    python-ai\
+backend/app/runtime_paths.py
+backend/app/services/runtime_diagnostics.py
+backend/app/services/ai_runtime_installer.py
+backend/app/routers/runtime.py
+packaging/runtime-manifest.json
+packaging/windows/nekobooru.iss or packaging/windows/nekobooru.wxs
+packaging/windows/launcher/
+packaging/linux/debian/control
+packaging/linux/debian/postinst
+packaging/linux/debian/prerm
+packaging/linux/debian/postrm
+packaging/linux/nekobooru.desktop
+packaging/linux/nekobooru.service.user
+scripts/smoke-packaged.ps1
+scripts/smoke-packaged.sh
 ```
 
-Linux user install layout:
+Existing files to update:
 
 ```text
-~/.config/nekobooru/
-~/.local/share/nekobooru/
-~/.cache/nekobooru/
-~/.local/state/nekobooru/logs/
+backend/app/config.py
+backend/app/main.py
+backend/app/routers/settings.py
+backend/app/routers/auto_tags.py
+frontend/src/views/SettingsView.vue
+frontend/src/api/client.js
+browser-extension/native-host/nekobooru_launcher_host.py
+browser-extension/native-host/install-native-host.ps1
+nekobooru.spec
+build-binary.bat
+build-deb.sh
+install-ai.ps1
+install-ai.sh
+start-worker.bat
+start.sh
+start.bat
 ```
 
-Linux system package layout:
+## Stage 0: Packaging Preconditions
 
-```text
-/opt/nekobooru/
-/var/lib/nekobooru/
-/var/log/nekobooru/
-```
+Purpose: freeze decisions that affect every later stage.
 
 Implementation tasks:
 
-- Add one runtime-path resolver used by backend, packaged launcher, model downloader, yt-dlp cookies, and native host installer.
-- Move generated data, config, caches, logs, downloaded wheels, and model weights outside the app install directory.
-- Add a startup diagnostics endpoint that reports app path, data path, config path, model cache path, Python executable, ffmpeg, yt-dlp, Torch, CUDA, ONNX providers, and loaded AI models.
-- Make packaged startup fail soft when AI runtime is missing: the app should run, settings should show "AI runtime not installed", and AI buttons should explain how to install it.
-
-Acceptance:
-
-- Fresh install opens the UI with no AI packages installed.
-- Upload/search/browse/tag editing work without Torch or ONNX Runtime.
-- Diagnostics show all resolved paths and do not include local developer paths.
-
-## Stage 2: Core App Package
-
-Package only the stable booru runtime.
-
-Windows EXE tasks:
-
-- Build frontend with `npm run build`.
-- Build the backend/core bundle from `nekobooru.spec`.
-- Include `frontend/dist` in the bundle.
-- Include core Python dependencies from `backend/requirements.txt`.
-- Include or discover `ffmpeg` and `ffprobe`.
-- Exclude AI dependencies exactly as the current PyInstaller spec does.
-- Add a launcher that starts the backend and opens the local client.
-
-Linux DEB tasks:
-
-- Install app files under `/opt/nekobooru`.
-- Provide a `nekobooru` launcher command.
-- Provide a `.desktop` entry.
-- Use XDG user paths by default.
-- Optional: install a systemd user service for auto-start.
-
-Acceptance:
-
-- Windows EXE and Linux DEB can install, launch, stop, and uninstall cleanly.
-- The app works offline for non-AI features after installation.
-- Uninstall does not delete user media unless explicitly requested.
-
-## Stage 3: AI Runtime Installer Profiles
-
-The installer should expose AI as a second-stage install, not as part of the base package.
-
-Profiles:
-
-| Profile | Location | Purpose | Installs |
-| --- | --- | --- | --- |
-| No AI | Client/core only | Browse/upload/tag manually | Core app only |
-| Local CPU AI | Same machine | Slow but simple auto-tagging | `requirements-tagger-cpu.txt` |
-| Local NVIDIA AI | Same machine | Fast local auto-tagging | `requirements-tagger.txt` or legacy profile |
-| Local legacy NVIDIA AI | Same machine | Pascal/GTX 10-series support | `requirements-tagger-legacy.txt` |
-| Remote/server AI | Separate GPU machine | Keep client light and use a server/worker | Core client plus remote AI endpoint settings |
-
-Installer UI tasks:
-
-- Add an "AI runtime" page with these choices:
-  - Skip AI for now.
-  - Install CPU AI locally.
-  - Auto-detect NVIDIA GPU and install best local AI runtime.
-  - Install legacy NVIDIA runtime.
-  - Connect to an existing NekoBooru AI server/worker.
-- Show expected download size, disk size, and VRAM estimate before installing.
-- Show that model weights are downloaded later from Settings, not bundled in the installer.
-- Preserve the current `install-ai.ps1` auto-detection behavior, but move it behind a UI/CLI installer command.
-
-Runtime install tasks:
-
-- Create a managed AI venv under the runtime data directory, not inside the source tree.
-- Download wheels with progress and resumable retry.
-- Pin runtime manifest entries for Torch/CUDA/ONNX/Transformers versions.
-- Verify installed runtime by importing Torch/ONNX Runtime and running a tiny CUDA kernel when applicable.
-- Store a JSON install receipt with profile, package versions, install date, CUDA availability, and verification status.
-
-Acceptance:
-
-- Installing AI after the app is installed does not require rebuilding the EXE/DEB.
-- Already-installed compatible runtimes are detected and not downloaded again.
-- Wrong CUDA runtime can be repaired without reinstalling the whole app.
-
-## Stage 4: Server AI and Client AI Modes
-
-The installer needs to distinguish between the machine that stores/runs the booru and the machine that runs AI.
-
-Client/core mode:
-
-- Installs the UI, backend API, database, media library, extension native host, and yt-dlp support.
-- Does not install CUDA wheels.
-- Can point AI requests at a remote worker.
-
-Server AI mode:
-
-- Installs the AI runtime and model cache.
-- Can run on the same machine as the booru or as a GPU worker.
-- Provides a health endpoint with runtime/profile/model status.
-- Supports auth/token configuration before accepting remote requests.
-
-Hybrid local mode:
-
-- Installs core app and AI runtime on the same machine.
-- Uses local model cache and local GPU/CPU.
-
-Extension implications:
-
-- Browser extension "Start NekoBooru" should start the client/core app.
-- AI preview/upload should use the configured AI endpoint from the app, whether local or remote.
-- Extension should show "booting NekoBooru", then retry the original action after the backend is healthy.
-
-Acceptance:
-
-- A lightweight client install can use a remote GPU server for AI tagging.
-- A server AI install can be upgraded independently from the client.
-- Extension behavior is identical once the configured backend is healthy.
-
-## Stage 5: Model Downloader and First-run Experience
-
-Keep model weights separate from both app and AI runtime packages.
-
-Tasks:
-
-- Reuse the Settings model download UI as the canonical model installer.
-- Add first-run prompts:
-  - "Core app ready."
-  - "Install AI runtime?"
-  - "Download models?"
-- Support per-model download, download all, retry failed, verify downloaded, and unload loaded models.
-- Surface model sizes, VRAM estimates, required runtime profile, and whether the model is currently loaded.
-- Respect Hugging Face token storage for gated/private models.
-
-Acceptance:
-
-- Core app installer remains small.
-- Users can install CUDA runtime without immediately downloading model weights.
-- Users can download model weights without changing app package version.
-
-## Stage 6: Windows Installer
-
-Recommended path: PyInstaller artifact plus an installer wrapper such as Inno Setup, NSIS, or WiX.
-
-Windows installer tasks:
-
-- Install the core app into `%LOCALAPPDATA%\Programs\NekoBooru` for user install or `Program Files` for machine install.
-- Create Start Menu shortcuts.
-- Register URL/protocol handler only if needed.
-- Register native messaging host for Brave and Chrome using user-level registry keys.
-- Add optional "Install AI runtime now" checkbox that opens the AI runtime page after first launch.
-- Add optional "Start with Windows" toggle.
-- Add repair and uninstall entries.
-
-Important:
-
-- Do not put CUDA wheels inside the EXE installer.
-- Do not write model weights under `Program Files`.
-- Do not assume the source-tree `venv` exists.
-
-Acceptance:
-
-- A non-admin Windows user can install and run the core app.
-- Native host registration works for Brave/Chrome after extension reload.
-- AI runtime installation can be launched from Settings later.
-
-## Stage 7: Linux DEB Installer
-
-Recommended path: Debian package for the core app plus post-install helper scripts.
-
-DEB tasks:
-
-- Install immutable app files under `/opt/nekobooru`.
-- Add `/usr/bin/nekobooru` launcher.
-- Add desktop entry and icon.
-- Use XDG user directories for normal app data.
-- Add optional systemd user unit for background start.
-- Install native messaging host JSON to supported browser locations:
-  - Brave user/global location.
-  - Chrome/Chromium user/global location.
-- Provide `nekobooru ai install --cpu`, `--gpu`, `--legacy`, and `--server` commands.
-
-CUDA policy:
-
-- Detect NVIDIA driver and CUDA compatibility.
-- Install Python CUDA wheels into the managed AI venv.
-- Do not apt install GPU drivers automatically.
-- If GPU validation fails, offer legacy or CPU fallback.
-
-Acceptance:
-
-- DEB installs and removes cleanly on Debian/Ubuntu-like systems.
-- Core app runs without AI packages.
-- AI install logs give actionable failure messages.
-
-## Stage 8: Updates, Rollback, and Version Control
-
-Keep app updates, AI runtime updates, yt-dlp updates, and model updates independent.
-
-Tasks:
-
-- Add a runtime manifest file with versions and hashes for optional AI profiles.
-- Add "Update app", "Update AI runtime", "Update yt-dlp", and "Update models" as separate concepts.
-- Snapshot settings before runtime upgrades.
-- Backup the database before migrations.
-- Keep previous AI runtime install receipt for rollback.
-- Allow pinned yt-dlp versions because some sites break across releases.
-
-Acceptance:
-
-- Updating the app does not reinstall CUDA wheels.
-- Updating CUDA wheels does not modify the media library.
-- Failed AI upgrades leave the previous runtime usable.
-
-## Stage 9: Installer Upgrade Mode
-
-The installer should support fresh install, upgrade install, repair install, and uninstall as separate flows.
-
-Upgrade detection:
-
-- Detect an existing install by app registry entry on Windows or package metadata on Linux.
-- Detect existing user data through the runtime path resolver, not through hardcoded paths.
-- Show installed version, target version, data path, model cache path, AI runtime profile, and extension/native host status.
-- Warn before any migration that changes the database schema.
-
-Windows upgrade tasks:
-
-- Stop the running packaged backend before replacing files.
-- Preserve `%LOCALAPPDATA%\NekoBooru\config`, `data`, `models`, `logs`, and `runtimes`.
-- Replace only immutable app files under the install directory.
-- Re-register native messaging host if the launcher path changed.
-- Keep the existing AI runtime unless the user chooses "Upgrade AI runtime too".
-- Offer repair actions:
-  - Repair app files.
-  - Repair native host.
-  - Repair AI runtime.
-  - Rebuild shortcuts/startup entry.
-
-Linux DEB upgrade tasks:
-
-- Let package manager replace `/opt/nekobooru` files.
-- Preserve `/var/lib/nekobooru` or XDG user data.
-- Run migrations on next app start, with backup first.
-- Refresh desktop entry and native messaging host manifests.
-- Do not reinstall AI wheels from `postinst` unless the user explicitly runs the AI installer command.
-
-AI runtime upgrade policy:
-
-- Treat AI runtime upgrades as opt-in because CUDA/Torch changes are large and can break older GPUs.
-- Show currently installed Torch, CUDA build, ONNX Runtime providers, and target versions.
-- Keep the previous install receipt before upgrade.
-- If validation fails, offer rollback to previous runtime, legacy GPU, or CPU profile.
-
-Acceptance:
-
-- Installing a newer EXE/DEB over an older one preserves library data and settings.
-- Upgrade can repair native host registration without reinstalling AI.
-- Users can upgrade the app while keeping pinned yt-dlp, pinned AI runtime, and downloaded models.
-
-## Stage 10: CI and Release Validation
-
-Build and test release artifacts before publishing.
-
-CI tasks:
-
-- Windows build: frontend build, PyInstaller build, installer build.
-- Linux build: frontend build, DEB package build.
-- Smoke test installed app:
-  - Starts backend.
-  - Serves frontend.
-  - Uploads image.
-  - Searches tags.
-  - Reports AI missing cleanly.
-- Optional GPU validation job on a self-hosted NVIDIA runner.
-- Generate checksums and release notes.
-
-Acceptance:
-
-- Release artifacts are reproducible enough to compare size and contents.
-- No model weights or CUDA wheels appear in the base installer.
-- Base installer smoke test passes without network.
-
-## Stage 11: Security and Privacy Review
-
-Packaging adds trust boundaries, especially around browser integration and downloaded code.
-
-Tasks:
-
-- Verify native messaging host manifest paths are generated per install and never point to source-tree paths.
-- Validate downloaded wheel/model manifests before installing.
-- Keep Hugging Face tokens and browser cookies in user config, not app install folders.
-- Never expose local file paths through public API responses unless explicitly requested by the local extension/native host flow.
-- Bind local backend to localhost by default.
-- Require explicit configuration before allowing remote AI server access.
-
-Acceptance:
-
-- A default packaged install does not expose the library over LAN.
-- Extension/native host paths survive app updates.
-- Installer logs do not leak Hugging Face tokens or browser cookies.
-
-## Suggested Implementation Order
-
-1. Add runtime path resolver and diagnostics.
-2. Make source, PyInstaller, and future DEB all use the same resolved paths.
-3. Convert `install-ai.ps1` behavior into a cross-platform runtime installer command.
-4. Add AI runtime install status and repair actions to Settings.
-5. Build Windows EXE core package.
-6. Wrap Windows EXE in an installer and register native host.
-7. Add fresh install, upgrade install, repair install, and uninstall flows.
-8. Build Linux DEB core package.
-9. Add remote/server AI mode.
-10. Add CI packaging smoke tests.
-11. Add signed release/checksum workflow.
-
-## Practical Installer Copy
-
-Recommended wording for the AI choice screen:
-
-```text
-NekoBooru can run without AI. Auto-tagging requires a separate AI runtime and model downloads.
-
-[ ] Core app only
-[ ] Local CPU AI - slower, no NVIDIA GPU required
-[ ] Local NVIDIA AI - fastest, downloads CUDA/PyTorch wheels
-[ ] Local legacy NVIDIA AI - for older GTX 10-series GPUs
-[ ] Remote/server AI - connect this client to another NekoBooru AI worker
-
-Model weights are downloaded later from Settings.
+- Pick installer technology:
+  - Windows: Inno Setup first, because it is simple, scriptable, and good enough for user-level installs.
+  - Linux: real `.deb` package layout under `packaging/linux/debian`, then `dpkg-deb`.
+- Pick packaged app port defaults:
+  - Backend: `127.0.0.1:8772`.
+  - Packaged frontend: served by backend from bundled static files, not Vite.
+  - Vite remains dev-only.
+- Define version source:
+  - Use `frontend/package.json` version or a new single `VERSION` file.
+  - Build scripts should pass this into Windows/DEB metadata.
+- Decide data-preservation policy:
+  - Uninstall preserves user data by default.
+  - Uninstall offers optional data removal.
+  - Upgrade never removes data, models, logs, or AI runtimes.
+
+Exit criteria:
+
+- Installer tech is chosen.
+- Version source is documented.
+- Data removal behavior is explicit.
+
+## Stage 1: Runtime Path Resolver
+
+Purpose: stop writing packaged config/data into install directories.
+
+Create `backend/app/runtime_paths.py` with a small API:
+
+```python
+from pathlib import Path
+
+class RuntimePaths:
+    app_dir: Path
+    bundle_dir: Path
+    config_dir: Path
+    config_file: Path
+    data_dir: Path
+    logs_dir: Path
+    cache_dir: Path
+    models_dir: Path
+    runtimes_dir: Path
+    ai_venv_dir: Path
 ```
 
-This keeps the EXE/DEB realistic: the base package is stable and small, while heavyweight AI pieces are explicit, repairable, and upgradeable.
+Resolution rules:
+
+- Source checkout:
+  - Keep current behavior unless `NEKO_PORTABLE=false` or package env vars are set.
+  - Data can still default to repo `data` for development.
+- Windows packaged:
+  - App files: `%LOCALAPPDATA%\Programs\NekoBooru` or `Program Files`.
+  - User config: `%LOCALAPPDATA%\NekoBooru\config`.
+  - User data: `%LOCALAPPDATA%\NekoBooru\data`.
+  - Logs: `%LOCALAPPDATA%\NekoBooru\logs`.
+  - Models: `%LOCALAPPDATA%\NekoBooru\models`.
+  - AI venv: `%LOCALAPPDATA%\NekoBooru\runtimes\python-ai`.
+- Linux user:
+  - Config: `${XDG_CONFIG_HOME:-~/.config}/nekobooru`.
+  - Data: `${XDG_DATA_HOME:-~/.local/share}/nekobooru`.
+  - Cache: `${XDG_CACHE_HOME:-~/.cache}/nekobooru`.
+  - Logs: `${XDG_STATE_HOME:-~/.local/state}/nekobooru/logs`.
+  - AI venv: `${XDG_DATA_HOME:-~/.local/share}/nekobooru/runtimes/python-ai`.
+- Linux system:
+  - App: `/opt/nekobooru`.
+  - Data: `/var/lib/nekobooru`.
+  - Logs: `/var/log/nekobooru`.
+  - Config: `/etc/nekobooru` only for machine-level service mode.
+
+Environment overrides:
+
+```text
+NEKO_APP_DIR
+NEKO_CONFIG_DIR
+NEKO_DATA_DIR
+NEKO_LOGS_DIR
+NEKO_MODELS_DIR
+NEKO_RUNTIMES_DIR
+NEKO_AI_VENV
+NEKO_PORTABLE=true|false
+```
+
+Code changes:
+
+- Update `backend/app/config.py` to call `runtime_paths.get_runtime_paths()`.
+- Keep `settings.data_dir` override from existing settings file, but make default data path package-aware.
+- Ensure `config_dir`, `data_dir`, `posts_dir`, `thumbs_dir`, `uploads_dir`, `cache_dir`, `models_dir`, and `logs_dir` are created through the resolver.
+- Update any model downloader code to use `models_dir` instead of repo-relative cache paths.
+- Update yt-dlp cookie path to use config/runtime paths.
+
+Tests:
+
+- Unit-test path resolution for:
+  - source checkout
+  - PyInstaller/frozen Windows
+  - Linux XDG
+  - explicit `NEKO_DATA_DIR`
+  - portable mode
+- Assert packaged mode does not default data/config under app install dir.
+
+Exit criteria:
+
+- `/api/settings` reports package-safe paths.
+- App runs from source with unchanged developer defaults.
+- App can run with `NEKO_DATA_DIR` pointing to a temp folder.
+
+## Stage 2: Runtime Diagnostics API
+
+Purpose: give installers, settings, extension, and support logs one reliable status object.
+
+Add `backend/app/services/runtime_diagnostics.py`.
+
+Add router endpoints:
+
+```text
+GET /api/runtime/status
+POST /api/runtime/open-logs
+POST /api/runtime/repair/native-host
+POST /api/runtime/repair/ai-runtime
+```
+
+Minimum `GET /api/runtime/status` response:
+
+```json
+{
+  "app": {
+    "version": "4.1.0",
+    "packaged": true,
+    "platform": "windows",
+    "appDir": "...",
+    "bundleDir": "..."
+  },
+  "paths": {
+    "configDir": "...",
+    "dataDir": "...",
+    "logsDir": "...",
+    "modelsDir": "...",
+    "runtimesDir": "...",
+    "aiVenv": "..."
+  },
+  "python": {
+    "coreExecutable": "...",
+    "aiExecutable": "...",
+    "aiVenvExists": false
+  },
+  "tools": {
+    "ffmpeg": {"available": true, "path": "...", "version": "..."},
+    "ffprobe": {"available": true, "path": "...", "version": "..."},
+    "ytdlp": {"available": true, "version": "...", "pinned": false}
+  },
+  "ai": {
+    "mode": "local-gpu",
+    "runtimeInstalled": false,
+    "profile": null,
+    "torch": null,
+    "cudaAvailable": false,
+    "onnxProviders": [],
+    "modelsDownloaded": 0,
+    "modelsLoaded": 0
+  },
+  "nativeHost": {
+    "installed": true,
+    "brave": true,
+    "chrome": true,
+    "manifestPath": "..."
+  }
+}
+```
+
+Tests:
+
+- Endpoint works without AI dependencies installed.
+- Endpoint never imports Torch unless the AI runtime exists or a lightweight probe subprocess is used.
+- Endpoint redacts secrets and does not return Hugging Face tokens or cookies.
+
+Exit criteria:
+
+- Settings page can show one runtime health panel from `/api/runtime/status`.
+- Installer smoke tests can use the endpoint as readiness signal.
+
+## Stage 3: Core Windows EXE Package
+
+Purpose: build a Windows app that runs without source checkout or AI packages.
+
+Update `nekobooru.spec`:
+
+- Keep AI exclusions.
+- Bundle frontend `dist`.
+- Include metadata/version.
+- Include runtime hook only if needed to set packaged mode env.
+- Do not include local `data`, `config`, `.env`, `venv`, model caches, or cookies.
+
+Update `build-binary.bat`:
+
+- Build frontend.
+- Create clean build venv.
+- Install only `backend/requirements.txt` plus PyInstaller.
+- Run PyInstaller.
+- Generate `dist/nekobooru-core/`.
+- Copy README that says data lives under `%LOCALAPPDATA%\NekoBooru`, not next to EXE.
+- Emit checksums.
+
+Add a launcher behavior:
+
+- Start backend on `127.0.0.1:8772`.
+- Open `http://127.0.0.1:8772` after health check.
+- If port is busy, check `/api/health`; if it is NekoBooru, open it. If another service owns the port, show a useful error.
+
+Tests:
+
+- Build from clean venv with no AI packages.
+- Run EXE.
+- Verify `/api/health`, `/api/runtime/status`, `/api/settings`.
+- Upload one image.
+- Confirm Settings says AI runtime not installed instead of crashing.
+
+Exit criteria:
+
+- `dist/nekobooru-core/nekobooru.exe` runs core app on a clean Windows machine without Python installed.
+
+## Stage 4: Windows Installer and Upgrade Flow
+
+Purpose: turn the core EXE into an installable, upgradable app.
+
+Add `packaging/windows/nekobooru.iss` or equivalent.
+
+Installer pages:
+
+1. Install type:
+   - Current user, no admin.
+   - All users, admin required.
+2. Components:
+   - Core app.
+   - Browser native host.
+   - Start Menu shortcut.
+   - Start with Windows.
+   - Launch after install.
+3. AI runtime:
+   - Skip for now.
+   - Install local CPU AI after first launch.
+   - Install local NVIDIA AI after first launch.
+   - Install legacy NVIDIA AI after first launch.
+   - Configure remote/server AI.
+4. Upgrade/repair:
+   - Preserve data.
+   - Repair native host.
+   - Repair AI runtime.
+   - Upgrade AI runtime too.
+
+Upgrade behavior:
+
+- Detect existing install through registry/app id.
+- Stop running packaged backend before replacing immutable files.
+- Preserve:
+  - `%LOCALAPPDATA%\NekoBooru\config`
+  - `%LOCALAPPDATA%\NekoBooru\data`
+  - `%LOCALAPPDATA%\NekoBooru\models`
+  - `%LOCALAPPDATA%\NekoBooru\runtimes`
+  - `%LOCALAPPDATA%\NekoBooru\logs`
+- Re-register native host if install path changed.
+- Do not reinstall CUDA/Torch unless user selects AI runtime upgrade/repair.
+
+Native host packaging:
+
+- Update `browser-extension/native-host/nekobooru_launcher_host.py` to resolve installed app from:
+  - Registry install path.
+  - `%LOCALAPPDATA%\Programs\NekoBooru`.
+  - User-configured path in native host config.
+- It should start packaged backend/client, not `npm run dev`.
+- It should poll `/api/health` and return detailed boot status.
+
+Tests:
+
+- Fresh user install.
+- Upgrade over previous version.
+- Repair install.
+- Uninstall app while preserving data.
+- Reinstall and verify existing library remains.
+- Native host starts app from Brave after app is closed.
+
+Exit criteria:
+
+- Installer can fresh install, upgrade, repair, and uninstall without losing the library.
+
+## Stage 5: Linux Core and DEB Package
+
+Purpose: make the DEB obey Linux filesystem expectations and avoid writing into `/opt`.
+
+Replace generated inline scripts in `build-deb.sh` with tracked files under `packaging/linux/debian`.
+
+DEB layout:
+
+```text
+/opt/nekobooru/
+  backend/
+  frontend/
+  VERSION
+  nekobooru
+/usr/bin/nekobooru
+/usr/share/applications/nekobooru.desktop
+/usr/share/icons/hicolor/.../nekobooru.png
+```
+
+Postinstall rules:
+
+- Do not create venv under `/opt/nekobooru/backend`.
+- For user-mode installs, create runtime venv on first run under XDG data.
+- For system service installs, use `/var/lib/nekobooru/runtimes/python-core` if a core venv is still required.
+- Create `/var/lib/nekobooru` only for system mode.
+- Do not install AI dependencies from `postinst`.
+- Do not run migrations during `postinst`; run them on app startup after backup.
+
+Launcher:
+
+- `/usr/bin/nekobooru` should call `/opt/nekobooru/nekobooru`.
+- The launcher should set packaged mode env and then start the backend.
+- If the Python backend is not frozen on Linux, create/use a managed core venv under the data/runtime directory, not `/opt`.
+
+Native host:
+
+- Install user-level native host manifests when the app configures browser integration.
+- Support Brave, Chrome, and Chromium paths.
+- Avoid requiring root for browser integration when possible.
+
+Tests:
+
+- Install with `sudo dpkg -i`.
+- Launch as normal user.
+- Confirm data/config/logs are outside `/opt`.
+- Upgrade package and verify data persists.
+- Remove package and verify data persists.
+
+Exit criteria:
+
+- `.deb` package installs and upgrades cleanly on Ubuntu/Debian-like systems.
+
+## Stage 6: AI Runtime Installer Service
+
+Purpose: turn `install-ai.ps1` and `install-ai.sh` into a cross-platform, package-aware runtime installer.
+
+Add `backend/app/services/ai_runtime_installer.py`.
+
+Runtime manifest example in `packaging/runtime-manifest.json`:
+
+```json
+{
+  "schema": 1,
+  "profiles": {
+    "cpu": {
+      "label": "CPU only",
+      "requirements": "backend/requirements-tagger-cpu.txt",
+      "downloadSize": "~3-5 GB",
+      "vram": "0 GB",
+      "torchIndex": "https://download.pytorch.org/whl/cpu"
+    },
+    "gpu-cu128": {
+      "label": "NVIDIA CUDA 12.8",
+      "requirements": "backend/requirements-tagger.txt",
+      "downloadSize": "~6-8 GB",
+      "vram": "model dependent",
+      "torchIndex": "https://download.pytorch.org/whl/cu128",
+      "minComputeCapabilityMajor": 7
+    },
+    "gpu-cu126-legacy": {
+      "label": "NVIDIA CUDA 12.6 legacy",
+      "requirements": "backend/requirements-tagger-legacy.txt",
+      "downloadSize": "~6-8 GB",
+      "vram": "model dependent",
+      "torchIndex": "https://download.pytorch.org/whl/cu126",
+      "computeCapabilityMajor": 6
+    }
+  }
+}
+```
+
+API endpoints:
+
+```text
+GET /api/runtime/ai/profiles
+POST /api/runtime/ai/install
+GET /api/runtime/ai/install-job
+POST /api/runtime/ai/cancel-install
+POST /api/runtime/ai/repair
+POST /api/runtime/ai/uninstall
+```
+
+Install behavior:
+
+- Create managed AI venv at `runtime_paths.ai_venv_dir`.
+- Install core backend requirements only if needed for subprocess workers.
+- Install selected AI requirements.
+- Stream progress from pip output where possible.
+- Write install receipt:
+
+```json
+{
+  "profile": "gpu-cu128",
+  "installedAt": "2026-06-08T00:00:00Z",
+  "python": "...",
+  "torch": "2.11.0+cu128",
+  "cudaAvailable": true,
+  "onnxProviders": ["CUDAExecutionProvider", "CPUExecutionProvider"],
+  "verified": true
+}
+```
+
+Already-installed edge case:
+
+- If receipt exists and validation passes, mark profile as installed and skip download.
+- If packages exist but receipt is missing, probe runtime and generate receipt.
+- If profile mismatch exists, offer repair/reinstall rather than silently uninstalling.
+
+Cancellation:
+
+- Cancel pip process if possible.
+- Mark job as cancelled.
+- Leave venv in "needs repair" state if partial install remains.
+
+Tests:
+
+- CPU install to temp venv.
+- Existing matching install skipped.
+- Existing broken install reports repair required.
+- Missing network fails with useful error.
+- Cancel leaves app usable.
+
+Exit criteria:
+
+- Settings can install, repair, uninstall, and verify AI runtime without requiring source checkout.
+
+## Stage 7: Model Registry and First-run AI Flow
+
+Purpose: keep model weights independent from app and AI runtime packages.
+
+Settings UI behavior:
+
+- If AI runtime missing, show:
+  - Install AI runtime.
+  - Configure remote AI server.
+  - Continue without AI.
+- If runtime installed but models missing, show model download actions.
+- If models downloaded but not loaded, show Load buttons and expected first-run delay.
+
+Model download behavior:
+
+- Use `runtime_paths.models_dir`.
+- Preserve existing per-model and download-all flow.
+- Mark already downloaded models as completed/skipped immediately.
+- Show download size, disk size, VRAM, runtime requirement, and loaded state.
+- Support Hugging Face token for gated/private models.
+
+Tests:
+
+- Model download all when all are already present.
+- Download one missing model.
+- Token saved/forgotten.
+- Model unload frees process memory enough to show unloaded state.
+
+Exit criteria:
+
+- A packaged user can install AI runtime, download models, and run AI tagging from Settings without touching a terminal.
+
+## Stage 8: Server AI and Remote Worker Mode
+
+Purpose: support machines where the app/client and AI GPU are different machines.
+
+Backend settings:
+
+```json
+{
+  "aiMode": "local|remote|disabled",
+  "remoteAiBaseUrl": "http://gpu-box:8772",
+  "remoteAiTokenConfigured": true
+}
+```
+
+Worker requirements:
+
+- Remote worker must expose:
+  - `/api/health`
+  - `/api/runtime/status`
+  - `/api/auto-tags/preview-upload`
+  - `/api/posts/{id}/auto-tags/preview`
+  - model status/load/download endpoints if worker owns models
+- Add shared token auth for remote AI endpoints before accepting non-local requests.
+- Client app should proxy AI requests to worker so frontend/extension code can keep calling the local app.
+
+Installer modes:
+
+- Client install:
+  - Core app only.
+  - No local CUDA wheels.
+  - AI endpoint points to remote server.
+- Server AI install:
+  - Core app plus AI runtime.
+  - Can be LAN-bound only after explicit warning.
+  - Token must be generated or entered.
+
+Tests:
+
+- Local app with no AI runtime proxies to worker.
+- Worker unavailable returns clear UI error.
+- Bad token returns auth error.
+- Extension AI preview works through local client to remote worker.
+
+Exit criteria:
+
+- Users can keep the desktop/client lightweight and run Qwen/CUDA models on a separate GPU machine.
+
+## Stage 9: Browser Extension Packaged Integration
+
+Purpose: make the extension work whether NekoBooru is source-run or installed.
+
+Native host behavior:
+
+- `start` command:
+  - Locate installed app.
+  - Start app if not running.
+  - Poll health endpoint.
+  - Return `booting`, `ready`, or `failed` with logs path.
+- `status` command:
+  - Return whether backend is reachable.
+  - Return app path and native host version.
+- `open` command:
+  - Open NekoBooru UI.
+
+Do not:
+
+- Start `npm run dev` in packaged mode.
+- Assume repo-relative `venv`.
+- Hardcode extension IDs except through manifest generation.
+
+Installer integration:
+
+- Windows installer runs native host registration with selected extension ID or shows manual registration command.
+- Settings page can repair native host registration.
+- Browser extension options page should show native host status and app launch status.
+
+Tests:
+
+- Brave extension can start app from closed state.
+- AI preview waits for boot, then runs original action.
+- Upload waits for boot, then uploads.
+- Missing native host says exactly how to repair.
+
+Exit criteria:
+
+- Extension behaves like a normal companion app integration, not a source-dev helper.
+
+## Stage 10: yt-dlp, Cookies, and Media Tooling
+
+Purpose: keep video downloads reliable without making app upgrades risky.
+
+Packaging policy:
+
+- Core package may include a known-good `yt-dlp` Python package or executable.
+- Settings can update/pin yt-dlp independently.
+- Cookies live in config path, not install path.
+- Browser cookies are only accessed through extension/native host flows that the user enabled.
+
+Installer tasks:
+
+- Include ffmpeg/ffprobe only if license/distribution review passes.
+- Otherwise detect system ffmpeg and show install help.
+- Keep yt-dlp update policy:
+  - manual
+  - update on app startup
+  - pinned version
+
+Tests:
+
+- Pinned yt-dlp survives app upgrade.
+- Failed yt-dlp update leaves previous version usable.
+- Cookie path persists across app upgrade.
+
+Exit criteria:
+
+- App upgrades do not break media downloads by forcibly changing yt-dlp unless user opted in.
+
+## Stage 11: Upgrade, Repair, and Rollback
+
+Purpose: make packaged installs safe to iterate.
+
+App upgrade:
+
+- Stop app.
+- Backup database before first launch after upgrade.
+- Replace immutable app files.
+- Preserve data/config/models/runtimes/logs.
+- Restart only if it was running before upgrade or user chose launch.
+
+AI runtime upgrade:
+
+- Separate from app upgrade.
+- Show current profile and target profile.
+- Validate new profile before marking it active.
+- Keep previous receipt.
+- If validation fails:
+  - mark failed
+  - keep app usable
+  - offer rollback/repair/CPU fallback
+
+Database migration:
+
+- On startup, before schema migration:
+  - create timestamped DB backup
+  - write migration log
+  - show recoverable error if migration fails
+
+Repair actions:
+
+- Repair app files.
+- Repair native host.
+- Repair shortcuts/autostart.
+- Repair AI runtime.
+- Repair model registry state.
+- Verify media library paths.
+
+Tests:
+
+- Upgrade core app with existing DB.
+- Upgrade with running app.
+- Repair missing native host.
+- Repair broken AI runtime.
+- Roll back failed AI runtime upgrade.
+
+Exit criteria:
+
+- User can install frequent builds without risking their library.
+
+## Stage 12: CI, Smoke Tests, and Release Gates
+
+Purpose: prevent broken installers from shipping.
+
+Build matrix:
+
+| Job | Platform | Checks |
+| --- | --- | --- |
+| frontend-build | Windows/Linux | `npm run build` |
+| backend-core | Windows/Linux | install `requirements.txt`, import app |
+| pyinstaller | Windows | build EXE, run smoke |
+| windows-installer | Windows | build installer, install, upgrade, uninstall |
+| deb-package | Ubuntu | build DEB, install, upgrade, remove |
+| ai-cpu-runtime | Windows/Linux | install CPU AI runtime in temp dir |
+| ai-gpu-runtime | Self-hosted NVIDIA | install GPU profile and run CUDA kernel |
+| extension | Windows | build extension and validate native host manifest |
+
+Smoke commands:
+
+```text
+GET /api/health
+GET /api/runtime/status
+GET /api/settings
+POST upload small image
+GET /api/posts
+GET /api/auto-tags/settings
+```
+
+Release gates:
+
+- Base installer contains no Torch/CUDA/model files.
+- Base installer works without network after install.
+- Upgrade preserves media library.
+- Native host paths are install-relative/user-data-relative, not source-relative.
+- Checksums generated.
+- Release notes include runtime/model compatibility notes.
+
+Exit criteria:
+
+- Release artifacts are reproducible and smoke-tested.
+
+## Stage 13: Security and Privacy
+
+Purpose: keep local-library packaging from widening the attack surface.
+
+Rules:
+
+- Bind to `127.0.0.1` by default.
+- Require explicit opt-in for `0.0.0.0`.
+- Require token auth before remote AI worker accepts non-local requests.
+- Never log Hugging Face tokens, browser cookies, or auth tokens.
+- Keep cookies and tokens under config paths with user-only permissions where possible.
+- Native host only accepts known commands.
+- Installer repair commands should not execute arbitrary paths from untrusted config.
+
+Tests:
+
+- CORS remains local-only by default.
+- Remote worker rejects missing/bad token.
+- Logs do not contain token values.
+- Native host rejects unknown commands.
+
+Exit criteria:
+
+- Packaged defaults are safe for a normal desktop user.
+
+## Implementation Ticket Breakdown
+
+### Ticket A: Runtime Paths
+
+Files:
+
+- `backend/app/runtime_paths.py`
+- `backend/app/config.py`
+- `backend/app/services/settings.py`
+
+Deliverables:
+
+- Package-aware path resolver.
+- Unit tests for path modes.
+- Settings endpoint uses resolver.
+
+### Ticket B: Runtime Diagnostics
+
+Files:
+
+- `backend/app/services/runtime_diagnostics.py`
+- `backend/app/routers/runtime.py`
+- `backend/app/main.py`
+- `frontend/src/api/client.js`
+- `frontend/src/views/SettingsView.vue`
+
+Deliverables:
+
+- `/api/runtime/status`.
+- Settings runtime health card.
+- No hard Torch import in core path.
+
+### Ticket C: Core Windows Build
+
+Files:
+
+- `nekobooru.spec`
+- `build-binary.bat`
+- `packaging/windows/README.txt`
+- `scripts/smoke-packaged.ps1`
+
+Deliverables:
+
+- EXE core build.
+- Smoke script.
+- Data paths outside app dir.
+
+### Ticket D: Windows Installer
+
+Files:
+
+- `packaging/windows/nekobooru.iss`
+- `packaging/windows/launcher/*`
+- `browser-extension/native-host/install-native-host.ps1`
+- `browser-extension/native-host/nekobooru_launcher_host.py`
+
+Deliverables:
+
+- Fresh install.
+- Upgrade install.
+- Repair native host.
+- Preserve data/models/runtimes.
+
+### Ticket E: Linux DEB
+
+Files:
+
+- `packaging/linux/debian/*`
+- `packaging/linux/nekobooru.desktop`
+- `packaging/linux/nekobooru.service.user`
+- `build-deb.sh`
+- `scripts/smoke-packaged.sh`
+
+Deliverables:
+
+- DEB package.
+- XDG/system paths.
+- No writes under `/opt`.
+
+### Ticket F: AI Runtime Installer
+
+Files:
+
+- `backend/app/services/ai_runtime_installer.py`
+- `backend/app/routers/runtime.py`
+- `packaging/runtime-manifest.json`
+- `install-ai.ps1`
+- `install-ai.sh`
+- `frontend/src/views/SettingsView.vue`
+
+Deliverables:
+
+- Runtime profile list.
+- Install/repair/uninstall job APIs.
+- Settings UI with progress and already-installed handling.
+
+### Ticket G: Remote AI Worker
+
+Files:
+
+- `backend/app/routers/auto_tags.py`
+- `backend/app/services/auto_tagger.py`
+- `backend/app/config.py`
+- `frontend/src/views/SettingsView.vue`
+- `start-worker.bat`
+- `start.sh`
+
+Deliverables:
+
+- Local/remote/disabled AI mode.
+- Worker token.
+- Proxy AI requests through local app.
+
+### Ticket H: Extension Packaged Launch
+
+Files:
+
+- `browser-extension/background.js`
+- `browser-extension/upload.js`
+- `browser-extension/options.js`
+- `browser-extension/native-host/nekobooru_launcher_host.py`
+
+Deliverables:
+
+- Extension starts packaged app.
+- Booting UI while app starts.
+- Original upload/AI action resumes after ready.
+
+### Ticket I: Upgrade and Repair Tests
+
+Files:
+
+- `scripts/smoke-packaged.ps1`
+- `scripts/smoke-packaged.sh`
+- CI workflow files when added.
+
+Deliverables:
+
+- Fresh install smoke.
+- Upgrade smoke.
+- Repair smoke.
+- AI missing smoke.
+
+## Recommended Build Commands
+
+Development checks:
+
+```powershell
+cd frontend
+npm run build
+```
+
+```powershell
+cd backend
+..\venv\Scripts\python.exe -m compileall app
+```
+
+Windows core package:
+
+```powershell
+.\build-binary.bat
+.\scripts\smoke-packaged.ps1 -Exe .\dist\nekobooru-core\nekobooru.exe
+```
+
+Linux DEB package:
+
+```bash
+./build-deb.sh 4.1.0
+./scripts/smoke-packaged.sh ./dist/nekobooru_4.1.0_all.deb
+```
+
+AI runtime install after packaging:
+
+```powershell
+nekobooru.exe --install-ai --profile auto
+nekobooru.exe --install-ai --profile cpu
+nekobooru.exe --install-ai --profile gpu-cu128
+nekobooru.exe --install-ai --profile gpu-cu126-legacy
+```
+
+Remote worker:
+
+```powershell
+nekobooru.exe --mode ai-worker --host 0.0.0.0 --port 8772 --token <generated-token>
+```
+
+## Release Acceptance Checklist
+
+- Core Windows EXE runs without Python installed.
+- Core DEB runs without writing into `/opt`.
+- App runs without AI dependencies.
+- AI runtime can be installed after app install.
+- Already-installed AI runtime is detected and skipped.
+- Models can be downloaded independently after runtime install.
+- Upgrade preserves database, posts, thumbnails, settings, models, AI runtime, yt-dlp pins, and cookies.
+- Native host starts packaged app, not source dev servers.
+- Extension upload and AI preview wait for app boot and resume original action.
+- Remote AI mode works with token auth.
+- Base installers contain no model weights and no CUDA wheels.
+- Smoke tests pass for fresh install and upgrade.
+
+## First Implementation Milestone
+
+Do these first because every later stage depends on them:
+
+1. Add `backend/app/runtime_paths.py`.
+2. Update `backend/app/config.py` to use it.
+3. Add `/api/runtime/status`.
+4. Update Settings to show runtime diagnostics.
+5. Update native host to locate source mode vs packaged mode.
+6. Update `build-binary.bat` README/output paths.
+
+After that, the Windows installer and DEB work can happen in parallel.
