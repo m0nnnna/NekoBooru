@@ -685,6 +685,7 @@ function defaultBatchAiSettings() {
     generalThreshold: 0.35,
     characterThreshold: 0.45,
     unsafeThreshold: 0.7,
+    sketchyThreshold: 0.65,
     maxTags: 40,
     videoMaxFrames: 4,
     applySafety: true,

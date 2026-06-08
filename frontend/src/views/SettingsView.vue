@@ -927,7 +927,7 @@ const modelStatusMessage = ref({
 const thresholdHelp = {
   general: 'Minimum confidence for general booru tags. Lower values add more tags but more noise; raise it if posts are getting vague or wrong tags. Typical range: 0.30-0.45.',
   character: 'Minimum confidence for character, copyright, and source tags. Lower it if known characters are missed; raise it if false character names appear. Typical range: 0.40-0.60.',
-  unsafe: 'Confidence required before auto-tagging can promote a post to unsafe. Lower catches more NSFW content; raise it to avoid false unsafe ratings. It will not downgrade safer ratings when downgrade protection is on.',
+  unsafe: 'Explicit-rating confidence required before auto-tagging can promote a post to unsafe. Questionable/sensitive evidence can only promote to sketchy when it is very strong. Raise this to avoid false unsafe ratings.',
   maxTags: 'Maximum number of tags kept from model output. Increase for richer search coverage; decrease if posts become cluttered. This limit applies before manual review.',
   videoFrames: 'Number of sampled video frames for visual tagging. More frames improve AMV/edit coverage but take longer. 3-4 is a good default; use 1 for fast middle-frame tagging.',
   lightCutoff: 'Posts with this many tags or fewer count as lightly tagged for bulk jobs. Increase to retag sparse libraries; decrease to only target nearly empty posts.',

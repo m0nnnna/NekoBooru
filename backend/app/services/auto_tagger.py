@@ -147,7 +147,7 @@ class AutoTagOptions:
     provenanceTag: str = "auto_tagged"
     applySafety: bool = True
     unsafeThreshold: float = 0.70
-    sketchyThreshold: float = 0.45
+    sketchyThreshold: float = 0.65
     neverDowngradeSafety: bool = True
     defaultBackfillMode: str = "lightly_tagged"
     lightlyTaggedMaxTags: int = 2
@@ -1825,11 +1825,17 @@ def _representative_frame(path: Path, opts: AutoTagOptions) -> Path | None:
 
 
 def safety_from_rating(rating: dict[str, float], opts: AutoTagOptions) -> str | None:
-    explicit = max(rating.get("explicit", 0.0), rating.get("questionable", 0.0))
+    explicit = max(rating.get("explicit", 0.0), rating.get("rating_explicit", 0.0))
+    questionable = max(rating.get("questionable", 0.0), rating.get("rating_questionable", 0.0))
     sensitive = max(rating.get("sensitive", 0.0), rating.get("sensitive_content", 0.0))
     if explicit >= opts.unsafeThreshold:
         return "unsafe"
-    if explicit >= opts.sketchyThreshold or sensitive >= max(opts.sketchyThreshold, 0.55):
+    sketchy_threshold = max(opts.sketchyThreshold, 0.65)
+    if (
+        explicit >= sketchy_threshold
+        or questionable >= max(opts.unsafeThreshold, 0.75)
+        or sensitive >= max(sketchy_threshold, 0.75)
+    ):
         return "sketchy"
     if rating:
         return "safe"

@@ -451,6 +451,16 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertIn("image", result.tags)
         self.assertNotIn("card_medium", result.tags)
         self.assertNotIn("outline", result.tags)
+
+    def test_safety_rating_requires_strong_evidence_for_promotion(self):
+        from app.services.auto_tagger import AutoTagOptions, safety_from_rating
+
+        opts = AutoTagOptions(unsafeThreshold=0.70, sketchyThreshold=0.45)
+
+        self.assertEqual(safety_from_rating({"questionable": 0.50}, opts), "safe")
+        self.assertEqual(safety_from_rating({"sensitive": 0.60}, opts), "safe")
+        self.assertEqual(safety_from_rating({"explicit": 0.71}, opts), "unsafe")
+        self.assertEqual(safety_from_rating({"questionable": 0.78}, opts), "sketchy")
         self.assertNotIn("card_medium", result.categories)
 
     def test_meaningful_ocr_text_filters_blank_or_junk_text(self):
