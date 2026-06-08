@@ -68,6 +68,13 @@ export const api = {
     })
   },
 
+  async bulkUpdatePosts(data) {
+    return request('/posts/bulk-update', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
   async toggleFavorite(id) {
     return request(`/posts/${id}/favorite`, { method: 'POST' })
   },
@@ -239,8 +246,10 @@ export const api = {
     return request(`/tags${query ? `?${query}` : ''}`)
   },
 
-  async autocomplete(q) {
-    return request(`/tags/autocomplete?q=${encodeURIComponent(q)}`)
+  async autocomplete(q, options = {}) {
+    const params = new URLSearchParams({ q })
+    if (options.nameParts) params.set('nameParts', 'true')
+    return request(`/tags/autocomplete?${params.toString()}`)
   },
 
   async getTag(name) {

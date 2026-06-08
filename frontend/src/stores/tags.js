@@ -31,10 +31,10 @@ export const useTagsStore = defineStore('tags', () => {
     }
   }
 
-  async function autocomplete(query) {
+  async function autocomplete(query, options = {}) {
     if (!query) return []
     try {
-      return await api.autocomplete(query)
+      return await api.autocomplete(query, options)
     } catch (e) {
       return []
     }

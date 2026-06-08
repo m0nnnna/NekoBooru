@@ -7,6 +7,8 @@
       :select-mode="selectMode"
       :selected="selectedIds.includes(post.id)"
       @toggle="$emit('toggle', $event)"
+      @hold-select="$emit('hold-select', $event)"
+      @hover-post="$emit('hover-post', $event)"
     />
     <div
       v-if="visiblePosts.length < posts.length"
@@ -54,7 +56,7 @@ const props = defineProps({
   },
 })
 
-defineEmits(['toggle'])
+defineEmits(['toggle', 'hold-select', 'hover-post'])
 
 const INITIAL_RENDER_LIMIT = 100
 const RENDER_BATCH_SIZE = 100

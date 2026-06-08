@@ -69,6 +69,35 @@
     </div>
 
     <div class="settings-section">
+      <h2>Search</h2>
+      <p class="section-description">
+        Configure how tag search behaves in the main navigation bar.
+      </p>
+
+      <label class="toggle-card">
+        <input type="checkbox" v-model="searchPredictionEnabled" @change="saveSearchPredictionSetting" />
+        <span>
+          <strong>Auto-search top tag prediction while typing</strong>
+          <small>
+            When enabled, partial tag searches use the first autocomplete match automatically while
+            keeping your typed text and suggestions visible. Exact tags and filters like rating:safe
+            still search as typed.
+          </small>
+        </span>
+      </label>
+      <label class="toggle-card">
+        <input type="checkbox" v-model="namePartAutocompleteEnabled" @change="saveNamePartAutocompleteSetting" />
+        <span>
+          <strong>Autocomplete character given names</strong>
+          <small>
+            Allows partial-name searches like konata to suggest tags such as izumi_konata.
+            Exact and prefix matches still rank first.
+          </small>
+        </span>
+      </label>
+    </div>
+
+    <div class="settings-section">
       <h2>Video Downloads (yt-dlp)</h2>
       <p class="section-description">
         Configure cookies for downloading age-restricted or login-required videos from platforms like X/Twitter.
@@ -837,6 +866,10 @@ const currentSettings = ref({})
 const dataDir = ref('')
 const saving = ref(false)
 const isWindows = ref(navigator.platform.toLowerCase().includes('win'))
+const SEARCH_PREDICTION_KEY = 'nekobooru.searchPredictionEnabled'
+const NAME_PART_AUTOCOMPLETE_KEY = 'nekobooru.namePartAutocompleteEnabled'
+const searchPredictionEnabled = ref(false)
+const namePartAutocompleteEnabled = ref(false)
 
 const cookiesFileInput = ref(null)
 const savingCookies = ref(false)
@@ -928,8 +961,22 @@ const migrationStatus = ref({
 })
 
 onMounted(async () => {
+  loadSearchPredictionSetting()
   await Promise.all([loadSettings(), loadStats(), loadAutoTags(), refreshYtdlpStatus()])
 })
+
+function loadSearchPredictionSetting() {
+  searchPredictionEnabled.value = localStorage.getItem(SEARCH_PREDICTION_KEY) === 'true'
+  namePartAutocompleteEnabled.value = localStorage.getItem(NAME_PART_AUTOCOMPLETE_KEY) === 'true'
+}
+
+function saveSearchPredictionSetting() {
+  localStorage.setItem(SEARCH_PREDICTION_KEY, searchPredictionEnabled.value ? 'true' : 'false')
+}
+
+function saveNamePartAutocompleteSetting() {
+  localStorage.setItem(NAME_PART_AUTOCOMPLETE_KEY, namePartAutocompleteEnabled.value ? 'true' : 'false')
+}
 
 onUnmounted(() => {
   if (autoTagPollTimer) clearInterval(autoTagPollTimer)

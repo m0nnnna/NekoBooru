@@ -141,6 +141,29 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(detail["postUrl"], f"/post/{post['id']}")
         self.assertEqual(detail["post"]["id"], post["id"])
 
+    def test_bulk_update_can_clear_tags_and_set_safety(self):
+        first = self._upload_image_post(tags=["old_tag", "shared"], safety="safe")
+        second = self._upload_image_post(tags=["another_tag", "shared"], safety="safe")
+
+        response = self.client.post(
+            "/api/posts/bulk-update",
+            json={
+                "postIds": [first["id"], second["id"]],
+                "tagMode": "clear",
+                "tags": [],
+                "safety": "unsafe",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["updated"], 2)
+        first_after = self.client.get(f"/api/posts/{first['id']}").json()
+        second_after = self.client.get(f"/api/posts/{second['id']}").json()
+        self.assertEqual(first_after["tags"], [])
+        self.assertEqual(second_after["tags"], [])
+        self.assertEqual(first_after["safety"], "unsafe")
+        self.assertEqual(second_after["safety"], "unsafe")
+
     def test_per_post_apply_adds_tags_categories_and_promotes_unsafe(self):
         self._enable_auto_tags()
         post = self._upload_image_post(tags=["manual_tag"], safety="safe")
@@ -360,6 +383,12 @@ class AutoTagApiTests(unittest.TestCase):
 
 
 class AutoTagUnitTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        backend_path = str(Path(__file__).resolve().parents[1] / "backend")
+        if backend_path not in sys.path:
+            sys.path.insert(0, backend_path)
+
     def test_video_timestamp_strategy_samples_middle_for_short_clip(self):
         from app.services.auto_tagger import AutoTagOptions, _timestamps
 
@@ -494,6 +523,26 @@ class AutoTagUnitTests(unittest.TestCase):
                     auto_tags._require_worker_token(None)
 
         self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_search_tokenizer_keeps_unknown_colon_tags_literal(self):
+        from app.services.search import TokenType, tokenize
+
+        tokens = tokenize("beatrice_re:zero rating:safe")
+
+        self.assertEqual(tokens[0].type, TokenType.TAG)
+        self.assertEqual(tokens[0].value, "beatrice_re:zero")
+        self.assertEqual(tokens[1].type, TokenType.FILTER)
+        self.assertEqual(tokens[1].filter_key, "rating")
+
+    def test_search_tokenizer_keeps_negated_unknown_colon_tags_literal(self):
+        from app.services.search import TokenType, tokenize
+
+        tokens = tokenize("-beatrice_re:zero -safety:unsafe")
+
+        self.assertEqual(tokens[0].type, TokenType.NEGATED_TAG)
+        self.assertEqual(tokens[0].value, "beatrice_re:zero")
+        self.assertEqual(tokens[1].type, TokenType.NEGATED_FILTER)
+        self.assertEqual(tokens[1].filter_key, "safety")
 
     def test_qwen_device_map_respects_cpu_and_gpu_availability(self):
         from app.services.auto_tagger import _qwen_device_map
