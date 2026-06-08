@@ -489,6 +489,22 @@ export const api = {
   async cancelAiRuntimeInstall() {
     return request('/runtime/ai/cancel-install', { method: 'POST' })
   },
+
+  // App updates
+  async getUpdateStatus(auto = false) {
+    return request(`/updates/status${auto ? '?auto=true' : ''}`)
+  },
+
+  async updateUpdateSettings(data) {
+    return request('/updates/settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async checkForUpdates() {
+    return request('/updates/check', { method: 'POST' })
+  },
 }
 
 export default api

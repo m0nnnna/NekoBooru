@@ -367,6 +367,93 @@
     </div>
 
     <div class="settings-section">
+      <h2>App Updates</h2>
+      <p class="section-description">
+        Check GitHub Releases for installer builds. Upstream releases are the default; point this at your fork when testing your own builds.
+      </p>
+
+      <div class="update-panel">
+        <div class="config-panel-head">
+          <h3>Release Source</h3>
+          <p>{{ updateStatus.settings?.releasesPageUrl || 'GitHub Releases' }}</p>
+        </div>
+
+        <div class="numeric-grid">
+          <label class="field-row">
+            <span>GitHub owner</span>
+            <input v-model="updateSettings.owner" type="text" placeholder="m0nnnna" />
+          </label>
+          <label class="field-row">
+            <span>Repository</span>
+            <input v-model="updateSettings.repo" type="text" placeholder="NekoBooru" />
+          </label>
+          <label class="field-row">
+            <span>Channel</span>
+            <select v-model="updateSettings.channel">
+              <option value="stable">Stable releases</option>
+              <option value="prerelease">Prereleases</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="toggle-grid">
+          <label class="toggle-card">
+            <input type="checkbox" v-model="updateSettings.autoCheck" />
+            <span>
+              <strong>Auto-check for updates</strong>
+              <small>Checks at Settings load at most twice per day. It does not auto-install anything.</small>
+            </span>
+          </label>
+        </div>
+
+        <div class="runtime-summary-grid update-summary">
+          <div>
+            <span>Current</span>
+            <strong>{{ updateStatus.currentVersion || runtimeStatus.app?.version || 'unknown' }}</strong>
+            <small>{{ runtimeStatus.app?.packaged ? 'installed package' : 'source checkout' }}</small>
+          </div>
+          <div>
+            <span>Latest</span>
+            <strong :class="updateStatus.lastCheck?.available ? 'model-ok' : ''">
+              {{ updateStatus.lastCheck?.latestVersion || 'Not checked' }}
+            </strong>
+            <small>{{ updateStatus.lastCheck?.message || 'Use Check now to query releases.' }}</small>
+          </div>
+          <div>
+            <span>Installer asset</span>
+            <strong :class="updateStatus.lastCheck?.assets?.windowsInstaller ? 'model-ok' : 'model-missing'">
+              {{ updateStatus.lastCheck?.assets?.windowsInstaller?.name || 'Not found yet' }}
+            </strong>
+            <small>{{ formatBytes(updateStatus.lastCheck?.assets?.windowsInstaller?.size) }}</small>
+          </div>
+        </div>
+
+        <p v-if="updateMessage.show" class="cookies-status" :class="updateMessage.success ? 'success' : 'error'">
+          <strong>{{ updateMessage.message }}</strong>
+        </p>
+
+        <div class="form-actions">
+          <button class="btn" @click="saveUpdateSettings" :disabled="updateBusy">
+            Save Update Settings
+          </button>
+          <button class="btn btn-secondary" @click="checkForUpdates" :disabled="updateBusy || updateSettings.channel === 'off'">
+            {{ updateBusy ? 'Checking...' : 'Check now' }}
+          </button>
+          <a
+            v-if="updateStatus.lastCheck?.htmlUrl"
+            class="btn btn-secondary"
+            :href="updateStatus.lastCheck.htmlUrl"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Release notes
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h2>Server Statistics</h2>
       <div v-if="statsLoading" class="stats-loading">Loading statistics...</div>
       <div v-else-if="statsError" class="stats-error">{{ statsError }}</div>
@@ -1044,6 +1131,21 @@ const ytdlpMessage = ref({
   message: '',
 })
 const runtimeStatus = ref({})
+const updateStatus = ref({})
+const updateSettings = ref({
+  owner: 'm0nnnna',
+  repo: 'NekoBooru',
+  channel: 'stable',
+  autoCheck: true,
+  autoDownload: false,
+  includePrereleases: false,
+})
+const updateBusy = ref(false)
+const updateMessage = ref({
+  show: false,
+  success: false,
+  message: '',
+})
 const aiRuntimeProfiles = ref([])
 const selectedAiRuntimeProfile = ref('auto')
 const aiRuntimeJob = ref(null)
@@ -1134,7 +1236,7 @@ const migrationStatus = ref({
 
 onMounted(async () => {
   loadSearchPredictionSetting()
-  await Promise.all([loadSettings(), loadStats(), loadAutoTags(), refreshYtdlpStatus(), loadRuntimeStatus()])
+  await Promise.all([loadSettings(), loadStats(), loadAutoTags(), refreshYtdlpStatus(), loadRuntimeStatus(), loadUpdateStatus(true)])
 })
 
 function loadSearchPredictionSetting() {
@@ -1548,6 +1650,81 @@ function formatDate(isoString) {
     hour: '2-digit',
     minute: '2-digit'
   })
+}
+
+function applyUpdateStatus(result) {
+  updateStatus.value = result || {}
+  const raw = updateStatus.value.settings || {}
+  updateSettings.value = {
+    owner: raw.owner || 'm0nnnna',
+    repo: raw.repo || 'NekoBooru',
+    channel: raw.channel || 'stable',
+    autoCheck: raw.autoCheck !== false,
+    autoDownload: raw.autoDownload === true,
+    includePrereleases: raw.includePrereleases === true,
+  }
+}
+
+async function loadUpdateStatus(auto = false) {
+  try {
+    applyUpdateStatus(await api.getUpdateStatus(auto))
+  } catch (e) {
+    updateMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to load update status: ' + e.message,
+    }
+  }
+}
+
+async function saveUpdateSettings() {
+  updateBusy.value = true
+  updateMessage.value.show = false
+  try {
+    applyUpdateStatus(await api.updateUpdateSettings({
+      ...updateSettings.value,
+      includePrereleases: updateSettings.value.channel === 'prerelease',
+    }))
+    updateMessage.value = {
+      show: true,
+      success: true,
+      message: 'Update settings saved.',
+    }
+  } catch (e) {
+    updateMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to save update settings: ' + e.message,
+    }
+  } finally {
+    updateBusy.value = false
+  }
+}
+
+async function checkForUpdates() {
+  updateBusy.value = true
+  updateMessage.value = {
+    show: true,
+    success: true,
+    message: 'Checking GitHub Releases...',
+  }
+  try {
+    applyUpdateStatus(await api.checkForUpdates())
+    const check = updateStatus.value.lastCheck || {}
+    updateMessage.value = {
+      show: true,
+      success: !check.error,
+      message: check.message || 'Update check completed.',
+    }
+  } catch (e) {
+    updateMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to check for updates: ' + e.message,
+    }
+  } finally {
+    updateBusy.value = false
+  }
 }
 
 async function loadSettings() {
@@ -2491,6 +2668,17 @@ function startYtdlpPolling() {
   border: 1px solid var(--border);
   border-radius: 0.65rem;
   background: var(--bg-secondary);
+}
+
+.update-panel {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--bg-secondary);
+}
+
+.update-summary {
+  margin-top: 1rem;
 }
 
 .ytdlp-status-grid {

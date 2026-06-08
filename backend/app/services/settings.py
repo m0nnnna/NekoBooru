@@ -68,6 +68,17 @@ class SettingsManager:
         settings["ytdlp"] = ytdlp
         self.save_settings(settings)
 
+    def get_update_settings(self) -> dict:
+        """Get persisted app update settings."""
+        settings = self.load_settings()
+        return dict(settings.get("updates") or {})
+
+    def set_update_settings(self, updates: dict) -> None:
+        """Persist app update settings without disturbing other settings."""
+        settings = self.load_settings()
+        settings["updates"] = updates
+        self.save_settings(settings)
+
     def get_server_settings(self) -> dict:
         """Get persisted server bind/CORS settings."""
         settings = self.load_settings()
