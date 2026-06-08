@@ -23,4 +23,5 @@ if __name__ == "__main__":
         port=settings.port,
         reload=False,  # No reload in production
         log_level="info",
+        access_log=False,
     )

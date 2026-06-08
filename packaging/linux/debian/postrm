@@ -6,3 +6,4 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 echo "NekoBooru removed. User data was preserved."
+echo "Run 'rm -rf ~/.config/nekobooru ~/.local/share/nekobooru ~/.cache/nekobooru ~/.local/state/nekobooru' if you intentionally want to remove all user data."

@@ -52,11 +52,11 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\apply-installer-settings.ps1"" -BackendPort {code:GetBackendPort} -FrontendPort {code:GetFrontendPort} -AiProfile ""{code:GetAiProfile}"" -UpdateOwner ""{code:GetUpdateOwner}"" -UpdateRepo ""{code:GetUpdateRepo}"" -UpdateChannel ""{code:GetUpdateChannel}"""; Flags: runhidden waituntilterminated
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-ai.ps1"" {code:GetAiInstallSwitch} {code:GetAiForceSwitch} -VenvPath ""{localappdata}\NekoBooru\runtimes\python-ai"" -ReceiptPath ""{localappdata}\NekoBooru\runtimes\python-ai\nekobooru-ai-runtime.json"" -LogPath ""{localappdata}\NekoBooru\logs\install-ai.log"""; StatusMsg: "Installing selected AI runtime. Detailed output is written to %LOCALAPPDATA%\NekoBooru\logs\install-ai.log."; Flags: runhidden waituntilterminated; Check: ShouldInstallLocalAi
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch NekoBooru"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch NekoBooru"; Flags: nowait postinstall skipifsilent runhidden
 
 [UninstallDelete]
-; User data intentionally remains under %LOCALAPPDATA%\NekoBooru unless a future
-; uninstall page explicitly asks to delete it.
+; User data remains under %LOCALAPPDATA%\NekoBooru unless the uninstall code
+; below explicitly asks for and receives cleanup confirmation.
 Type: filesandordirs; Name: "{app}"
 
 [Code]
@@ -64,6 +64,9 @@ var
   PortPage: TInputQueryWizardPage;
   AiPage: TInputOptionWizardPage;
   UpdatePage: TInputQueryWizardPage;
+  UninstallDeleteAllUserData: Boolean;
+  UninstallDeleteAiRuntime: Boolean;
+  UninstallDeleteModels: Boolean;
 
 procedure InitializeWizard;
 begin
@@ -72,10 +75,10 @@ begin
       wpSelectDir,
       'Configure Local Ports',
       'Choose the local ports NekoBooru should use.',
-      'The backend serves the packaged web UI and API. Change these only if another local app already uses the default ports.'
+      'The backend serves the packaged web UI and API. The dev/CORS port only allows an optional Vite frontend during debugging.'
     );
   PortPage.Add('Backend/API port:', False);
-  PortPage.Add('Frontend/dev port reference:', False);
+  PortPage.Add('Dev frontend/CORS port:', False);
   PortPage.Values[0] := '8773';
   PortPage.Values[1] := '5174';
 
@@ -149,13 +152,13 @@ begin
     end;
     if not IsValidPort(PortPage.Values[1]) then
     begin
-      MsgBox('Frontend/dev port must be a number from 1024 to 65535.', mbError, MB_OK);
+      MsgBox('Dev frontend/CORS port must be a number from 1024 to 65535.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
     if PortPage.Values[0] = PortPage.Values[1] then
     begin
-      MsgBox('Backend/API port and frontend/dev port must be different.', mbError, MB_OK);
+      MsgBox('Backend/API port and dev frontend/CORS port must be different.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
@@ -238,4 +241,75 @@ end;
 function GetUpdateChannel(Param: String): String;
 begin
   Result := Lowercase(Trim(UpdatePage.Values[2]));
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+  UninstallDeleteAllUserData := False;
+  UninstallDeleteAiRuntime := False;
+  UninstallDeleteModels := False;
+
+  if UninstallSilent then
+    Exit;
+
+  if MsgBox(
+    'NekoBooru can keep your posts, settings, logs, downloaded model weights, and optional AI runtime after uninstall.' + #13#10 + #13#10 +
+    'Choose Yes to review optional cleanup choices. Choose No to remove only the installed app files.',
+    mbConfirmation,
+    MB_YESNO
+  ) <> IDYES then
+    Exit;
+
+  if MsgBox(
+    'Delete ALL NekoBooru user data under:' + #13#10 +
+    ExpandConstant('{localappdata}\NekoBooru') + #13#10 + #13#10 +
+    'This removes posts/database, settings, logs, downloaded model weights, and the AI runtime. This cannot be undone.',
+    mbCriticalError,
+    MB_YESNO
+  ) = IDYES then
+  begin
+    UninstallDeleteAllUserData := True;
+    Exit;
+  end;
+
+  UninstallDeleteAiRuntime :=
+    MsgBox(
+      'Delete the optional AI runtime, including Torch/CUDA Python wheels, under:' + #13#10 +
+      ExpandConstant('{localappdata}\NekoBooru\runtimes\python-ai') + #13#10 + #13#10 +
+      'This keeps your posts, settings, and downloaded model weights.',
+      mbConfirmation,
+      MB_YESNO
+    ) = IDYES;
+
+  UninstallDeleteModels :=
+    MsgBox(
+      'Delete downloaded AI model weights under:' + #13#10 +
+      ExpandConstant('{localappdata}\NekoBooru\models') + #13#10 + #13#10 +
+      'This keeps your posts, settings, and AI runtime.',
+      mbConfirmation,
+      MB_YESNO
+    ) = IDYES;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep <> usPostUninstall then
+    Exit;
+
+  if UninstallDeleteAllUserData then
+  begin
+    DelTree(ExpandConstant('{localappdata}\NekoBooru'), True, True, True);
+    Exit;
+  end;
+
+  if UninstallDeleteAiRuntime then
+  begin
+    DelTree(ExpandConstant('{localappdata}\NekoBooru\runtimes\python-ai'), True, True, True);
+  end;
+
+  if UninstallDeleteModels then
+  begin
+    DelTree(ExpandConstant('{localappdata}\NekoBooru\models'), True, True, True);
+  end;
 end;

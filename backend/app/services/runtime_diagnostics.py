@@ -64,15 +64,34 @@ def _ai_receipt() -> dict | None:
 
 
 def _native_host_status() -> dict:
-    if platform.system().lower() != "windows":
-        return {"installed": False, "brave": False, "chrome": False, "manifestPath": ""}
-    local = Path.home() / "AppData" / "Local" / "NekoBooru" / "native-messaging-hosts"
-    manifest = local / "com.nekobooru.launcher.json"
+    system = platform.system().lower()
+    name = "com.nekobooru.launcher.json"
+    if system == "windows":
+        local = Path.home() / "AppData" / "Local" / "NekoBooru" / "native-messaging-hosts"
+        manifest = local / name
+        return {
+            "installed": manifest.exists(),
+            "brave": manifest.exists(),
+            "chrome": manifest.exists(),
+            "chromium": manifest.exists(),
+            "firefox": False,
+            "manifestPath": str(manifest) if manifest.exists() else "",
+        }
+
+    xdg_config = Path.home() / ".config"
+    manifests = {
+        "chrome": xdg_config / "google-chrome" / "NativeMessagingHosts" / name,
+        "chromium": xdg_config / "chromium" / "NativeMessagingHosts" / name,
+        "brave": xdg_config / "BraveSoftware" / "Brave-Browser" / "NativeMessagingHosts" / name,
+        "edge": xdg_config / "microsoft-edge" / "NativeMessagingHosts" / name,
+        "firefox": Path.home() / ".mozilla" / "native-messaging-hosts" / name,
+    }
+    installed = any(path.exists() for path in manifests.values())
+    first = next((path for path in manifests.values() if path.exists()), None)
     return {
-        "installed": manifest.exists(),
-        "brave": manifest.exists(),
-        "chrome": manifest.exists(),
-        "manifestPath": str(manifest) if manifest.exists() else "",
+        "installed": installed,
+        **{key: path.exists() for key, path in manifests.items()},
+        "manifestPath": str(first) if first else "",
     }
 
 

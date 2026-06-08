@@ -14,6 +14,8 @@ from ..models import AutoTagJob, AutoTagSuggestion
 from ..services import auto_tag_jobs
 from ..services.auto_tagger import (
     _infer_local,
+    cancel_model_download,
+    delete_model_cache,
     delete_huggingface_token,
     delete_tagger_worker_token,
     download_model,
@@ -146,6 +148,14 @@ async def get_auto_tag_download_job():
     return current_download_job()
 
 
+@router.post("/models/download-job/cancel")
+async def cancel_auto_tag_download_job():
+    try:
+        return cancel_model_download()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
 @router.post("/models/{model_id}/load")
 async def load_one_auto_tag_model(model_id: str):
     try:
@@ -165,6 +175,16 @@ async def unload_one_auto_tag_model(model_id: str):
         return unload_model(model_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.delete("/models/{model_id}")
+async def delete_one_auto_tag_model(model_id: str):
+    try:
+        return delete_model_cache(model_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @router.put("/huggingface-token")

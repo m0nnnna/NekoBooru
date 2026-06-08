@@ -28,6 +28,9 @@ def repo_root() -> Path:
 
 
 def user_root() -> Path:
+    if os.name != "nt":
+        base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+        return Path(base) / "nekobooru"
     base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
     return Path(base) / "NekoBooru"
 
@@ -107,13 +110,20 @@ def installed_app_path() -> Path | None:
     candidates = []
     if cfg.get("appPath"):
         candidates.append(Path(cfg["appPath"]))
-    reg = registry_install_path()
-    if reg:
-        candidates.append(reg / APP_EXE if reg.is_dir() else reg)
-    candidates.extend([
-        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "NekoBooru" / APP_EXE,
-        user_root() / APP_EXE,
-    ])
+    if os.name == "nt":
+        reg = registry_install_path()
+        if reg:
+            candidates.append(reg / APP_EXE if reg.is_dir() else reg)
+        candidates.extend([
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "NekoBooru" / APP_EXE,
+            user_root() / APP_EXE,
+        ])
+    else:
+        candidates.extend([
+            Path("/usr/bin/nekobooru"),
+            Path("/usr/local/bin/nekobooru"),
+            Path("/opt/nekobooru/nekobooru"),
+        ])
     for candidate in candidates:
         try:
             if candidate and candidate.exists():
@@ -159,7 +169,10 @@ def start_servers() -> dict:
 
 
 def start_packaged_app(app_path: Path) -> dict:
-    logs = user_root() / "logs"
+    if os.name == "nt":
+        logs = user_root() / "logs"
+    else:
+        logs = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "nekobooru" / "logs"
     backend_port = packaged_backend_port()
     backend_running = is_port_open(backend_port)
     if not backend_running:

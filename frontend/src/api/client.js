@@ -174,12 +174,20 @@ export const api = {
     return request('/auto-tags/models/download-job')
   },
 
+  async cancelAutoTagModelDownloadJob() {
+    return request('/auto-tags/models/download-job/cancel', { method: 'POST' })
+  },
+
   async loadAutoTagModelById(id) {
     return request(`/auto-tags/models/${encodeURIComponent(id)}/load`, { method: 'POST' })
   },
 
   async unloadAutoTagModelById(id) {
     return request(`/auto-tags/models/${encodeURIComponent(id)}/unload`, { method: 'POST' })
+  },
+
+  async deleteAutoTagModelById(id) {
+    return request(`/auto-tags/models/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   async getAutoTagModelLoadJob() {

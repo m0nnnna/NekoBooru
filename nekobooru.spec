@@ -155,7 +155,7 @@ exe = EXE(
     # corrupt some native DLLs. The size win is negligible for this bundle.
     upx=False,
     upx_exclude=[],
-    console=True,
+    console=False,
     icon=os.path.join('frontend', 'public', 'favicon.ico')
     if os.path.exists(os.path.join('frontend', 'public', 'favicon.ico'))
     else None,

@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ -n "${NEKO_APP_DIR:-}" ]; then
+  APP_DIR="$NEKO_APP_DIR"
+elif [ -d "/app/opt/nekobooru" ]; then
+  APP_DIR="/app/opt/nekobooru"
+else
+  APP_DIR="/opt/nekobooru"
+fi
+SETTINGS_WRITER="$APP_DIR/packaging/linux/apply-installer-settings.sh"
+NATIVE_INSTALLER="$APP_DIR/browser-extension/native-host/install-native-host.sh"
+AI_INSTALLER="$APP_DIR/install-ai.sh"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+AI_VENV="$DATA_HOME/nekobooru/runtimes/python-ai"
+
+select_python() {
+  local python_bin="${NEKO_AI_PYTHON:-${NEKO_PYTHON:-}}"
+  if [ -z "$python_bin" ]; then
+    python_bin="$(command -v python3 || command -v python || true)"
+  fi
+  [ -n "$python_bin" ] || { echo "Python 3.10+ not found in PATH." >&2; exit 1; }
+  python_bin="$("$python_bin" -c "import sys; print(sys.executable)" 2>/dev/null || echo "$python_bin")"
+  "$python_bin" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" \
+    || { echo "Python 3.10+ is required. Selected: $python_bin" >&2; exit 1; }
+  echo "$python_bin"
+}
+
+ask_text() {
+  local title="$1"
+  local text="$2"
+  local default="$3"
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --entry --title="$title" --text="$text" --entry-text="$default" 2>/dev/null || echo "$default"
+  elif command -v kdialog >/dev/null 2>&1; then
+    kdialog --title "$title" --inputbox "$text" "$default" 2>/dev/null || echo "$default"
+  else
+    printf "%s [%s]: " "$text" "$default" >&2
+    read -r value || value=""
+    echo "${value:-$default}"
+  fi
+}
+
+ask_choice() {
+  local title="$1"
+  local text="$2"
+  shift 2
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --list --title="$title" --text="$text" --column="Choice" "$@" 2>/dev/null || echo "$1"
+  elif command -v kdialog >/dev/null 2>&1; then
+    local args=()
+    local choice
+    for choice in "$@"; do args+=("$choice" "$choice"); done
+    kdialog --title "$title" --menu "$text" "${args[@]}" 2>/dev/null || echo "$1"
+  else
+    local i=1
+    local choices=("$@")
+    echo "$text" >&2
+    for choice in "${choices[@]}"; do
+      echo "  $i) $choice" >&2
+      i=$((i + 1))
+    done
+    printf "Select [1]: " >&2
+    read -r picked || picked=""
+    picked="${picked:-1}"
+    echo "${choices[$((picked - 1))]:-${choices[0]}}"
+  fi
+}
+
+notify() {
+  local title="$1"
+  local text="$2"
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --info --title="$title" --text="$text" 2>/dev/null || true
+  elif command -v kdialog >/dev/null 2>&1; then
+    kdialog --title "$title" --msgbox "$text" 2>/dev/null || true
+  else
+    printf "%s\n%s\n" "$title" "$text" >&2
+  fi
+}
+
+valid_port() {
+  [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]
+}
+
+backend_port="$(ask_text "NekoBooru Ports" "Backend/API/UI port" "8773")"
+frontend_port="$(ask_text "NekoBooru Ports" "Dev frontend/CORS port" "5174")"
+if ! valid_port "$backend_port" || ! valid_port "$frontend_port" || [ "$backend_port" = "$frontend_port" ]; then
+  notify "Invalid ports" "Ports must be different numbers from 1024 to 65535."
+  exit 2
+fi
+
+ai_choice="$(ask_choice "NekoBooru AI Runtime" "Choose AI runtime setup" \
+  "Skip AI setup" \
+  "Local CPU AI" \
+  "Local NVIDIA GPU AI" \
+  "Local legacy NVIDIA GPU AI" \
+  "Remote/server AI")"
+case "$ai_choice" in
+  "Local CPU AI") ai_profile="cpu"; ai_args=(--cpu) ;;
+  "Local NVIDIA GPU AI") ai_profile="gpu-cu128"; ai_args=(--gpu) ;;
+  "Local legacy NVIDIA GPU AI") ai_profile="gpu-cu126-legacy"; ai_args=(--legacy) ;;
+  "Remote/server AI") ai_profile="remote"; ai_args=() ;;
+  *) ai_profile="skip"; ai_args=() ;;
+esac
+
+update_owner="$(ask_text "NekoBooru Updates" "GitHub release owner" "m0nnnna")"
+update_repo="$(ask_text "NekoBooru Updates" "GitHub release repository" "NekoBooru")"
+update_channel="$(ask_choice "NekoBooru Updates" "Update channel" "stable" "prerelease" "off")"
+
+"$SETTINGS_WRITER" \
+  --backend-port "$backend_port" \
+  --frontend-port "$frontend_port" \
+  --ai-profile "$ai_profile" \
+  --update-owner "$update_owner" \
+  --update-repo "$update_repo" \
+  --update-channel "$update_channel"
+
+if [ "${#ai_args[@]}" -gt 0 ] && [ -x "$AI_INSTALLER" ]; then
+  log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/nekobooru/logs"
+  mkdir -p "$log_dir"
+  selected_python="$(select_python)"
+  "$AI_INSTALLER" "--venv=$AI_VENV" "--python=$selected_python" "--receipt=$AI_VENV/.nekobooru-ai-runtime.json" "${ai_args[@]}" >"$log_dir/install-ai.log" 2>&1 || {
+    notify "AI runtime install failed" "See $log_dir/install-ai.log"
+  }
+fi
+
+if [ -x "$NATIVE_INSTALLER" ]; then
+  if command -v zenity >/dev/null 2>&1; then
+    if zenity --question --title="Browser integration" --text="Register the NekoBooru native browser host for this user?" 2>/dev/null; then
+      extension_id="$(ask_text "Browser integration" "Chromium/Brave extension ID (leave blank for Firefox-only registration)" "")"
+      "$NATIVE_INSTALLER" "$extension_id" || true
+    fi
+  elif command -v kdialog >/dev/null 2>&1; then
+    if kdialog --title "Browser integration" --yesno "Register the NekoBooru native browser host for this user?" 2>/dev/null; then
+      extension_id="$(ask_text "Browser integration" "Chromium/Brave extension ID (leave blank for Firefox-only registration)" "")"
+      "$NATIVE_INSTALLER" "$extension_id" || true
+    fi
+  else
+    printf "Register browser native host now? [y/N]: " >&2
+    read -r native_answer || native_answer=""
+    case "$native_answer" in
+      [Yy]*)
+        printf "Chromium/Brave extension ID (blank for Firefox-only): " >&2
+        read -r extension_id || extension_id=""
+        "$NATIVE_INSTALLER" "$extension_id"
+        ;;
+    esac
+  fi
+fi
+
+notify "NekoBooru configured" "Open http://127.0.0.1:$backend_port/ or run: nekobooru"

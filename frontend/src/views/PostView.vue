@@ -79,7 +79,7 @@
         <button class="btn btn-secondary edit-tags-btn" @click="openTagEditor">
           Edit Tags
         </button>
-        <template v-if="autoTagStatus?.enabled">
+        <template v-if="autoTagControlsVisible">
         <div class="ai-profile-actions" aria-label="AI tag preview profiles">
           <button
             v-for="profile in autoTagProfiles"
@@ -129,7 +129,7 @@
                   >i</button>
                 </strong>
                 <small>
-                  {{ model.downloaded ? 'downloaded' : 'not downloaded' }}
+                  {{ model.statusLabel }}
                   · {{ model.loaded ? 'loaded' : 'not loaded' }}
                 </small>
               </span>
@@ -398,13 +398,62 @@ const rawTagTextarea = ref(null)
 const rawTagSuggestions = ref([])
 const rawTagSelectedIndex = ref(-1)
 const NAME_PART_AUTOCOMPLETE_KEY = 'nekobooru.namePartAutocompleteEnabled'
+const DEFAULT_AUTO_TAG_MODELS = [
+  {
+    id: 'wd',
+    name: 'WD Tagger',
+    repoId: 'SmilingWolf/wd-eva02-large-tagger-v3',
+    purpose: 'Booru-style image and sampled video-frame tags',
+    downloadSize: '~1.2 GB',
+    vramRequirement: '~0.5-1.5 GB',
+  },
+  {
+    id: 'camie',
+    name: 'Camie Tagger v2',
+    repoId: 'Camais03/camie-tagger-v2',
+    purpose: 'Anime character, copyright, artist, rating, and broad tag coverage',
+    downloadSize: '~1-3 GB',
+    vramRequirement: '~0.5-2 GB',
+  },
+  {
+    id: 'qwen',
+    name: 'Qwen2.5-VL 7B Instruct',
+    repoId: 'Qwen/Qwen2.5-VL-7B-Instruct',
+    purpose: 'Semantic video/edit understanding, political context, and natural-language evidence',
+    downloadSize: '~15-17 GB',
+    vramRequirement: '~14-18 GB fp16, 24 GB comfortable',
+  },
+  {
+    id: 'ocr',
+    name: 'TrOCR Printed',
+    repoId: 'microsoft/trocr-base-printed',
+    purpose: 'Text extraction from meme/edit frames and subtitles',
+    downloadSize: '~1.3 GB',
+    vramRequirement: '~1-2 GB',
+  },
+  {
+    id: 'whisper',
+    name: 'Whisper Small',
+    repoId: 'openai/whisper-small',
+    purpose: 'Speech/audio transcript signals for AMVs and edits',
+    downloadSize: '~1 GB',
+    vramRequirement: '~1-2 GB',
+  },
+]
 const autoTagEditedTags = ref([])
 const autoTagEditedSafety = ref('safe')
 const autoTagSuggestion = ref(null)
 const autoTagLoading = ref(false)
-const autoTagStatus = ref(null)
-const postAutoTagSettings = ref({})
-const savedAutoTagSettings = ref({})
+const autoTagStatus = ref({ enabled: true, models: DEFAULT_AUTO_TAG_MODELS })
+const postAutoTagSettings = ref({
+  wdEnabled: true,
+  characterModelEnabled: false,
+  ocrEnabled: false,
+  whisperEnabled: false,
+  qwenEnabled: false,
+  semanticPoliticalEnabled: false,
+})
+const savedAutoTagSettings = ref({ ...postAutoTagSettings.value })
 const activeAutoTagProfile = ref('')
 const autoModelPickerOpen = ref(false)
 const showAutoProcessModal = ref(false)
@@ -532,20 +581,25 @@ const autoTagProcessSteps = computed(() => {
   ]
 })
 const postModelRows = computed(() => {
-  const models = autoTagStatus.value?.models || []
+  const models = autoTagStatus.value?.models?.length ? autoTagStatus.value.models : DEFAULT_AUTO_TAG_MODELS
   return models.map((model) => ({
     ...model,
     settingKey: modelSettingKey(model.id),
     canToggle: true,
+    downloaded: model.downloaded === true,
+    loaded: model.loaded === true,
+    runtimeAvailable: model.runtimeAvailable !== false,
+    statusLabel: model.downloaded === true ? 'downloaded' : model.downloaded === false ? 'not downloaded' : 'checking',
   }))
 })
+const autoTagControlsVisible = computed(() => autoTagStatus.value?.enabled !== false || autoTagStatus.value?.models?.length)
 
 onMounted(async () => {
   await loadPost()
   loadNeighbors()
   window.addEventListener('keydown', onKeydown)
-  await loadPools()
-  await loadAutoTagControls()
+  loadPools()
+  loadAutoTagControls()
 })
 
 onUnmounted(() => {
@@ -999,6 +1053,10 @@ function enabledModelRows() {
 }
 
 async function loadEnabledAutoTagModels() {
+  if (autoTagStatus.value?.remote?.enabled && autoTagStatus.value?.remote?.url) {
+    beginAutoTagStage('loading', 'Using the configured AI worker. The worker will load model weights during analysis if needed.')
+    return
+  }
   for (const model of enabledModelRows()) {
     if (!model.downloaded || !model.runtimeAvailable || model.loaded) continue
     await loadAutoTagWeights(model.id, { keepOpen: true })

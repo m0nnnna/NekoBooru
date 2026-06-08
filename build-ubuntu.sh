@@ -45,7 +45,7 @@ echo "[3/5] Copying backend files..."
 cp -r backend/app "$BUILD_BACKEND/"
 cp backend/run.py "$BUILD_BACKEND/"
 cp backend/run_prod.py "$BUILD_BACKEND/"
-cp backend/requirements.txt "$BUILD_BACKEND/"
+cp backend/requirements*.txt "$BUILD_BACKEND/"
 
 echo
 echo "[4/5] Creating startup scripts..."

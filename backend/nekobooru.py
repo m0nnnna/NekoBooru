@@ -284,6 +284,7 @@ def main():
         host=settings.host,
         port=settings.port,
         log_level="info",
+        access_log=False,
     )
     return 0
 

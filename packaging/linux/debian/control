@@ -4,7 +4,7 @@ Section: web
 Priority: optional
 Architecture: amd64
 Depends: python3 (>= 3.10), python3-venv, python3-pip
-Recommends: ffmpeg
+Recommends: ffmpeg, zenity | kdialog, xdg-utils
 Maintainer: NekoBooru
 Description: Local booru-style image and video library
  NekoBooru is a local image/video library with tags, pools, search,

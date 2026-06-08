@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: frontendPort,
+      strictPort: true,
       proxy: {
         '/api': {
           target: backend,

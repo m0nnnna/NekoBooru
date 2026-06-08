@@ -21,8 +21,9 @@ echo
 rm -rf "$DEB_DIR"
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$DEB_DIR/DEBIAN"
-mkdir -p "$DEB_DIR/etc/systemd/system"
+mkdir -p "$DEB_DIR/usr/lib/systemd/user"
 mkdir -p "$DEB_DIR/usr/bin"
+mkdir -p "$DEB_DIR/usr/share/doc/$PACKAGE_NAME"
 
 # Build the application first
 echo "[1/6] Building application..."
@@ -32,21 +33,8 @@ bash build-ubuntu.sh "$VERSION"
 echo "[2/6] Copying application files..."
 cp -r dist/nekobooru-ubuntu/* "$INSTALL_DIR/"
 
-# Create control file
 echo "[3/6] Creating package metadata..."
-cat > "$DEB_DIR/DEBIAN/control" << EOF
-Package: $PACKAGE_NAME
-Version: $VERSION
-Section: web
-Priority: optional
-Architecture: all
-Depends: python3 (>= 3.8), python3-pip, python3-venv
-Recommends: ffmpeg
-Maintainer: NekoBooru Team
-Description: A lightweight, local booru-style image/video gallery
- NekoBooru is a self-hosted image and video gallery application
- with tagging, pools, and search capabilities.
-EOF
+sed "s/^Version:.*/Version: $VERSION/" packaging/linux/debian/control > "$DEB_DIR/DEBIAN/control"
 
 # Create postinst script
 echo "[4/6] Creating installation script..."
@@ -61,34 +49,29 @@ chmod +x "$DEB_DIR/DEBIAN/prerm"
 cp packaging/linux/debian/postrm "$DEB_DIR/DEBIAN/postrm"
 chmod +x "$DEB_DIR/DEBIAN/postrm"
 
-# Create launcher script
 echo "[5/6] Creating launcher script..."
-cat > "$DEB_DIR/usr/bin/nekobooru" << 'EOF'
-#!/bin/bash
-set -euo pipefail
-
-APP_DIR="/opt/nekobooru"
-DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
-STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
-VENV="$DATA_HOME/nekobooru/runtimes/python-core"
-LOG_DIR="$STATE_HOME/nekobooru/logs"
-
-mkdir -p "$LOG_DIR" "$(dirname "$VENV")"
-if [ ! -x "$VENV/bin/python" ]; then
-    python3 -m venv "$VENV"
-fi
-
-"$VENV/bin/python" -m pip install -r "$APP_DIR/backend/requirements.txt" --quiet
-
-export NEKO_PACKAGED=1
-export NEKO_APP_DIR="$APP_DIR"
-cd "$APP_DIR/backend"
-exec "$VENV/bin/python" run_prod.py "$@"
-EOF
-chmod +x "$DEB_DIR/usr/bin/nekobooru"
+cp packaging/linux/bin/nekobooru "$DEB_DIR/usr/bin/nekobooru"
+cp packaging/linux/bin/nekobooru-configure "$DEB_DIR/usr/bin/nekobooru-configure"
+cp packaging/linux/bin/nekobooru-repair "$DEB_DIR/usr/bin/nekobooru-repair"
+cp packaging/linux/bin/nekobooru-uninstall-user-data "$DEB_DIR/usr/bin/nekobooru-uninstall-user-data"
+chmod +x "$DEB_DIR/usr/bin/nekobooru" \
+  "$DEB_DIR/usr/bin/nekobooru-configure" \
+  "$DEB_DIR/usr/bin/nekobooru-repair" \
+  "$DEB_DIR/usr/bin/nekobooru-uninstall-user-data"
 
 mkdir -p "$DEB_DIR/usr/share/applications"
 cp packaging/linux/nekobooru.desktop "$DEB_DIR/usr/share/applications/nekobooru.desktop"
+cp packaging/linux/nekobooru.service.user "$DEB_DIR/usr/lib/systemd/user/nekobooru.service"
+mkdir -p "$INSTALL_DIR/packaging/linux"
+cp packaging/linux/apply-installer-settings.sh "$INSTALL_DIR/packaging/linux/apply-installer-settings.sh"
+chmod +x "$INSTALL_DIR/packaging/linux/apply-installer-settings.sh"
+cp install-ai.sh "$INSTALL_DIR/install-ai.sh"
+chmod +x "$INSTALL_DIR/install-ai.sh"
+mkdir -p "$INSTALL_DIR/browser-extension/native-host"
+cp browser-extension/native-host/nekobooru_launcher_host.py "$INSTALL_DIR/browser-extension/native-host/nekobooru_launcher_host.py"
+cp browser-extension/native-host/install-native-host.sh "$INSTALL_DIR/browser-extension/native-host/install-native-host.sh"
+chmod +x "$INSTALL_DIR/browser-extension/native-host/install-native-host.sh"
+cp docs/desktop-packaging-stages.md "$DEB_DIR/usr/share/doc/$PACKAGE_NAME/desktop-packaging-stages.md" 2>/dev/null || true
 
 # Build the package
 echo "[6/6] Building .deb package..."
