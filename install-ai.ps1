@@ -51,7 +51,8 @@ param(
     [switch]$GPU,
     [switch]$Force,
     [string]$VenvPath = "venv",
-    [string]$ReceiptPath = ""
+    [string]$ReceiptPath = "",
+    [string]$LogPath = ""
 )
 
 # NOTE: intentionally NOT "Stop". In Windows PowerShell 5.1, EAP=Stop turns any
@@ -60,6 +61,26 @@ param(
 # explicitly and use throw (which stops regardless of EAP) for real failures.
 $ErrorActionPreference = "Continue"
 Set-Location $PSScriptRoot
+
+$transcriptStarted = $false
+if ($LogPath) {
+    try {
+        $logDir = Split-Path -Parent $LogPath
+        if ($logDir) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
+        Start-Transcript -Path $LogPath -Append | Out-Null
+        $transcriptStarted = $true
+        Write-Host "Logging AI runtime install to $LogPath" -ForegroundColor Cyan
+    } catch {
+        Write-Host "Could not start AI runtime install log at ${LogPath}: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
+trap {
+    if ($transcriptStarted) {
+        try { Stop-Transcript | Out-Null } catch {}
+    }
+    throw $_
+}
 
 if (@($CPU, $Legacy, $GPU | Where-Object { $_ }).Count -gt 1) {
     throw "Pick at most one of -CPU / -Legacy / -GPU."
@@ -242,3 +263,7 @@ Write-Host "Next steps:" -ForegroundColor Green
 Write-Host "  1. Restart NekoBooru if it was already running so the app links the managed AI venv."
 Write-Host "  2. Open Settings -> Auto Tagging, enable AI features, and download the models you want."
 Write-Host "  3. Optional: benchmark with  $venvPython benchmark-tagger.py"
+
+if ($transcriptStarted) {
+    Stop-Transcript | Out-Null
+}

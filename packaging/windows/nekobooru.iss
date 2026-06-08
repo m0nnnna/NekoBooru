@@ -29,6 +29,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts"
 Name: "startup"; Description: "Start NekoBooru when Windows starts"; GroupDescription: "Startup"; Flags: unchecked
 Name: "nativehost"; Description: "Install browser native host registration"; GroupDescription: "Browser integration"
+Name: "forceairuntime"; Description: "Repair/reinstall selected AI runtime even if it already looks installed"; GroupDescription: "AI runtime"; Flags: unchecked
 
 [Files]
 Source: "..\..\dist\nekobooru-binary\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -49,7 +50,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{tmp}\apply-installer-settings.ps1"" -BackendPort {code:GetBackendPort} -FrontendPort {code:GetFrontendPort} -AiProfile ""{code:GetAiProfile}"" -UpdateOwner ""{code:GetUpdateOwner}"" -UpdateRepo ""{code:GetUpdateRepo}"" -UpdateChannel ""{code:GetUpdateChannel}"""; Flags: runhidden waituntilterminated
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-ai.ps1"" {code:GetAiInstallSwitch} -VenvPath ""{localappdata}\NekoBooru\runtimes\python-ai"" -ReceiptPath ""{localappdata}\NekoBooru\runtimes\python-ai\nekobooru-ai-runtime.json"""; StatusMsg: "Installing selected AI runtime. This can download several GB and may take a while..."; Flags: waituntilterminated; Check: ShouldInstallLocalAi
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-ai.ps1"" {code:GetAiInstallSwitch} {code:GetAiForceSwitch} -VenvPath ""{localappdata}\NekoBooru\runtimes\python-ai"" -ReceiptPath ""{localappdata}\NekoBooru\runtimes\python-ai\nekobooru-ai-runtime.json"" -LogPath ""{localappdata}\NekoBooru\logs\install-ai.log"""; StatusMsg: "Installing selected AI runtime. Detailed output is written to %LOCALAPPDATA%\NekoBooru\logs\install-ai.log."; Flags: runhidden waituntilterminated; Check: ShouldInstallLocalAi
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch NekoBooru"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
@@ -208,6 +209,14 @@ begin
   else
     Result := '';
   end;
+end;
+
+function GetAiForceSwitch(Param: String): String;
+begin
+  if WizardIsTaskSelected('forceairuntime') then
+    Result := '-Force'
+  else
+    Result := '';
 end;
 
 function ShouldInstallLocalAi(): Boolean;
