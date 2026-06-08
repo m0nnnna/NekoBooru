@@ -187,6 +187,24 @@ async def list_posts(
     }
 
 
+@router.get("/posts/{post_id}/neighbors")
+async def post_neighbors(
+    post_id: int,
+    q: str = Query("", description="Search query (same syntax as the list)"),
+    sort: str = Query("date"),
+    order: str = Query("desc"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Prev/next post ids around this one within the given filtered/sorted view.
+
+    Powers arrow-key and on-screen navigation between posts that obeys the
+    current search and sort. Returns ``{"prev": id|null, "next": id|null}``.
+    """
+    from ..services.search import get_post_neighbors
+
+    return await get_post_neighbors(db, post_id, q, sort, order)
+
+
 @router.get("/posts/{post_id}")
 async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
     """Get a single post by ID."""

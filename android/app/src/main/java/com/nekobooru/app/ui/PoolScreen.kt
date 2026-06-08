@@ -15,6 +15,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -26,7 +27,7 @@ fun PoolScreen(
     vm: PoolViewModel,
     uuid: String,
     onBack: () -> Unit,
-    onPostClick: (String) -> Unit,
+    onPostClick: (String, List<String>) -> Unit,
 ) {
     LaunchedEffect(uuid) { vm.load(uuid) }
     val state by vm.state.collectAsStateWithLifecycle()
@@ -49,10 +50,11 @@ fun PoolScreen(
             }
         } else {
             Box(Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp)) {
+                val orderedShas = remember(state.posts) { state.posts.map { it.sha256 } }
                 PostThumbGrid(
                     posts = state.posts,
                     serverUrl = vm.serverUrl,
-                    onPostClick = onPostClick,
+                    onPostClick = { sha -> onPostClick(sha, orderedShas) },
                     contentPadding = PaddingValues(vertical = 12.dp),
                 )
             }

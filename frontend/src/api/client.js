@@ -45,6 +45,11 @@ export const api = {
     return request(`/posts/${id}`)
   },
 
+  async getPostNeighbors(id, params = {}) {
+    const query = new URLSearchParams(params).toString()
+    return request(`/posts/${id}/neighbors${query ? `?${query}` : ''}`)
+  },
+
   async updatePost(id, data) {
     return request(`/posts/${id}`, {
       method: 'PUT',

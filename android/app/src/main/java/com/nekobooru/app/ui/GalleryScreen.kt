@@ -29,6 +29,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -41,7 +42,7 @@ import java.util.Date
 fun GalleryScreen(
     vm: GalleryViewModel,
     onAdd: () -> Unit,
-    onPostClick: (String) -> Unit,
+    onPostClick: (String, List<String>) -> Unit,
     onOpenPools: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -136,7 +137,15 @@ fun GalleryScreen(
                 state.posts.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Text("No posts cached. Tap Sync, or add media with +.")
                 }
-                else -> PostThumbGrid(state.posts, vm.serverUrl, onPostClick, state = gridState)
+                else -> {
+                    val orderedShas = remember(state.posts) { state.posts.map { it.sha256 } }
+                    PostThumbGrid(
+                        state.posts,
+                        vm.serverUrl,
+                        onPostClick = { sha -> onPostClick(sha, orderedShas) },
+                        state = gridState,
+                    )
+                }
             }
         }
     }

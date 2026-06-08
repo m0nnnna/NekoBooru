@@ -362,6 +362,10 @@ async function fetchPosts() {
       query = query ? `${query} ${exclusions.join(' ')}` : exclusions.join(' ')
     }
 
+    // Remember exactly what we're showing so the post view can step prev/next
+    // through this same filtered, sorted set.
+    postsStore.setBrowseContext({ query, sort: sortBy.value, order: sortOrder.value })
+
     const result = await fetch(
       `/api/posts?q=${encodeURIComponent(query)}&page=${page.value}&limit=${perPage.value}&sort=${sortBy.value}&order=${sortOrder.value}`
     ).then(r => r.json())

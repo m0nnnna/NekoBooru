@@ -52,7 +52,9 @@ import com.nekobooru.app.ui.SettingsViewModel
 private sealed interface Screen {
     data object Gallery : Screen
     data class Add(val sharedUri: Uri? = null) : Screen
-    data class Detail(val sha: String) : Screen
+    // shas is the ordered list of the view the post was opened from, so Detail
+    // can step prev/next through the same filtered, sorted set.
+    data class Detail(val sha: String, val shas: List<String> = emptyList()) : Screen
     data object Pools : Screen
     data class Pool(val uuid: String) : Screen
     data object Settings : Screen
@@ -102,9 +104,10 @@ class MainActivity : ComponentActivity() {
         // show a spinner over the gallery.
         var preparing by remember { mutableStateOf(false) }
 
-        // In pick mode a tap returns the post to the caller; otherwise it opens detail.
-        val onPostClick: (String) -> Unit = { sha ->
-            if (pickMode) returnPicked(sha) { preparing = it } else push(Screen.Detail(sha))
+        // In pick mode a tap returns the post to the caller; otherwise it opens
+        // detail, carrying the current view's ordered shas for prev/next nav.
+        val onPostClick: (String, List<String>) -> Unit = { sha, shas ->
+            if (pickMode) returnPicked(sha) { preparing = it } else push(Screen.Detail(sha, shas))
         }
 
         when (val s = stack.last()) {
@@ -124,7 +127,15 @@ class MainActivity : ComponentActivity() {
             }
             is Screen.Detail -> {
                 val vm: DetailViewModel = viewModel()
-                DetailScreen(vm, sha = s.sha, onBack = { pop() })
+                DetailScreen(
+                    vm,
+                    sha = s.sha,
+                    shas = s.shas,
+                    onBack = { pop() },
+                    // Replace (not push) so back still returns to the grid/pool
+                    // and the stack doesn't grow as you page through posts.
+                    onNavigate = { newSha -> stack[stack.lastIndex] = Screen.Detail(newSha, s.shas) },
+                )
             }
             Screen.Pools -> {
                 val vm: PoolsViewModel = viewModel()
