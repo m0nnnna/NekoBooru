@@ -1,9 +1,14 @@
 <template>
-  <router-link
-    :to="`/post/${post.id}`"
+  <a
+    :href="selectMode ? undefined : `/post/${post.id}`"
     class="post-card"
     :class="{ selectable: selectMode, selected }"
     @click="onClick"
+    @pointerdown="onPointerDown"
+    @pointerup="clearHoldTimer"
+    @pointercancel="clearHoldTimer"
+    @pointerleave="clearHoldTimer"
+    @pointerenter="onPointerEnter"
   >
     <div class="thumb-container">
       <img
@@ -19,11 +24,12 @@
         <span v-if="selected">&#10003;</span>
       </div>
     </div>
-  </router-link>
+  </a>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 
 const props = defineProps({
   post: {
@@ -40,19 +46,56 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['toggle'])
+const emit = defineEmits(['toggle', 'hold-select', 'hover-post'])
+const router = useRouter()
 
 const isVideo = computed(() => ['.webm', '.mp4'].includes(props.post.extension))
 const isGif = computed(() => props.post.extension === '.gif')
+let holdTimer = null
+let holdTriggered = false
 
 function onClick(e) {
+  if (holdTriggered) {
+    e.preventDefault()
+    holdTriggered = false
+    return
+  }
   // In select mode the card is a checkbox, not a link: swallow navigation and
   // toggle selection instead.
   if (props.selectMode) {
     e.preventDefault()
-    emit('toggle', props.post.id)
+    emit('toggle', { id: props.post.id, shiftKey: e.shiftKey })
+    return
+  }
+  if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+    return
+  }
+  e.preventDefault()
+  router.push(`/post/${props.post.id}`)
+}
+
+function onPointerDown(e) {
+  if (e.button != null && e.button !== 0) return
+  clearHoldTimer()
+  holdTriggered = false
+  holdTimer = setTimeout(() => {
+    holdTriggered = true
+    emit('hold-select', props.post.id)
+  }, 550)
+}
+
+function onPointerEnter() {
+  if (props.selectMode) emit('hover-post', props.post.id)
+}
+
+function clearHoldTimer() {
+  if (holdTimer) {
+    clearTimeout(holdTimer)
+    holdTimer = null
   }
 }
+
+onBeforeUnmount(clearHoldTimer)
 
 function onImageError(e) {
   // Try with a placeholder or show error state

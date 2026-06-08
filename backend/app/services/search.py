@@ -26,6 +26,44 @@ class Token:
     filter_op: Optional[str] = None
 
 
+FILTER_KEYS = {
+    "rating",
+    "safety",
+    "width",
+    "height",
+    "fav",
+    "favorite",
+    "pool",
+    "type",
+    "sort",
+}
+
+
+def _is_filter_key(key: str) -> bool:
+    return key.lower() in FILTER_KEYS
+
+
+def _parse_filter(part: str, token_type: TokenType) -> Token | None:
+    key, _, value = part.partition(":")
+    if not key or not _is_filter_key(key):
+        return None
+
+    op = "="
+    if value.startswith(">="):
+        op = ">="
+        value = value[2:]
+    elif value.startswith("<="):
+        op = "<="
+        value = value[2:]
+    elif value.startswith(">"):
+        op = ">"
+        value = value[1:]
+    elif value.startswith("<"):
+        op = "<"
+        value = value[1:]
+    return Token(token_type, value, filter_key=key.lower(), filter_op=op)
+
+
 def tokenize(query: str) -> list[Token]:
     """Tokenize search query into tokens."""
     tokens = []
@@ -41,42 +79,18 @@ def tokenize(query: str) -> list[Token]:
         # Check for negated filter (e.g., -safety:unsafe)
         elif part.startswith("-") and ":" in part[1:]:
             negated_part = part[1:]
-            key, _, value = negated_part.partition(":")
-            op = "="
-            if value.startswith(">="):
-                op = ">="
-                value = value[2:]
-            elif value.startswith("<="):
-                op = "<="
-                value = value[2:]
-            elif value.startswith(">"):
-                op = ">"
-                value = value[1:]
-            elif value.startswith("<"):
-                op = "<"
-                value = value[1:]
-            tokens.append(Token(TokenType.NEGATED_FILTER, value, filter_key=key.lower(), filter_op=op))
+            token = _parse_filter(negated_part, TokenType.NEGATED_FILTER)
+            if token:
+                tokens.append(token)
+            else:
+                tokens.append(Token(TokenType.NEGATED_TAG, part[1:]))
         # Check for negated tag
         elif part.startswith("-"):
             tokens.append(Token(TokenType.NEGATED_TAG, part[1:]))
         # Check for filter (key:value)
         elif ":" in part:
-            key, _, value = part.partition(":")
-            # Check for comparison operators
-            op = "="
-            if value.startswith(">="):
-                op = ">="
-                value = value[2:]
-            elif value.startswith("<="):
-                op = "<="
-                value = value[2:]
-            elif value.startswith(">"):
-                op = ">"
-                value = value[1:]
-            elif value.startswith("<"):
-                op = "<"
-                value = value[1:]
-            tokens.append(Token(TokenType.FILTER, value, filter_key=key.lower(), filter_op=op))
+            token = _parse_filter(part, TokenType.FILTER)
+            tokens.append(token or Token(TokenType.TAG, part))
         # Regular tag
         else:
             tokens.append(Token(TokenType.TAG, part))

@@ -1,0 +1,28 @@
+app-id: io.github.nekobooru.NekoBooru
+runtime: org.freedesktop.Platform
+runtime-version: "24.08"
+sdk: org.freedesktop.Sdk
+command: nekobooru
+finish-args:
+  - --share=network
+  - --filesystem=xdg-pictures
+  - --filesystem=xdg-videos
+  - --filesystem=xdg-download
+  - --filesystem=xdg-config/nekobooru:create
+  - --filesystem=xdg-data/nekobooru:create
+  - --filesystem=xdg-cache/nekobooru:create
+  - --filesystem=xdg-run/app/com.brave.Browser:create
+modules:
+  - name: nekobooru
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 packaging/linux/bin/nekobooru /app/bin/nekobooru
+      - install -Dm755 packaging/linux/bin/nekobooru-configure /app/bin/nekobooru-configure
+      - install -Dm755 packaging/linux/bin/nekobooru-repair /app/bin/nekobooru-repair
+      - mkdir -p /app/opt/nekobooru
+      - cp -r backend frontend install-ai.sh browser-extension packaging /app/opt/nekobooru/
+      - chmod +x /app/opt/nekobooru/install-ai.sh /app/opt/nekobooru/browser-extension/native-host/install-native-host.sh
+      - install -Dm644 packaging/linux/nekobooru.desktop /app/share/applications/io.github.nekobooru.NekoBooru.desktop
+    sources:
+      - type: dir
+        path: ../../..

@@ -60,7 +60,7 @@ echo ==============================
 echo.
 echo Usage:
 echo   Run nekobooru.exe to start the server ^(binds to 127.0.0.1:8772^).
-echo   Everything is packed into the single exe.
+echo   The frontend is served by the backend from the packaged build.
 echo.
 echo   To change the bind address or port, edit and run start-neko.bat
 echo   instead ^(it sets NEKO_HOST / NEKO_PORT before launching^).
@@ -69,17 +69,26 @@ echo   The server will be available at:
 echo     - Application: http://localhost:8772
 echo     - API Docs:    http://localhost:8772/docs
 echo.
-echo   A "data" folder will be created next to the executable
-echo   for your database and uploaded files.
+echo   Your database and uploaded files are stored under:
+echo     %%LOCALAPPDATA%%\NekoBooru\data
 echo.
-echo   A "config" folder will be created for settings.
+echo   Your settings, logs, models, and optional AI runtimes are stored under:
+echo     %%LOCALAPPDATA%%\NekoBooru
+echo.
+echo System tray:
+echo   The packaged app adds a tray icon when the Windows desktop shell is available.
+echo   Use Open NekoBooru to open the browser UI.
+echo   Use Shut Down NekoBooru to gracefully stop the app.
 echo.
 echo Optional:
 echo   - Place ffmpeg.exe next to nekobooru.exe for video thumbnails
 echo   - Place yt-dlp.exe next to nekobooru.exe for video downloads
+echo   - Use Settings -^> Auto Tagging to install optional AI runtimes and models
 echo.
 echo No Python installation required!
 ) > "%OUTPUT_DIR%\README.txt"
+
+certutil -hashfile "%OUTPUT_DIR%\nekobooru.exe" SHA256 > "%OUTPUT_DIR%\SHA256SUMS.txt"
 
 echo.
 echo Creating start-neko.bat launcher...

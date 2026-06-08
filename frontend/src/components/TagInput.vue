@@ -61,6 +61,7 @@ const tagsStore = useTagsStore()
 const inputValue = ref('')
 const suggestions = ref([])
 const selectedIndex = ref(-1)
+const NAME_PART_AUTOCOMPLETE_KEY = 'nekobooru.namePartAutocompleteEnabled'
 let debounceTimer = null
 
 function processTagString(str) {
@@ -113,7 +114,7 @@ function onInput() {
   debounceTimer = setTimeout(async () => {
     const query = inputValue.value.trim()
     if (query.length >= 1) {
-      suggestions.value = await tagsStore.autocomplete(query)
+      suggestions.value = await tagsStore.autocomplete(query, autocompleteOptions())
       selectedIndex.value = -1
     } else {
       suggestions.value = []
@@ -171,6 +172,12 @@ function onArrowUp() {
     selectedIndex.value = selectedIndex.value <= 0
       ? suggestions.value.length - 1
       : selectedIndex.value - 1
+  }
+}
+
+function autocompleteOptions() {
+  return {
+    nameParts: localStorage.getItem(NAME_PART_AUTOCOMPLETE_KEY) === 'true',
   }
 }
 </script>

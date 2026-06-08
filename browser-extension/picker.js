@@ -7,6 +7,7 @@ const els = {
   openOptions: document.getElementById('open-options'),
   browser: document.getElementById('browser'),
   search: document.getElementById('search'),
+  searchSubmit: document.getElementById('search-submit'),
   suggestions: document.getElementById('suggestions'),
   rating: document.getElementById('rating'),
   type: document.getElementById('type'),
@@ -44,6 +45,7 @@ async function init() {
   els.search.addEventListener('input', onSearchInput)
   els.search.addEventListener('keydown', onSearchKeydown)
   els.search.addEventListener('blur', () => setTimeout(hideSuggestions, 150))
+  els.searchSubmit.addEventListener('click', commitSearch)
   els.rating.addEventListener('change', runSearch)
   els.type.addEventListener('change', runSearch)
   els.loadMore.addEventListener('click', () => loadPage(page + 1))
@@ -152,9 +154,16 @@ async function selectPost(post, kind) {
   const localPath = localMediaPath(post)
   try {
     if (kind === 'image') {
-      setStatus('Copying image…', 'working')
+      setStatus('Inserting image…', 'working')
       await copyImageToClipboard(url)
-      setStatus('Copied! Paste it into your post. Nyaa~', 'success')
+      const pasteResult = await pasteMediaFileToSourceTab(post, url, kind)
+      if (pasteResult.ok) {
+        const pasteText = pasteResult.method === 'file-input' ? 'attached through X upload' : 'sent to the editor'
+        const sizeText = pasteResult.fileSize ? ` (${formatBytes(pasteResult.fileSize)})` : ''
+        setStatus(`Image ${pasteText}${sizeText}. Image bytes are also on the clipboard.`, 'success')
+      } else {
+        setStatus(`Image bytes copied to clipboard. Paste it into your post.${pasteResult.error ? ` (${pasteResult.error})` : ''}`, 'success')
+      }
     } else {
       setStatus(`Pasting ${kind} file and downloading…`, 'working')
       await copyMediaReferenceToClipboard(url, kind, localPath)
@@ -196,7 +205,10 @@ function mimeForPost(post, kind) {
   if (ext === '.mp4') return 'video/mp4'
   if (ext === '.webm') return 'video/webm'
   if (ext === '.gif') return 'image/gif'
-  return kind === 'video' ? 'video/mp4' : 'application/octet-stream'
+  if (ext === '.png') return 'image/png'
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
+  if (ext === '.webp') return 'image/webp'
+  return kind === 'video' ? 'video/mp4' : kind === 'image' ? 'image/png' : 'application/octet-stream'
 }
 
 function formatBytes(bytes) {
@@ -440,13 +452,25 @@ function hideSuggestions() {
   els.suggestions.classList.add('hidden')
 }
 
+function commitSearch() {
+  clearTimeout(debounceTimer)
+  hideSuggestions()
+  runSearch()
+  els.search.focus()
+}
+
 function onSearchKeydown(e) {
-  if (els.suggestions.classList.contains('hidden') || !currentSuggestions.length) {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      clearTimeout(debounceTimer)
-      runSearch()
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    if (!els.suggestions.classList.contains('hidden') && currentSuggestions.length && selectedIndex >= 0) {
+      pickSuggestion(currentSuggestions[selectedIndex])
+    } else {
+      commitSearch()
     }
+    return
+  }
+
+  if (els.suggestions.classList.contains('hidden') || !currentSuggestions.length) {
     return
   }
   if (e.key === 'ArrowDown') {
@@ -457,15 +481,6 @@ function onSearchKeydown(e) {
     e.preventDefault()
     selectedIndex = selectedIndex <= 0 ? currentSuggestions.length - 1 : selectedIndex - 1
     renderSuggestions()
-  } else if (e.key === 'Enter') {
-    e.preventDefault()
-    if (selectedIndex >= 0) {
-      pickSuggestion(currentSuggestions[selectedIndex])
-    } else {
-      clearTimeout(debounceTimer)
-      hideSuggestions()
-      runSearch()
-    }
   } else if (e.key === 'Escape') {
     hideSuggestions()
   }

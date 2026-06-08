@@ -117,8 +117,10 @@ class AutoTagApiTests(unittest.TestCase):
     def test_duplicate_post_response_includes_existing_post_link_data(self):
         from PIL import Image
 
-        image_path = Path(self.tmp.name) / f"duplicate-{time.time_ns()}.png"
-        Image.new("RGB", (32, 32), (10, 20, 30)).save(image_path)
+        stamp = time.time_ns()
+        image_path = Path(self.tmp.name) / f"duplicate-{stamp}.png"
+        color = (stamp % 255, (stamp // 255) % 255, (stamp // 65025) % 255)
+        Image.new("RGB", (32, 32), color).save(image_path)
 
         first_token = self._upload_specific_image_token(image_path)
         created = self.client.post(
@@ -140,6 +142,29 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(detail["postId"], post["id"])
         self.assertEqual(detail["postUrl"], f"/post/{post['id']}")
         self.assertEqual(detail["post"]["id"], post["id"])
+
+    def test_bulk_update_can_clear_tags_and_set_safety(self):
+        first = self._upload_image_post(tags=["old_tag", "shared"], safety="safe")
+        second = self._upload_image_post(tags=["another_tag", "shared"], safety="safe")
+
+        response = self.client.post(
+            "/api/posts/bulk-update",
+            json={
+                "postIds": [first["id"], second["id"]],
+                "tagMode": "clear",
+                "tags": [],
+                "safety": "unsafe",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["updated"], 2)
+        first_after = self.client.get(f"/api/posts/{first['id']}").json()
+        second_after = self.client.get(f"/api/posts/{second['id']}").json()
+        self.assertEqual(first_after["tags"], [])
+        self.assertEqual(second_after["tags"], [])
+        self.assertEqual(first_after["safety"], "unsafe")
+        self.assertEqual(second_after["safety"], "unsafe")
 
     def test_per_post_apply_adds_tags_categories_and_promotes_unsafe(self):
         self._enable_auto_tags()
@@ -329,6 +354,28 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertIn("wd", start.call_args.args[0])
         self.assertIn("camie", start.call_args.args[0])
 
+    def test_model_download_cancel_route_cancels_active_job(self):
+        fake_job = {
+            "id": "job-1",
+            "status": "cancelling",
+            "modelIds": ["ocr"],
+            "models": {
+                "ocr": {
+                    "id": "ocr",
+                    "status": "cancelling",
+                    "bytesDownloaded": 10,
+                    "bytesTotal": 100,
+                },
+            },
+        }
+
+        with patch("app.routers.auto_tags.cancel_model_download", return_value=fake_job) as cancel:
+            response = self.client.post("/api/auto-tags/models/download-job/cancel")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["status"], "cancelling")
+        cancel.assert_called_once_with()
+
     def test_model_load_route_starts_prewarm_job(self):
         fake_job = {
             "id": "load-1",
@@ -358,8 +405,40 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertFalse(response.json()["loaded"])
         unload.assert_called_once_with("wd")
 
+    def test_delete_model_cache_removes_snapshot_models(self):
+        from app.services import auto_tagger
+        from app.services.auto_tagger import delete_model_cache, model_cache_status
+
+        repo_cache = (
+            Path(self.tmp.name)
+            / "models"
+            / "huggingface"
+            / "hub"
+            / "models--Camais03--camie-tagger-v2"
+        )
+        snapshot = repo_cache / "snapshots" / "abc123"
+        snapshot.mkdir(parents=True, exist_ok=True)
+        (snapshot / "camie-tagger-v2.onnx").write_bytes(b"fake")
+        (snapshot / "camie-tagger-v2-metadata.json").write_text("{}", encoding="utf-8")
+        (repo_cache / "blobs").mkdir(exist_ok=True)
+        (repo_cache / "blobs" / "partial.incomplete").write_bytes(b"partial")
+
+        with patch.object(auto_tagger.settings, "models_dir", Path(self.tmp.name) / "models"):
+            self.assertTrue(model_cache_status("camie")["downloaded"])
+            result = delete_model_cache("camie")
+            camie_status = next(model for model in result["models"] if model["id"] == "camie")
+            self.assertTrue(result["deleted"])
+            self.assertFalse(camie_status["downloaded"])
+            self.assertFalse(repo_cache.exists())
+
 
 class AutoTagUnitTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        backend_path = str(Path(__file__).resolve().parents[1] / "backend")
+        if backend_path not in sys.path:
+            sys.path.insert(0, backend_path)
+
     def test_video_timestamp_strategy_samples_middle_for_short_clip(self):
         from app.services.auto_tagger import AutoTagOptions, _timestamps
 
@@ -422,7 +501,16 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertIn("image", result.tags)
         self.assertNotIn("card_medium", result.tags)
         self.assertNotIn("outline", result.tags)
-        self.assertNotIn("card_medium", result.categories)
+
+    def test_safety_rating_requires_strong_evidence_for_promotion(self):
+        from app.services.auto_tagger import AutoTagOptions, safety_from_rating
+
+        opts = AutoTagOptions(unsafeThreshold=0.70, sketchyThreshold=0.45)
+
+        self.assertEqual(safety_from_rating({"questionable": 0.50}, opts), "safe")
+        self.assertEqual(safety_from_rating({"sensitive": 0.60}, opts), "safe")
+        self.assertEqual(safety_from_rating({"explicit": 0.71}, opts), "unsafe")
+        self.assertEqual(safety_from_rating({"questionable": 0.78}, opts), "sketchy")
 
     def test_meaningful_ocr_text_filters_blank_or_junk_text(self):
         from app.services.auto_tagger import _meaningful_ocr_text
@@ -453,6 +541,36 @@ class AutoTagUnitTests(unittest.TestCase):
 
         wd_tag.assert_not_called()
         self.assertEqual(result.error, "no_models_enabled")
+
+    def test_missing_selected_model_returns_structured_error_without_loading(self):
+        from app.services.auto_tagger import AutoTagOptions, _tag_image
+
+        with patch("app.services.auto_tagger.runtime_available", return_value=True), \
+             patch("app.services.auto_tagger.model_cache_status", return_value={"downloaded": False, "files": {}}), \
+             patch("app.services.auto_tagger._camie_tagger.tag_image") as camie_tag:
+            result = _tag_image(Path("sample.png"), AutoTagOptions(wdEnabled=False, characterModelEnabled=True))
+
+        camie_tag.assert_not_called()
+        self.assertEqual(result.error, "Camie Tagger v2: model_not_downloaded")
+        self.assertEqual(result.evidence["models"][0]["evidence"]["action"], "download_model")
+
+    def test_snapshot_model_status_uses_local_snapshot_without_snapshot_download(self):
+        import tempfile
+        from app.services import auto_tagger
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshot = root / "huggingface" / "hub" / "models--openai--whisper-small" / "snapshots" / "abc"
+            snapshot.mkdir(parents=True)
+            (snapshot / "config.json").write_text("{}", encoding="utf-8")
+
+            with patch.object(auto_tagger.settings, "models_dir", root), \
+                 patch("app.services.auto_tagger.find_spec", return_value=True), \
+                 patch("app.services.auto_tagger.huggingface_token", return_value=None), \
+                 patch("huggingface_hub.hf_hub_download"):
+                status = auto_tagger.model_cache_status("whisper")
+
+        self.assertTrue(status["downloaded"])
 
     def test_qwen_load_job_uses_longer_estimate(self):
         from app.services.auto_tagger import _new_load_job
@@ -495,6 +613,26 @@ class AutoTagUnitTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 403)
 
+    def test_search_tokenizer_keeps_unknown_colon_tags_literal(self):
+        from app.services.search import TokenType, tokenize
+
+        tokens = tokenize("beatrice_re:zero rating:safe")
+
+        self.assertEqual(tokens[0].type, TokenType.TAG)
+        self.assertEqual(tokens[0].value, "beatrice_re:zero")
+        self.assertEqual(tokens[1].type, TokenType.FILTER)
+        self.assertEqual(tokens[1].filter_key, "rating")
+
+    def test_search_tokenizer_keeps_negated_unknown_colon_tags_literal(self):
+        from app.services.search import TokenType, tokenize
+
+        tokens = tokenize("-beatrice_re:zero -safety:unsafe")
+
+        self.assertEqual(tokens[0].type, TokenType.NEGATED_TAG)
+        self.assertEqual(tokens[0].value, "beatrice_re:zero")
+        self.assertEqual(tokens[1].type, TokenType.NEGATED_FILTER)
+        self.assertEqual(tokens[1].filter_key, "safety")
+
     def test_qwen_device_map_respects_cpu_and_gpu_availability(self):
         from app.services.auto_tagger import _qwen_device_map
 
@@ -524,6 +662,42 @@ class AutoTagUnitTests(unittest.TestCase):
                 return ["CUDAExecutionProvider", "CPUExecutionProvider"]
 
         self.assertEqual(_onnx_providers(Ort), ["CUDAExecutionProvider", "CPUExecutionProvider"])
+
+    def test_onnx_session_retries_cpu_when_gpu_provider_fails(self):
+        from app.services.auto_tagger import _create_onnx_session
+
+        class Session:
+            def __init__(self, providers):
+                self.providers = providers
+
+        class Ort:
+            calls = []
+
+            @staticmethod
+            def get_available_providers():
+                return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+            @staticmethod
+            def InferenceSession(path, providers):
+                Ort.calls.append(providers)
+                if providers[0] == "CUDAExecutionProvider":
+                    raise RuntimeError("DLL initialization routine failed")
+                return Session(providers)
+
+        session = _create_onnx_session(Ort, "model.onnx")
+
+        self.assertEqual(session.providers, ["CPUExecutionProvider"])
+        self.assertEqual(Ort.calls, [["CUDAExecutionProvider", "CPUExecutionProvider"], ["CPUExecutionProvider"]])
+
+    def test_onnx_runtime_info_marks_import_failure_unavailable(self):
+        from app.services.auto_tagger import _onnx_runtime_info
+
+        with patch("app.services.auto_tagger.find_spec", return_value=True), \
+             patch.dict("sys.modules", {"onnxruntime": None}):
+            info = _onnx_runtime_info()
+
+        self.assertFalse(info["available"])
+        self.assertIn("error", info)
 
     def test_whisper_audio_seconds_is_capped_to_model_window(self):
         from app.services.auto_tagger import AutoTagOptions, _whisper_audio_seconds

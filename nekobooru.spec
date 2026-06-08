@@ -13,6 +13,10 @@ a = Analysis(
     datas=[
         # Bundle the frontend dist into the executable
         (os.path.join('frontend', 'dist'), 'frontend'),
+        (os.path.join('backend', 'requirements.txt'), os.path.join('backend')),
+        (os.path.join('backend', 'requirements-tagger.txt'), os.path.join('backend')),
+        (os.path.join('backend', 'requirements-tagger-cpu.txt'), os.path.join('backend')),
+        (os.path.join('backend', 'requirements-tagger-legacy.txt'), os.path.join('backend')),
     ],
     hiddenimports=[
         # Uvicorn internals
@@ -60,6 +64,9 @@ a = Analysis(
         'PIL',
         'PIL.Image',
         'PIL.ImageOps',
+        # Windows tray
+        'pystray',
+        'pystray._win32',
         # Other
         'h11',
         'anyio',
@@ -71,6 +78,7 @@ a = Analysis(
         'httpcore',
         'email.mime.multipart',
         'email.mime.text',
+        'timeit',
         # App modules
         'app',
         'app.main',
@@ -150,7 +158,7 @@ exe = EXE(
     # corrupt some native DLLs. The size win is negligible for this bundle.
     upx=False,
     upx_exclude=[],
-    console=True,
+    console=False,
     icon=os.path.join('frontend', 'public', 'favicon.ico')
     if os.path.exists(os.path.join('frontend', 'public', 'favicon.ico'))
     else None,

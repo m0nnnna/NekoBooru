@@ -84,6 +84,7 @@ MODEL_REGISTRY = {
         "vramRequirement": "~0.5-2 GB",
         "status": "tagging_ready",
         "allowPatterns": None,
+        "requiredFiles": ["camie-tagger-v2.onnx", "camie-tagger-v2-metadata.json"],
     },
     "qwen": {
         "id": "qwen",
@@ -94,6 +95,7 @@ MODEL_REGISTRY = {
         "vramRequirement": "~14-18 GB fp16, 24 GB comfortable",
         "status": "tagging_ready",
         "allowPatterns": None,
+        "requiredFiles": ["config.json"],
     },
     "ocr": {
         "id": "ocr",
@@ -104,6 +106,7 @@ MODEL_REGISTRY = {
         "vramRequirement": "~1-2 GB",
         "status": "tagging_ready",
         "allowPatterns": None,
+        "requiredFiles": ["config.json", "model.safetensors", "preprocessor_config.json"],
     },
     "whisper": {
         "id": "whisper",
@@ -114,6 +117,7 @@ MODEL_REGISTRY = {
         "vramRequirement": "~1-2 GB",
         "status": "tagging_ready",
         "allowPatterns": None,
+        "requiredFiles": ["config.json"],
     },
 }
 
@@ -121,6 +125,10 @@ _download_lock = threading.Lock()
 _download_job: dict[str, Any] | None = None
 _load_lock = threading.Lock()
 _load_job: dict[str, Any] | None = None
+
+
+class DownloadCancelled(RuntimeError):
+    pass
 
 DEFAULT_SEMANTIC_PROMPT = (
     "Return compact JSON only with keys tags, safety, rationale. "
@@ -147,7 +155,7 @@ class AutoTagOptions:
     provenanceTag: str = "auto_tagged"
     applySafety: bool = True
     unsafeThreshold: float = 0.70
-    sketchyThreshold: float = 0.45
+    sketchyThreshold: float = 0.65
     neverDowngradeSafety: bool = True
     defaultBackfillMode: str = "lightly_tagged"
     lightlyTaggedMaxTags: int = 2
@@ -241,16 +249,13 @@ class WdTagger:
         token = huggingface_token()
         if progress:
             progress("resolve_files", 8, "Resolving cached model files")
-        model_path = hf_hub_download(WD_MODEL_ID, "model.onnx", token=token)
+        model_path = hf_hub_download(WD_MODEL_ID, "model.onnx", token=token, cache_dir=_hf_cache_dir())
         if progress:
             progress("resolve_tags", 22, "Resolving tag metadata")
-        tags_path = hf_hub_download(WD_MODEL_ID, "selected_tags.csv", token=token)
+        tags_path = hf_hub_download(WD_MODEL_ID, "selected_tags.csv", token=token, cache_dir=_hf_cache_dir())
         if progress:
             progress("load_weights", 35, "Loading ONNX weights into memory")
-        self._session = ort.InferenceSession(
-            model_path,
-            providers=_onnx_providers(ort),
-        )
+        self._session = _create_onnx_session(ort, model_path)
         self._providers = list(self._session.get_providers())
         if progress:
             progress("read_tags", 85, "Reading tag metadata")
@@ -364,7 +369,7 @@ class CamieTagger:
         self._image_size = int(info.get("img_size") or 512)
         self._idx_to_tag = {str(k): str(v) for k, v in (mapping.get("idx_to_tag") or {}).items()}
         self._tag_to_category = {str(k): str(v) for k, v in (mapping.get("tag_to_category") or {}).items()}
-        self._session = ort.InferenceSession(model_path, providers=_onnx_providers(ort))
+        self._session = _create_onnx_session(ort, model_path)
         self._providers = list(self._session.get_providers())
 
     def tag_image(self, path: Path, opts: AutoTagOptions) -> AutoTagResult:
@@ -466,8 +471,18 @@ class OcrTagger:
             from transformers import TrOCRProcessor, VisionEncoderDecoderModel  # type: ignore
 
             repo_id = MODEL_REGISTRY["ocr"]["repoId"]
-            self._processor = TrOCRProcessor.from_pretrained(repo_id, token=huggingface_token())
-            self._model = VisionEncoderDecoderModel.from_pretrained(repo_id, token=huggingface_token())
+            self._processor = TrOCRProcessor.from_pretrained(
+                repo_id,
+                token=huggingface_token(),
+                local_files_only=True,
+                cache_dir=_hf_cache_dir(),
+            )
+            self._model = VisionEncoderDecoderModel.from_pretrained(
+                repo_id,
+                token=huggingface_token(),
+                local_files_only=True,
+                cache_dir=_hf_cache_dir(),
+            )
             self._loaded = True
             return True
 
@@ -521,6 +536,8 @@ class WhisperTagger:
                 "automatic-speech-recognition",
                 model=MODEL_REGISTRY["whisper"]["repoId"],
                 token=huggingface_token(),
+                local_files_only=True,
+                cache_dir=_hf_cache_dir(),
             )
             self._loaded = True
             return True
@@ -588,10 +605,17 @@ class QwenSemanticTagger:
             repo_id = MODEL_REGISTRY["qwen"]["repoId"]
             device_map = _qwen_device_map(device_preference)
             torch_dtype = torch.float16 if device_map != "cpu" and torch.cuda.is_available() else "auto"
-            self._processor = AutoProcessor.from_pretrained(repo_id, token=huggingface_token())
+            self._processor = AutoProcessor.from_pretrained(
+                repo_id,
+                token=huggingface_token(),
+                local_files_only=True,
+                cache_dir=_hf_cache_dir(),
+            )
             self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                 repo_id,
                 token=huggingface_token(),
+                local_files_only=True,
+                cache_dir=_hf_cache_dir(),
                 device_map=device_map,
                 torch_dtype=torch_dtype,
                 low_cpu_mem_usage=True,
@@ -731,8 +755,20 @@ def _onnx_runtime_info() -> dict:
         info["availableProviders"] = list(ort.get_available_providers())
         info["preferredProviders"] = _onnx_providers(ort)
     except Exception as exc:  # noqa: BLE001
+        info["available"] = False
         info["error"] = str(exc)
     return info
+
+
+def _create_onnx_session(ort, model_path: str):
+    providers = _onnx_providers(ort)
+    try:
+        return ort.InferenceSession(model_path, providers=providers)
+    except Exception as exc:  # noqa: BLE001
+        if providers != ["CPUExecutionProvider"]:
+            logger.warning("ONNX GPU provider failed for %s; retrying CPU provider: %s", model_path, exc)
+            return ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        raise
 
 
 def _onnx_providers(ort) -> list[str]:
@@ -798,6 +834,9 @@ def load_options() -> AutoTagOptions:
     # Env opt-in remains a hard enable convenience for dev/test.
     if settings.auto_tagger_enabled:
         data["enabled"] = True
+    if os.environ.get("NEKO_AI_WORKER"):
+        data["remoteEnabled"] = False
+        data["remoteUrl"] = ""
     return validate_options(data)
 
 
@@ -904,7 +943,7 @@ def _remote_worker_status(opts: AutoTagOptions) -> dict:
         response = httpx.get(
             f"{opts.remoteUrl.rstrip('/')}/api/auto-tags/status",
             headers=headers,
-            timeout=5.0,
+            timeout=min(60.0, max(5.0, float(opts.remoteTimeoutSeconds))),
         )
         if response.status_code == 200:
             worker = response.json()
@@ -1012,6 +1051,77 @@ def unload_model(model_id: str) -> dict:
     }
 
 
+def delete_model_cache(model_id: str) -> dict:
+    if model_id not in MODEL_REGISTRY:
+        raise ValueError(f"Unknown model: {model_id}")
+    with _download_lock:
+        if _download_job and _download_job.get("status") in {"queued", "running"}:
+            raise RuntimeError("Wait for the active model download to finish before deleting model files")
+
+    tagger = _tagger_for_model(model_id)
+    was_loaded = bool(tagger.unload())
+    meta = MODEL_REGISTRY[model_id]
+    repo_id = str(meta["repoId"])
+    cache_paths = _model_cache_paths(repo_id)
+
+    deleted_paths = []
+    for cache_path in cache_paths:
+        if not cache_path.exists():
+            continue
+        if cache_path.is_dir():
+            shutil.rmtree(cache_path)
+        else:
+            cache_path.unlink()
+        deleted_paths.append(str(cache_path))
+
+    return {
+        "modelId": model_id,
+        "model": meta["name"],
+        "deleted": bool(deleted_paths),
+        "unloaded": was_loaded,
+        "cachePath": deleted_paths[0] if deleted_paths else str(_repo_cache_path(repo_id).resolve()),
+        "deletedPaths": deleted_paths,
+        "models": model_statuses(),
+    }
+
+
+def _repo_cache_path(repo_id: str) -> Path:
+    return _hf_cache_dir() / f"models--{repo_id.replace('/', '--')}"
+
+
+def _hf_cache_dir() -> Path:
+    return settings.models_dir / "huggingface" / "hub"
+
+
+def _model_cache_paths(repo_id: str) -> list[Path]:
+    hub_root = _hf_cache_dir().resolve()
+    repo_cache = _repo_cache_path(repo_id).resolve()
+    paths = [repo_cache]
+
+    # File-level downloads can leave repo-specific blobs or incomplete files next
+    # to the snapshot cache. Remove only files referenced by this repo cache.
+    refs_root = repo_cache / "refs"
+    blobs_root = repo_cache / "blobs"
+    snapshots_root = repo_cache / "snapshots"
+    for root in (refs_root, blobs_root, snapshots_root):
+        if root.exists():
+            paths.append(root.resolve())
+
+    for path in list(paths):
+        if path != hub_root and hub_root not in path.parents:
+            raise RuntimeError("Resolved model cache path is outside the Hugging Face cache")
+
+    seen = set()
+    unique = []
+    for path in paths:
+        key = str(path).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
 def _new_load_job(model_id: str, *, status: str, progress: int, message: str) -> dict:
     now = time.time()
     estimates = {
@@ -1093,19 +1203,20 @@ def model_cache_status(model_id: str = "wd") -> dict:
             "files": {},
         }
 
-    from huggingface_hub import hf_hub_download, snapshot_download  # type: ignore
+    from huggingface_hub import hf_hub_download  # type: ignore
 
     repo_id = str(meta["repoId"])
     patterns = meta.get("allowPatterns")
+    required_files = [str(name) for name in meta.get("requiredFiles") or []]
+    snapshot_root = None
     if patterns:
         filenames = list(patterns)
+    elif required_files:
+        snapshot_root = _latest_snapshot_dir(repo_id)
+        filenames = required_files
     else:
         snapshot_root = _latest_snapshot_dir(repo_id)
-        filenames = [
-            str(path.relative_to(snapshot_root)).replace("\\", "/")
-            for path in snapshot_root.rglob("*")
-            if path.is_file()
-        ] if snapshot_root else []
+        filenames = _snapshot_file_names(snapshot_root) if snapshot_root else []
 
     for filename in filenames:
         try:
@@ -1115,28 +1226,49 @@ def model_cache_status(model_id: str = "wd") -> dict:
                     filename,
                     token=huggingface_token(),
                     local_files_only=True,
+                    cache_dir=_hf_cache_dir(),
                 )
             else:
-                root = snapshot_download(
-                    repo_id,
-                    token=huggingface_token(),
-                    local_files_only=True,
-                    allow_patterns=None,
-                )
-                path = str(Path(root) / filename)
+                if not snapshot_root:
+                    raise FileNotFoundError(filename)
+                path = str(snapshot_root / filename)
                 if not Path(path).exists():
                     raise FileNotFoundError(path)
             files[filename] = {"downloaded": True, "path": path}
         except Exception:
             files[filename] = {"downloaded": False, "path": None}
+    if required_files:
+        downloaded = all(files.get(required, {}).get("downloaded") for required in required_files)
+    else:
+        downloaded = bool(files) and all(meta["downloaded"] for meta in files.values())
     return {
-        "downloaded": bool(files) and all(meta["downloaded"] for meta in files.values()),
+        "downloaded": downloaded,
         "files": files,
     }
 
 
+def _cache_name_matches(filename: str, required: str) -> bool:
+    normalized = filename.replace("\\", "/")
+    return normalized == required or normalized.endswith(f"/{required}")
+
+
+def _snapshot_file_names(snapshot_root: Path) -> list[str]:
+    names: list[str] = []
+    try:
+        iterator = snapshot_root.rglob("*")
+        for path in iterator:
+            try:
+                if path.is_file():
+                    names.append(str(path.relative_to(snapshot_root)).replace("\\", "/"))
+            except OSError as exc:
+                logger.debug("Skipping unreadable model cache path %s: %s", path, exc)
+    except OSError as exc:
+        logger.warning("Could not scan model cache snapshot %s: %s", snapshot_root, exc)
+    return names
+
+
 def _latest_snapshot_dir(repo_id: str) -> Path | None:
-    repo_cache = Path.home() / ".cache" / "huggingface" / "hub" / f"models--{repo_id.replace('/', '--')}"
+    repo_cache = _repo_cache_path(repo_id)
     snapshots = repo_cache / "snapshots"
     if not snapshots.exists():
         return None
@@ -1175,7 +1307,7 @@ def _model_runtime_providers(model_id: str) -> list[str]:
 
 def runtime_available(model_id: str) -> bool:
     if model_id in {"wd", "camie"}:
-        return find_spec("onnxruntime") is not None and find_spec("numpy") is not None
+        return bool(_onnx_runtime_info().get("available")) and find_spec("numpy") is not None
     if model_id in {"ocr", "whisper"}:
         return find_spec("transformers") is not None and find_spec("torch") is not None
     if model_id == "qwen":
@@ -1260,6 +1392,8 @@ class _ProgressTqdm:
             job = _download_job
             if not job or job.get("id") != self._job_id:
                 return
+            if job.get("cancelRequested") or job.get("status") == "cancelling":
+                raise DownloadCancelled("Model download cancelled")
             model = job["models"].get(self._model_id)
             if not model:
                 return
@@ -1286,6 +1420,21 @@ def current_download_job() -> dict | None:
     with _download_lock:
         _reconcile_download_job_locked()
         return json.loads(json.dumps(_download_job)) if _download_job else None
+
+
+def cancel_model_download() -> dict:
+    with _download_lock:
+        if not _download_job or _download_job.get("status") not in {"queued", "running", "cancelling"}:
+            raise RuntimeError("No active model download is running")
+        _download_job["status"] = "cancelling"
+        _download_job["cancelRequested"] = True
+        _download_job["updatedAt"] = time.time()
+        for row in _download_job.get("models", {}).values():
+            if row.get("status") in {"queued", "running"}:
+                row["status"] = "cancelling"
+                row["current"] = "Cancelling download"
+                row["updatedAt"] = time.time()
+        return json.loads(json.dumps(_download_job))
 
 
 def _reconcile_download_job_locked() -> None:
@@ -1337,6 +1486,7 @@ def start_model_download(model_ids: list[str]) -> dict:
         _download_job = {
             "id": job_id,
             "status": "queued",
+            "cancelRequested": False,
             "modelIds": model_ids,
             "total": len(model_ids),
             "completed": 0,
@@ -1377,6 +1527,12 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
             _download_job["updatedAt"] = time.time()
 
     for model_id in model_ids:
+        with _download_lock:
+            if not _download_job or _download_job.get("id") != job_id:
+                return
+            if _download_job.get("cancelRequested"):
+                _mark_download_job_cancelled_locked()
+                return
         meta = MODEL_REGISTRY[model_id]
         _download_context.job_id = job_id
         _download_context.model_id = model_id
@@ -1393,6 +1549,7 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
                 str(meta["repoId"]),
                 token=huggingface_token(),
                 allow_patterns=meta.get("allowPatterns"),
+                cache_dir=_hf_cache_dir(),
                 tqdm_class=_ProgressTqdm,
             )
             cache = model_cache_status(model_id)
@@ -1407,6 +1564,17 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
                 row["updatedAt"] = time.time()
                 _download_job["completed"] += 1
                 _download_job["updatedAt"] = time.time()
+        except DownloadCancelled as exc:
+            with _download_lock:
+                if _download_job and _download_job.get("id") == job_id:
+                    row = _download_job["models"].get(model_id)
+                    if row:
+                        row["status"] = "cancelled"
+                        row["current"] = "Cancelled"
+                        row["error"] = None
+                        row["updatedAt"] = time.time()
+                    _mark_download_job_cancelled_locked(str(exc))
+            return
         except Exception as exc:  # noqa: BLE001
             logger.warning("model download failed for %s: %s", model_id, exc)
             with _download_lock:
@@ -1421,10 +1589,26 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
 
     with _download_lock:
         if _download_job and _download_job.get("id") == job_id:
-            _download_job["status"] = "failed" if _download_job["failed"] else "completed"
+            if _download_job.get("cancelRequested"):
+                _mark_download_job_cancelled_locked()
+            else:
+                _download_job["status"] = "failed" if _download_job["failed"] else "completed"
             _download_job["updatedAt"] = time.time()
     _download_context.job_id = None
     _download_context.model_id = None
+
+
+def _mark_download_job_cancelled_locked(message: str = "Model download cancelled") -> None:
+    if not _download_job:
+        return
+    _download_job["status"] = "cancelled"
+    _download_job["error"] = message
+    _download_job["updatedAt"] = time.time()
+    for row in _download_job.get("models", {}).values():
+        if row.get("status") in {"queued", "running", "cancelling"}:
+            row["status"] = "cancelled"
+            row["current"] = "Cancelled"
+            row["updatedAt"] = time.time()
 
 
 def download_model() -> dict:
@@ -1519,7 +1703,8 @@ def _tag_media_remote(path: Path, opts: AutoTagOptions) -> AutoTagResult:
 def _tag_image(path: Path, opts: AutoTagOptions) -> AutoTagResult:
     results: list[AutoTagResult] = []
     if opts.wdEnabled:
-        results.append(_wd_tagger.tag_image(path, opts))
+        unavailable = _unavailable_model_result("wd")
+        results.append(unavailable or _wd_tagger.tag_image(path, opts))
     results.extend(_optional_image_results(path, opts))
     if not results:
         return AutoTagResult(enabled=True, error="no_models_enabled")
@@ -1529,14 +1714,14 @@ def _tag_image(path: Path, opts: AutoTagOptions) -> AutoTagResult:
 def _optional_image_results(path: Path, opts: AutoTagOptions, context: dict | None = None) -> list[AutoTagResult]:
     results: list[AutoTagResult] = []
     if opts.characterModelEnabled:
-        results.append(_run_optional("camie", lambda: _camie_tagger.tag_image(path, opts)))
+        results.append(_unavailable_model_result("camie") or _run_optional("camie", lambda: _camie_tagger.tag_image(path, opts)))
     if opts.ocrEnabled:
-        ocr = _run_optional("ocr", lambda: _ocr_tagger.read_image(path))
+        ocr = _unavailable_model_result("ocr") or _run_optional("ocr", lambda: _ocr_tagger.read_image(path))
         results.append(ocr)
         if context is not None and ocr.evidence.get("text"):
             context["ocrText"] = ocr.evidence.get("text")
     if opts.qwenEnabled or opts.semanticPoliticalEnabled:
-        results.append(_run_optional("qwen", lambda: _qwen_tagger.analyze_image(path, context=context, opts=opts)))
+        results.append(_unavailable_model_result("qwen") or _run_optional("qwen", lambda: _qwen_tagger.analyze_image(path, context=context, opts=opts)))
     return results
 
 
@@ -1545,7 +1730,7 @@ def _tag_video_with_enrichers(path: Path, opts: AutoTagOptions) -> AutoTagResult
     results = [base]
     context: dict = {}
     if opts.whisperEnabled:
-        whisper = _run_optional("whisper", lambda: _whisper_tagger.transcribe_video(path, opts))
+        whisper = _unavailable_model_result("whisper") or _run_optional("whisper", lambda: _whisper_tagger.transcribe_video(path, opts))
         results.append(whisper)
         if whisper.evidence.get("transcript"):
             context["transcript"] = whisper.evidence.get("transcript")
@@ -1577,6 +1762,28 @@ def _run_optional(model_id: str, fn) -> AutoTagResult:
             error=str(exc),
             evidence={"kind": model_id, "error": str(exc)},
         )
+
+
+def _unavailable_model_result(model_id: str) -> AutoTagResult | None:
+    meta = MODEL_REGISTRY[model_id]
+    model_name = str(meta["name"])
+    if not runtime_available(model_id):
+        message = "missing_runtime_dependency"
+    elif not model_cache_status(model_id).get("downloaded"):
+        message = "model_not_downloaded"
+    else:
+        return None
+    return AutoTagResult(
+        enabled=True,
+        model=model_name,
+        error=message,
+        evidence={
+            "kind": model_id,
+            "error": message,
+            "repoId": meta["repoId"],
+            "action": "download_model" if message == "model_not_downloaded" else "install_ai_runtime",
+        },
+    )
 
 
 def _combine_results(results: list[AutoTagResult]) -> AutoTagResult:
@@ -1825,11 +2032,17 @@ def _representative_frame(path: Path, opts: AutoTagOptions) -> Path | None:
 
 
 def safety_from_rating(rating: dict[str, float], opts: AutoTagOptions) -> str | None:
-    explicit = max(rating.get("explicit", 0.0), rating.get("questionable", 0.0))
+    explicit = max(rating.get("explicit", 0.0), rating.get("rating_explicit", 0.0))
+    questionable = max(rating.get("questionable", 0.0), rating.get("rating_questionable", 0.0))
     sensitive = max(rating.get("sensitive", 0.0), rating.get("sensitive_content", 0.0))
     if explicit >= opts.unsafeThreshold:
         return "unsafe"
-    if explicit >= opts.sketchyThreshold or sensitive >= max(opts.sketchyThreshold, 0.55):
+    sketchy_threshold = max(opts.sketchyThreshold, 0.65)
+    if (
+        explicit >= sketchy_threshold
+        or questionable >= max(opts.unsafeThreshold, 0.75)
+        or sensitive >= max(sketchy_threshold, 0.75)
+    ):
         return "sketchy"
     if rating:
         return "safe"
@@ -1855,6 +2068,9 @@ def _post_process(result: AutoTagResult, path: Path, opts: AutoTagOptions) -> Au
 def _tag_video(path: Path, opts: AutoTagOptions) -> AutoTagResult:
     if not opts.wdEnabled:
         return AutoTagResult(enabled=True, model=_wd_tagger.name)
+    unavailable = _unavailable_model_result("wd")
+    if unavailable:
+        return unavailable
     if not check_ffmpeg_available():
         return AutoTagResult(enabled=True, model=_wd_tagger.name, error="ffmpeg_missing")
 

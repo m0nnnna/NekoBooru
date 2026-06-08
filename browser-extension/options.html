@@ -10,6 +10,13 @@
     .help { font-size: 0.85rem; color: var(--text-secondary); margin: 0.25rem 0 1rem; }
     .row { display: flex; gap: 0.5rem; }
     .row .btn { white-space: nowrap; }
+    .options-section { margin: 1.25rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--bg-secondary); }
+    .options-section h2 { margin: 0 0 0.35rem; font-size: 1rem; }
+    .option-check { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.65rem; align-items: start; padding: 0.65rem 0; cursor: pointer; }
+    .option-check + .option-check { border-top: 1px solid var(--border); }
+    .option-check input { margin-top: 0.2rem; }
+    .option-check strong { display: block; color: var(--text-primary); }
+    .option-check small { display: block; color: var(--text-secondary); line-height: 1.35; margin-top: 0.15rem; }
   </style>
 </head>
 <body>
@@ -25,6 +32,34 @@
       The base URL of your NekoBooru server — where you open the gallery in your
       browser. Include the port if needed (e.g. <code>http://192.168.1.50:8000</code>).
     </p>
+
+    <section class="options-section">
+      <h2>Upload metadata</h2>
+      <p class="help">
+        Defaults used by the upload popup. You can still change these per upload before saving.
+      </p>
+      <label class="option-check">
+        <input id="save-tweet-tag" type="checkbox" />
+        <span>
+          <strong>Save tweet ID as a tag</strong>
+          <small>Adds tags like <code>twitter_2063698076431200361</code> when uploading from X/Twitter.</small>
+        </span>
+      </label>
+      <label class="option-check">
+        <input id="save-source-page-url" type="checkbox" />
+        <span>
+          <strong>Save source page URL</strong>
+          <small>Saves the page where the media was found, including non-tweet pages.</small>
+        </span>
+      </label>
+      <label class="option-check">
+        <input id="save-media-url" type="checkbox" />
+        <span>
+          <strong>Save image/media URL when no page URL is saved</strong>
+          <small>Uses the direct image/video URL as the post source if the page URL option is off or unavailable.</small>
+        </span>
+      </label>
+    </section>
 
     <div class="row">
       <button id="save" class="btn">Save</button>

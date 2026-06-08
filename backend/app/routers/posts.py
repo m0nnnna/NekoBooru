@@ -14,6 +14,7 @@ from ..models.post import PostTag
 from ..utils.hashing import calculate_sha256
 from ..services.media import get_media_info, create_thumbnail, move_to_storage, convert_video_to_gif
 from ..services.search import search_posts
+from ..services.tagging import normalize_tag
 from ..services.tagging import process_tags_for_post as apply_tags_for_post
 from ..services.tagging import replace_tags_for_post
 from .uploads import get_upload_path, remove_upload_token
@@ -37,6 +38,13 @@ class UpdatePostRequest(BaseModel):
 
 class BulkDeleteRequest(BaseModel):
     postIds: list[int]
+
+
+class BulkUpdateRequest(BaseModel):
+    postIds: list[int]
+    tagMode: Optional[str] = None
+    tags: list[str] = []
+    safety: Optional[str] = None
 
 
 @router.post("/posts")
@@ -331,6 +339,57 @@ async def bulk_delete_posts(request: BulkDeleteRequest, db: AsyncSession = Depen
         post.deleted_at = now
     await db.commit()
     return {"deleted": len(posts)}
+
+
+@router.post("/posts/bulk-update")
+async def bulk_update_posts(request: BulkUpdateRequest, db: AsyncSession = Depends(get_db)):
+    """Apply scoped batch edits to selected posts.
+
+    Supported tag modes:
+    - add: append tags, preserving existing tags
+    - remove: remove listed tags
+    - replace: replace the full tag set with the listed tags
+    - clear: remove every tag
+    """
+    from datetime import datetime
+
+    if not request.postIds:
+        return {"updated": 0}
+
+    tag_mode = (request.tagMode or "").strip().lower()
+    if tag_mode and tag_mode not in {"add", "remove", "replace", "clear"}:
+        raise HTTPException(status_code=400, detail="Unsupported tag mode")
+    if request.safety is not None and request.safety not in {"safe", "sketchy", "unsafe"}:
+        raise HTTPException(status_code=400, detail="Unsupported safety rating")
+
+    result = await db.execute(
+        select(Post)
+        .options(selectinload(Post.tags))
+        .where(Post.id.in_(request.postIds), Post.deleted_at.is_(None))
+    )
+    posts = list(result.scalars().all())
+    incoming_tags = [tag for tag in (normalize_tag(raw) for raw in request.tags) if tag]
+    incoming_set = set(incoming_tags)
+    now = datetime.utcnow()
+
+    for post in posts:
+        if tag_mode:
+            existing_tags = [tag.name for tag in (post.tags or [])]
+            if tag_mode == "add":
+                next_tags = list(dict.fromkeys([*existing_tags, *incoming_tags]))
+            elif tag_mode == "remove":
+                next_tags = [tag for tag in existing_tags if normalize_tag(tag) not in incoming_set]
+            elif tag_mode == "replace":
+                next_tags = incoming_tags
+            else:
+                next_tags = []
+            await replace_tags_for_post(db, post, next_tags)
+        if request.safety is not None:
+            post.safety = request.safety
+            post.updated_at = now
+
+    await db.commit()
+    return {"updated": len(posts)}
 
 
 @router.post("/posts/{post_id}/favorite")

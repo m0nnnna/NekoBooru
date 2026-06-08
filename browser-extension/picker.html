@@ -21,9 +21,12 @@
 
     <div id="browser" class="hidden">
       <div class="picker-controls">
-        <div class="tag-input-wrap">
-          <input id="search" type="text" placeholder="Search tags (space separated)…" autocomplete="off" />
-          <ul id="suggestions" class="suggestions hidden"></ul>
+        <div class="picker-search-row">
+          <div class="tag-input-wrap">
+            <input id="search" type="text" placeholder="Search tags (space separated)…" autocomplete="off" />
+            <ul id="suggestions" class="suggestions hidden"></ul>
+          </div>
+          <button id="search-submit" class="btn btn-secondary" type="button">Search</button>
         </div>
         <div class="picker-filters">
           <select id="rating" aria-label="Rating">
@@ -42,8 +45,8 @@
       </div>
 
       <p class="picker-intro">
-        Click media to copy it for pasting. GIFs and videos copy the local path
-        when available and also download so you can attach them.
+        Click media to insert it into the active composer. If direct insertion is blocked,
+        it falls back to clipboard copy.
       </p>
 
       <div id="status" class="status hidden"></div>

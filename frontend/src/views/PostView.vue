@@ -41,6 +41,14 @@
           <dd>{{ post.extension }}</dd>
           <dt>Uploaded</dt>
           <dd>{{ formatDate(post.createdAt) }}</dd>
+          <template v-if="tweetUrl">
+            <dt>Tweet</dt>
+            <dd>
+              <a class="external-link" :href="tweetUrl" target="_blank" rel="noopener noreferrer">
+                Open Tweet
+              </a>
+            </dd>
+          </template>
           <dt>Rating</dt>
           <dd class="safety-buttons">
             <button
@@ -68,10 +76,10 @@
       <div class="sidebar-section">
         <h3>Tags</h3>
         <TagList :tags="post.tags" />
-        <button class="btn btn-secondary edit-tags-btn" @click="showTagEditor = true">
+        <button class="btn btn-secondary edit-tags-btn" @click="openTagEditor">
           Edit Tags
         </button>
-        <template v-if="autoTagStatus?.enabled">
+        <template v-if="autoTagControlsVisible">
         <div class="ai-profile-actions" aria-label="AI tag preview profiles">
           <button
             v-for="profile in autoTagProfiles"
@@ -121,7 +129,7 @@
                   >i</button>
                 </strong>
                 <small>
-                  {{ model.downloaded ? 'downloaded' : 'not downloaded' }}
+                  {{ model.statusLabel }}
                   · {{ model.loaded ? 'loaded' : 'not loaded' }}
                 </small>
               </span>
@@ -172,7 +180,61 @@
     <div v-if="showTagEditor" class="modal-overlay" @click.self="showTagEditor = false">
       <div class="modal">
         <h2>Edit Tags</h2>
-        <TagInput v-model="editedTags" />
+        <div class="tag-editor-toolbar">
+          <div class="segmented-control" aria-label="Tag editor mode">
+            <button
+              type="button"
+              :class="{ active: tagEditorMode === 'visual' }"
+              @click="setTagEditorMode('visual')"
+            >
+              Pills
+            </button>
+            <button
+              type="button"
+              :class="{ active: tagEditorMode === 'raw' }"
+              @click="setTagEditorMode('raw')"
+            >
+              Text
+            </button>
+          </div>
+          <div class="tag-editor-tools">
+            <span class="tag-editor-count">{{ editedTags.length }} tags</span>
+            <button type="button" class="btn btn-secondary clear-tags-btn" @click="clearEditedTags">
+              Clear Tags
+            </button>
+          </div>
+        </div>
+        <TagInput v-if="tagEditorMode === 'visual'" v-model="editedTags" />
+        <div v-else class="raw-tag-editor">
+          <textarea
+            ref="rawTagTextarea"
+            v-model="rawEditedTags"
+            spellcheck="false"
+            placeholder="One tag per line, comma-separated tags, or a JSON array..."
+            @input="onRawTagInput"
+            @keydown.down.prevent="onRawTagArrowDown"
+            @keydown.up.prevent="onRawTagArrowUp"
+            @keydown.enter="onRawTagEnter"
+            @keydown.esc="hideRawTagSuggestions"
+            @blur="onRawTagBlur"
+          ></textarea>
+          <ul v-if="rawTagSuggestions.length > 0" class="raw-tag-suggestions">
+            <li
+              v-for="(tag, index) in rawTagSuggestions"
+              :key="tag.name"
+              :class="{ selected: index === rawTagSelectedIndex }"
+              :style="{ borderLeftColor: tag.categoryColor }"
+              @mousedown.prevent="selectRawTagSuggestion(tag)"
+              @mouseenter="rawTagSelectedIndex = index"
+            >
+              <span class="tag-name">{{ tag.name }}</span>
+              <span class="tag-count">{{ tag.usageCount }}</span>
+            </li>
+          </ul>
+          <p class="raw-tag-hint">
+            Accepts JSON arrays, {"tags": [...]}, commas, new lines, or spaces. Tags are normalized to lowercase underscores.
+          </p>
+        </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" @click="showTagEditor = false">Cancel</button>
           <button class="btn" @click="saveTags">Save</button>
@@ -311,6 +373,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api/client'
 import { usePostsStore } from '../stores/posts'
+import { useTagsStore } from '../stores/tags'
 import MediaViewer from '../components/MediaViewer.vue'
 import TagList from '../components/TagList.vue'
 import TagInput from '../components/TagInput.vue'
@@ -319,6 +382,7 @@ import CommentSection from '../components/CommentSection.vue'
 const route = useRoute()
 const router = useRouter()
 const postsStore = usePostsStore()
+const tagsStore = useTagsStore()
 
 const post = ref(null)
 const prevId = ref(null)
@@ -328,13 +392,68 @@ const showTagEditor = ref(false)
 const showPoolModal = ref(false)
 const showAutoTagModal = ref(false)
 const editedTags = ref([])
+const tagEditorMode = ref('visual')
+const rawEditedTags = ref('')
+const rawTagTextarea = ref(null)
+const rawTagSuggestions = ref([])
+const rawTagSelectedIndex = ref(-1)
+const NAME_PART_AUTOCOMPLETE_KEY = 'nekobooru.namePartAutocompleteEnabled'
+const DEFAULT_AUTO_TAG_MODELS = [
+  {
+    id: 'wd',
+    name: 'WD Tagger',
+    repoId: 'SmilingWolf/wd-eva02-large-tagger-v3',
+    purpose: 'Booru-style image and sampled video-frame tags',
+    downloadSize: '~1.2 GB',
+    vramRequirement: '~0.5-1.5 GB',
+  },
+  {
+    id: 'camie',
+    name: 'Camie Tagger v2',
+    repoId: 'Camais03/camie-tagger-v2',
+    purpose: 'Anime character, copyright, artist, rating, and broad tag coverage',
+    downloadSize: '~1-3 GB',
+    vramRequirement: '~0.5-2 GB',
+  },
+  {
+    id: 'qwen',
+    name: 'Qwen2.5-VL 7B Instruct',
+    repoId: 'Qwen/Qwen2.5-VL-7B-Instruct',
+    purpose: 'Semantic video/edit understanding, political context, and natural-language evidence',
+    downloadSize: '~15-17 GB',
+    vramRequirement: '~14-18 GB fp16, 24 GB comfortable',
+  },
+  {
+    id: 'ocr',
+    name: 'TrOCR Printed',
+    repoId: 'microsoft/trocr-base-printed',
+    purpose: 'Text extraction from meme/edit frames and subtitles',
+    downloadSize: '~1.3 GB',
+    vramRequirement: '~1-2 GB',
+  },
+  {
+    id: 'whisper',
+    name: 'Whisper Small',
+    repoId: 'openai/whisper-small',
+    purpose: 'Speech/audio transcript signals for AMVs and edits',
+    downloadSize: '~1 GB',
+    vramRequirement: '~1-2 GB',
+  },
+]
 const autoTagEditedTags = ref([])
 const autoTagEditedSafety = ref('safe')
 const autoTagSuggestion = ref(null)
 const autoTagLoading = ref(false)
-const autoTagStatus = ref(null)
-const postAutoTagSettings = ref({})
-const savedAutoTagSettings = ref({})
+const autoTagStatus = ref({ enabled: true, models: DEFAULT_AUTO_TAG_MODELS })
+const postAutoTagSettings = ref({
+  wdEnabled: true,
+  characterModelEnabled: false,
+  ocrEnabled: false,
+  whisperEnabled: false,
+  qwenEnabled: false,
+  semanticPoliticalEnabled: false,
+})
+const savedAutoTagSettings = ref({ ...postAutoTagSettings.value })
 const activeAutoTagProfile = ref('')
 const autoModelPickerOpen = ref(false)
 const showAutoProcessModal = ref(false)
@@ -351,6 +470,7 @@ const modelTooltip = ref({
 })
 let autoLoadPollTimer = null
 let autoTagTickTimer = null
+let rawTagDebounceTimer = null
 const pools = ref([])
 const selectedPool = ref('')
 
@@ -360,6 +480,11 @@ const mediaType = computed(() => {
   if (['.webm', '.mp4'].includes(ext)) return 'video'
   if (ext === '.gif') return 'gif'
   return 'image'
+})
+
+const tweetUrl = computed(() => {
+  const id = tweetIdFromPost(post.value)
+  return id ? `https://x.com/i/status/${id}` : ''
 })
 
 const safetyOptions = [
@@ -456,20 +581,25 @@ const autoTagProcessSteps = computed(() => {
   ]
 })
 const postModelRows = computed(() => {
-  const models = autoTagStatus.value?.models || []
+  const models = autoTagStatus.value?.models?.length ? autoTagStatus.value.models : DEFAULT_AUTO_TAG_MODELS
   return models.map((model) => ({
     ...model,
     settingKey: modelSettingKey(model.id),
     canToggle: true,
+    downloaded: model.downloaded === true,
+    loaded: model.loaded === true,
+    runtimeAvailable: model.runtimeAvailable !== false,
+    statusLabel: model.downloaded === true ? 'downloaded' : model.downloaded === false ? 'not downloaded' : 'checking',
   }))
 })
+const autoTagControlsVisible = computed(() => autoTagStatus.value?.enabled !== false || autoTagStatus.value?.models?.length)
 
 onMounted(async () => {
   await loadPost()
   loadNeighbors()
   window.addEventListener('keydown', onKeydown)
-  await loadPools()
-  await loadAutoTagControls()
+  loadPools()
+  loadAutoTagControls()
 })
 
 onUnmounted(() => {
@@ -661,9 +791,151 @@ async function toggleFavorite() {
   }
 }
 
+function openTagEditor() {
+  editedTags.value = [...(post.value?.tags || [])]
+  tagEditorMode.value = 'visual'
+  rawEditedTags.value = tagsToRawText(editedTags.value)
+  showTagEditor.value = true
+}
+
+function setTagEditorMode(mode) {
+  if (mode === tagEditorMode.value) return
+  if (tagEditorMode.value === 'raw') {
+    editedTags.value = parseRawTags(rawEditedTags.value)
+    hideRawTagSuggestions()
+  } else {
+    rawEditedTags.value = tagsToRawText(editedTags.value)
+  }
+  tagEditorMode.value = mode
+}
+
+function clearEditedTags() {
+  editedTags.value = []
+  rawEditedTags.value = ''
+  hideRawTagSuggestions()
+}
+
+function tagsToRawText(tags) {
+  return (tags || []).join('\n')
+}
+
+function normalizeTagName(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, '_')
+}
+
+function parseRawTags(raw) {
+  const text = String(raw || '').trim()
+  if (!text) return []
+
+  let values = null
+  if (text.startsWith('[') || text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text)
+      if (Array.isArray(parsed)) values = parsed
+      else if (Array.isArray(parsed?.tags)) values = parsed.tags
+    } catch {
+      values = null
+    }
+  }
+
+  if (!values) {
+    values = text.split(/[\s,]+/)
+  }
+
+  const seen = new Set()
+  const tags = []
+  for (const value of values) {
+    const tag = normalizeTagName(value)
+    if (!tag || seen.has(tag)) continue
+    seen.add(tag)
+    tags.push(tag)
+  }
+  return tags
+}
+
+function rawTagTokenAtCursor() {
+  const textarea = rawTagTextarea.value
+  const value = rawEditedTags.value || ''
+  const cursor = textarea?.selectionStart ?? value.length
+  let start = cursor
+  while (start > 0 && !/[\s,\[\]{}"']/.test(value[start - 1])) start -= 1
+  let end = cursor
+  while (end < value.length && !/[\s,\[\]{}"']/.test(value[end])) end += 1
+  const rawToken = value.slice(start, end)
+  const token = rawToken.startsWith('-') ? rawToken.slice(1) : rawToken
+  return { start, end, rawToken, token }
+}
+
+function onRawTagInput() {
+  clearTimeout(rawTagDebounceTimer)
+  rawTagDebounceTimer = setTimeout(async () => {
+    const { token } = rawTagTokenAtCursor()
+    if (!token || token.includes(':')) {
+      hideRawTagSuggestions()
+      return
+    }
+    rawTagSuggestions.value = await tagsStore.autocomplete(token, tagAutocompleteOptions())
+    rawTagSelectedIndex.value = rawTagSuggestions.value.length ? 0 : -1
+  }, 150)
+}
+
+function tagAutocompleteOptions() {
+  return {
+    nameParts: localStorage.getItem(NAME_PART_AUTOCOMPLETE_KEY) === 'true',
+  }
+}
+
+function selectRawTagSuggestion(tag) {
+  if (!tag?.name) return
+  const { start, end, rawToken } = rawTagTokenAtCursor()
+  const prefix = rawToken.startsWith('-') ? '-' : ''
+  const before = rawEditedTags.value.slice(0, start)
+  const after = rawEditedTags.value.slice(end)
+  const inserted = `${prefix}${tag.name}`
+  rawEditedTags.value = `${before}${inserted}${after}`
+  hideRawTagSuggestions()
+  requestAnimationFrame(() => {
+    rawTagTextarea.value?.focus()
+    const caret = before.length + inserted.length
+    rawTagTextarea.value?.setSelectionRange(caret, caret)
+  })
+}
+
+function onRawTagEnter(event) {
+  if (!rawTagSuggestions.value.length) return
+  event.preventDefault()
+  const index = rawTagSelectedIndex.value >= 0 ? rawTagSelectedIndex.value : 0
+  selectRawTagSuggestion(rawTagSuggestions.value[index])
+}
+
+function onRawTagArrowDown() {
+  if (!rawTagSuggestions.value.length) return
+  rawTagSelectedIndex.value = (rawTagSelectedIndex.value + 1) % rawTagSuggestions.value.length
+}
+
+function onRawTagArrowUp() {
+  if (!rawTagSuggestions.value.length) return
+  rawTagSelectedIndex.value = rawTagSelectedIndex.value <= 0
+    ? rawTagSuggestions.value.length - 1
+    : rawTagSelectedIndex.value - 1
+}
+
+function hideRawTagSuggestions() {
+  rawTagSuggestions.value = []
+  rawTagSelectedIndex.value = -1
+}
+
+function onRawTagBlur() {
+  setTimeout(hideRawTagSuggestions, 150)
+}
+
 async function saveTags() {
   try {
-    post.value = await api.updatePost(post.value.id, { tags: editedTags.value })
+    if (tagEditorMode.value === 'raw') {
+      editedTags.value = parseRawTags(rawEditedTags.value)
+    }
+    await api.updatePost(post.value.id, { tags: editedTags.value })
+    await loadPost()
     showTagEditor.value = false
   } catch (e) {
     alert('Failed to save tags: ' + e.message)
@@ -781,6 +1053,10 @@ function enabledModelRows() {
 }
 
 async function loadEnabledAutoTagModels() {
+  if (autoTagStatus.value?.remote?.enabled && autoTagStatus.value?.remote?.url) {
+    beginAutoTagStage('loading', 'Using the configured AI worker. The worker will load model weights during analysis if needed.')
+    return
+  }
   for (const model of enabledModelRows()) {
     if (!model.downloaded || !model.runtimeAvailable || model.loaded) continue
     await loadAutoTagWeights(model.id, { keepOpen: true })
@@ -970,6 +1246,25 @@ function formatFileSize(bytes) {
 function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString()
 }
+
+function tweetIdFromPost(value) {
+  if (!value) return ''
+  const tag = (value.tags || []).find((name) => /^twitter_\d+$/.test(name) || /^tweet_\d+$/.test(name))
+  if (tag) return tag.match(/\d+/)?.[0] || ''
+  return tweetIdFromUrl(value.source)
+}
+
+function tweetIdFromUrl(raw) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    if (!/(^|\.)x\.com$|(^|\.)twitter\.com$/.test(host)) return ''
+    return url.pathname.match(/\/status\/(\d+)/)?.[1] || ''
+  } catch {
+    return ''
+  }
+}
 </script>
 
 <style scoped>
@@ -1071,6 +1366,16 @@ function formatDate(dateStr) {
 .info-list dd {
   color: var(--text-primary);
   font-weight: 500;
+}
+
+.external-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.external-link:hover {
+  text-decoration: underline;
 }
 
 .safety-buttons {
@@ -1316,6 +1621,107 @@ function formatDate(dateStr) {
 .modal h2 {
   margin-bottom: 1.25rem;
   color: var(--text-primary);
+}
+
+.tag-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.segmented-control {
+  display: inline-flex;
+  padding: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+}
+
+.segmented-control button {
+  min-width: 4rem;
+  padding: 0.4rem 0.7rem;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.segmented-control button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.tag-editor-count {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.tag-editor-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.clear-tags-btn {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.raw-tag-editor textarea {
+  width: 100%;
+  min-height: 260px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.raw-tag-editor textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.raw-tag-suggestions {
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
+.raw-tag-suggestions li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.raw-tag-suggestions li:hover,
+.raw-tag-suggestions li.selected {
+  background: var(--bg-tertiary);
+}
+
+.raw-tag-hint {
+  margin: 0.5rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
 }
 
 .modal-actions {

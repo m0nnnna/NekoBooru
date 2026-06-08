@@ -24,10 +24,13 @@ if not exist "node_modules" (
 echo.
 echo Starting Vue.js dev server...
 echo.
-echo   Frontend: http://localhost:5173
-echo   (API proxied to http://localhost:8772)
+if "%NEKO_FRONTEND_PORT%"=="" set NEKO_FRONTEND_PORT=5173
+if "%VITE_BACKEND%"=="" set VITE_BACKEND=http://127.0.0.1:8772
+set VITE_FRONTEND_PORT=%NEKO_FRONTEND_PORT%
+echo   Frontend: http://localhost:%VITE_FRONTEND_PORT%
+echo   (API proxied to %VITE_BACKEND%)
 echo.
 echo   Press Ctrl+C to stop
 echo.
 
-npm run dev
+npm run dev -- --port %VITE_FRONTEND_PORT%

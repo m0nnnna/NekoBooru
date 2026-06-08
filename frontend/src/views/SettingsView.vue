@@ -69,6 +69,87 @@
     </div>
 
     <div class="settings-section">
+      <h2>Search</h2>
+      <p class="section-description">
+        Configure how tag search behaves in the main navigation bar.
+      </p>
+
+      <label class="toggle-card">
+        <input type="checkbox" v-model="searchPredictionEnabled" @change="saveSearchPredictionSetting" />
+        <span>
+          <strong>Auto-search top tag prediction while typing</strong>
+          <small>
+            When enabled, partial tag searches use the first autocomplete match automatically while
+            keeping your typed text and suggestions visible. Exact tags and filters like rating:safe
+            still search as typed.
+          </small>
+        </span>
+      </label>
+      <label class="toggle-card">
+        <input type="checkbox" v-model="namePartAutocompleteEnabled" @change="saveNamePartAutocompleteSetting" />
+        <span>
+          <strong>Autocomplete character given names</strong>
+          <small>
+            Allows partial-name searches like konata to suggest tags such as izumi_konata.
+          </small>
+        </span>
+      </label>
+    </div>
+
+    <div class="settings-section">
+      <h2>Server</h2>
+      <p class="section-description">
+        Configure the local address NekoBooru binds to. Host and port changes take effect after restart.
+      </p>
+
+      <div class="numeric-grid">
+        <label class="field-row">
+          <span class="label-with-help">
+            Host
+            <button type="button" class="info-icon" :data-tooltip="serverHelp.host" :aria-label="serverHelp.host">?</button>
+          </span>
+          <input v-model="serverSettings.host" type="text" placeholder="127.0.0.1" />
+        </label>
+        <label class="field-row">
+          <span class="label-with-help">
+            Port
+            <button type="button" class="info-icon" :data-tooltip="serverHelp.port" :aria-label="serverHelp.port">?</button>
+          </span>
+          <input v-model.number="serverSettings.port" type="number" min="1" max="65535" />
+        </label>
+        <label class="field-row">
+          <span class="label-with-help">
+            Dev frontend/CORS port
+            <button type="button" class="info-icon" :data-tooltip="serverHelp.frontendPort" :aria-label="serverHelp.frontendPort">?</button>
+          </span>
+          <input v-model.number="serverSettings.frontend_port" type="number" min="1" max="65535" />
+        </label>
+      </div>
+
+      <label class="field-row cors-field">
+        <span class="label-with-help">
+          Allowed browser origins
+          <button type="button" class="info-icon" :data-tooltip="serverHelp.cors" :aria-label="serverHelp.cors">?</button>
+        </span>
+        <textarea v-model="serverSettings.cors_origins" rows="3" spellcheck="false"></textarea>
+      </label>
+
+      <p v-if="serverStatus.show" class="cookies-status" :class="serverStatus.success ? 'success' : 'error'">
+        <strong>{{ serverStatus.message }}</strong>
+      </p>
+
+      <div class="form-actions">
+        <button class="btn" @click="saveServerSettings" :disabled="savingServer">
+          {{ savingServer ? 'Saving...' : 'Save Server Settings' }}
+        </button>
+        <span class="status-note">
+          Packaged URL: http://{{ currentSettings.host || '127.0.0.1' }}:{{ currentSettings.port || 8772 }} ·
+          Dev/CORS port: http://127.0.0.1:{{ currentSettings.frontend_port || 5173 }}
+        </span>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h2>Video Downloads (yt-dlp)</h2>
       <p class="section-description">
         Configure cookies for downloading age-restricted or login-required videos from platforms like X/Twitter.
@@ -218,6 +299,161 @@
     </div>
 
     <div class="settings-section">
+      <h2>Runtime & Packaging</h2>
+      <p class="section-description">
+        Installer-facing diagnostics for packaged paths, native host registration, tools, and optional AI runtime.
+      </p>
+
+      <div class="runtime-summary-grid">
+        <div>
+          <span>App mode</span>
+          <strong>{{ runtimeStatus.app?.packaged ? 'Packaged' : 'Source checkout' }}</strong>
+          <small>{{ runtimeStatus.app?.version || 'unknown version' }}</small>
+        </div>
+        <div>
+          <span>AI runtime</span>
+          <strong :class="runtimeStatus.ai?.runtimeInstalled ? 'model-ok' : 'model-missing'">
+            {{ runtimeStatus.ai?.runtimeInstalled ? 'Installed' : 'Not installed' }}
+          </strong>
+          <small>{{ runtimeAiSummary }}</small>
+        </div>
+        <div>
+          <span>Native host</span>
+          <strong :class="runtimeStatus.nativeHost?.installed ? 'model-ok' : 'model-missing'">
+            {{ runtimeStatus.nativeHost?.installed ? 'Registered' : 'Not registered' }}
+          </strong>
+          <small>Brave/Chrome companion launcher</small>
+        </div>
+        <div>
+          <span>Tools</span>
+          <strong>{{ runtimeToolSummary }}</strong>
+          <small>ffmpeg, ffprobe, yt-dlp</small>
+        </div>
+      </div>
+
+      <details class="runtime-details">
+        <summary>Runtime paths</summary>
+        <div class="info-grid">
+          <div class="info-item">
+            <label>Config</label>
+            <code>{{ runtimeStatus.paths?.configDir || 'N/A' }}</code>
+          </div>
+          <div class="info-item">
+            <label>Data</label>
+            <code>{{ runtimeStatus.paths?.dataDir || 'N/A' }}</code>
+          </div>
+          <div class="info-item">
+            <label>Models</label>
+            <code>{{ runtimeStatus.paths?.modelsDir || 'N/A' }}</code>
+          </div>
+          <div class="info-item">
+            <label>AI venv</label>
+            <code>{{ runtimeStatus.paths?.aiVenv || 'N/A' }}</code>
+          </div>
+          <div class="info-item">
+            <label>Logs</label>
+            <code>{{ runtimeStatus.paths?.logsDir || 'N/A' }}</code>
+          </div>
+          <div class="info-item">
+            <label>App</label>
+            <code>{{ runtimeStatus.app?.appDir || 'N/A' }}</code>
+          </div>
+        </div>
+      </details>
+
+      <div class="form-actions">
+        <button class="btn btn-secondary" @click="loadRuntimeStatus">Refresh Runtime Status</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h2>App Updates</h2>
+      <p class="section-description">
+        Check GitHub Releases for installer builds. Upstream releases are the default; point this at your fork when testing your own builds.
+      </p>
+
+      <div class="update-panel">
+        <div class="config-panel-head">
+          <h3>Release Source</h3>
+          <p>{{ updateStatus.settings?.releasesPageUrl || 'GitHub Releases' }}</p>
+        </div>
+
+        <div class="numeric-grid">
+          <label class="field-row">
+            <span>GitHub owner</span>
+            <input v-model="updateSettings.owner" type="text" placeholder="m0nnnna" />
+          </label>
+          <label class="field-row">
+            <span>Repository</span>
+            <input v-model="updateSettings.repo" type="text" placeholder="NekoBooru" />
+          </label>
+          <label class="field-row">
+            <span>Channel</span>
+            <select v-model="updateSettings.channel">
+              <option value="stable">Stable releases</option>
+              <option value="prerelease">Prereleases</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="toggle-grid">
+          <label class="toggle-card">
+            <input type="checkbox" v-model="updateSettings.autoCheck" />
+            <span>
+              <strong>Auto-check for updates</strong>
+              <small>Checks at Settings load at most twice per day. It does not auto-install anything.</small>
+            </span>
+          </label>
+        </div>
+
+        <div class="runtime-summary-grid update-summary">
+          <div>
+            <span>Current</span>
+            <strong>{{ updateStatus.currentVersion || runtimeStatus.app?.version || 'unknown' }}</strong>
+            <small>{{ runtimeStatus.app?.packaged ? 'installed package' : 'source checkout' }}</small>
+          </div>
+          <div>
+            <span>Latest</span>
+            <strong :class="updateStatus.lastCheck?.available ? 'model-ok' : ''">
+              {{ updateStatus.lastCheck?.latestVersion || 'Not checked' }}
+            </strong>
+            <small>{{ updateStatus.lastCheck?.message || 'Use Check now to query releases.' }}</small>
+          </div>
+          <div>
+            <span>Installer asset</span>
+            <strong :class="updateStatus.lastCheck?.assets?.windowsInstaller ? 'model-ok' : 'model-missing'">
+              {{ updateStatus.lastCheck?.assets?.windowsInstaller?.name || 'Not found yet' }}
+            </strong>
+            <small>{{ formatBytes(updateStatus.lastCheck?.assets?.windowsInstaller?.size) }}</small>
+          </div>
+        </div>
+
+        <p v-if="updateMessage.show" class="cookies-status" :class="updateMessage.success ? 'success' : 'error'">
+          <strong>{{ updateMessage.message }}</strong>
+        </p>
+
+        <div class="form-actions">
+          <button class="btn" @click="saveUpdateSettings" :disabled="updateBusy">
+            Save Update Settings
+          </button>
+          <button class="btn btn-secondary" @click="checkForUpdates" :disabled="updateBusy || updateSettings.channel === 'off'">
+            {{ updateBusy ? 'Checking...' : 'Check now' }}
+          </button>
+          <a
+            v-if="updateStatus.lastCheck?.htmlUrl"
+            class="btn btn-secondary"
+            :href="updateStatus.lastCheck.htmlUrl"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Release notes
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h2>Server Statistics</h2>
       <div v-if="statsLoading" class="stats-loading">Loading statistics...</div>
       <div v-else-if="statsError" class="stats-error">{{ statsError }}</div>
@@ -277,25 +513,17 @@
         <div class="config-panel-head">
           <h3>Set up the AI runtime</h3>
           <p>
-            AI tagging needs an extra ML runtime that is not bundled with NekoBooru. Pick your
-            hardware, run the command below in your NekoBooru Python environment, then re-check.
-            The packaged executable cannot install this into itself — run NekoBooru from source
-            (or your own Python env) to use AI features.
+            AI tagging needs an extra ML runtime that is not bundled with the base installer.
+            Pick a local CPU/GPU runtime or configure a remote server AI worker.
           </p>
         </div>
-        <div class="ai-setup-target">
-          <label class="radio-row">
-            <input type="radio" value="cuda" v-model="aiSetupTarget" />
+        <div class="ai-setup-target ai-profile-grid">
+          <label v-for="profile in aiRuntimeProfileRows" :key="profile.id" class="radio-row">
+            <input type="radio" :value="profile.id" v-model="selectedAiRuntimeProfile" />
             <span>
-              <strong>NVIDIA GPU (CUDA)</strong>
-              <small>Fastest. Requires an NVIDIA GPU with recent drivers.</small>
-            </span>
-          </label>
-          <label class="radio-row">
-            <input type="radio" value="cpu" v-model="aiSetupTarget" />
-            <span>
-              <strong>CPU only</strong>
-              <small>Works anywhere, but much slower. The largest models may be impractical.</small>
+              <strong>{{ profile.label }}</strong>
+              <small>{{ profile.description }}</small>
+              <em>{{ profile.downloadSize }} · {{ profile.vram }}</em>
             </span>
           </label>
         </div>
@@ -305,13 +533,36 @@
             {{ aiSetupCopied ? 'Copied!' : 'Copy' }}
           </button>
         </div>
+        <div v-if="aiRuntimeJob" class="download-summary">
+          <div class="download-summary-head">
+            <strong>{{ aiRuntimeJob.message || aiRuntimeJob.status }}</strong>
+            <span>{{ aiRuntimeInstallProgress }}%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: aiRuntimeInstallProgress + '%' }"></div>
+          </div>
+          <p>{{ aiRuntimeJob.status }} · {{ aiRuntimeJob.profile }}</p>
+          <details v-if="aiRuntimeJob.output">
+            <summary>Installer output</summary>
+            <pre>{{ aiRuntimeJob.output }}</pre>
+          </details>
+        </div>
+        <div v-if="aiRuntimeMessage.show" class="cookies-status" :class="aiRuntimeMessage.success ? 'success' : 'error'">
+          <p><strong>{{ aiRuntimeMessage.message }}</strong></p>
+        </div>
         <div class="form-actions">
+          <button class="btn" @click="startAiRuntimeInstall" :disabled="aiRuntimeBusy">
+            {{ aiRuntimeBusy ? 'Installing...' : 'Install Selected Runtime' }}
+          </button>
+          <button class="btn btn-secondary" @click="cancelAiRuntimeInstall" :disabled="!aiRuntimeBusy">
+            Cancel Install
+          </button>
           <button class="btn" @click="recheckAiRuntime" :disabled="recheckingRuntime">
             {{ recheckingRuntime ? 'Checking...' : 'Re-check runtime' }}
           </button>
           <span class="status-note">
-            Torch {{ autoTagStatus.torch?.version || 'not installed' }} ·
-            ONNX runtime {{ autoTagStatus.dependencies?.onnxruntime ? 'ready' : 'missing' }}
+            Torch {{ effectiveTorch.version || 'not installed' }} ·
+            ONNX runtime {{ effectiveOnnxReady ? 'ready' : 'missing' }}
           </span>
         </div>
       </div>
@@ -345,7 +596,7 @@
           </div>
           <div>
             <span>Compute</span>
-            <strong :class="autoTagStatus.torch?.cudaAvailable ? 'model-ok' : 'model-missing'">
+            <strong :class="effectiveTorch.cudaAvailable ? 'model-ok' : 'model-missing'">
               {{ torchSummary }}
             </strong>
           </div>
@@ -371,7 +622,7 @@
           Missing runtime packages: {{ missingRuntimeModels.map(model => model.name).join(', ') }}
         </p>
         <p class="status-note">
-          Torch {{ autoTagStatus.torch?.version || 'unknown' }} · {{ torchDeviceDetail }}
+          Torch {{ effectiveTorch.version || 'unknown' }} · {{ torchDeviceDetail }}
         </p>
       </div>
 
@@ -408,8 +659,13 @@
         </div>
 
         <div class="form-actions model-download-actions">
-          <button class="btn" @click="downloadAllAutoTagModels" :disabled="modelDownloadRunning">
-            {{ modelDownloadRunning ? 'Downloading...' : 'Download All Models' }}
+          <button
+            class="btn"
+            :class="{ 'btn-danger': modelDownloadRunning }"
+            @click="modelDownloadRunning ? cancelModelDownload() : downloadAllAutoTagModels()"
+            :disabled="modelDownloadCancelling"
+          >
+            {{ modelDownloadRunning ? (modelDownloadCancelling ? 'Cancelling...' : 'Cancel Download') : 'Download All Models' }}
           </button>
           <button class="btn btn-secondary" @click="refreshAutoTagStatus">
             Refresh Status
@@ -493,6 +749,7 @@
                 <div class="progress-fill" :style="{ width: modelProgressPercent(model.id) + '%' }"></div>
               </div>
               <p>
+                <strong>{{ modelProgressPercent(model.id) }}%</strong>
                 {{ modelDownloadStateLabel(model.id) }}
                 <span v-if="modelDownloadState(model.id).current">: {{ modelDownloadState(model.id).current }}</span>
                 <span v-if="modelDownloadBytes(model.id)"> - {{ modelDownloadBytes(model.id) }}</span>
@@ -500,8 +757,13 @@
               <p v-if="modelDownloadState(model.id).error" class="stats-error">{{ modelDownloadState(model.id).error }}</p>
             </div>
             <div class="model-actions">
-              <button class="btn btn-secondary" @click="downloadAutoTagModelById(model.id)" :disabled="modelDownloadRunning || model.downloaded">
-                {{ model.downloaded ? 'Downloaded' : 'Download' }}
+              <button
+                class="btn btn-secondary"
+                :class="{ 'btn-danger': modelDownloadActiveFor(model.id) }"
+                @click="modelDownloadActiveFor(model.id) ? cancelModelDownload() : downloadAutoTagModelById(model.id)"
+                :disabled="(!modelDownloadActiveFor(model.id) && (modelDownloadRunning || model.downloaded)) || modelDownloadCancelling"
+              >
+                {{ modelDownloadActiveFor(model.id) ? (modelDownloadCancelling ? 'Cancelling...' : 'Cancel') : (model.downloaded ? 'Downloaded' : 'Download') }}
               </button>
               <button
                 class="btn btn-secondary"
@@ -509,6 +771,13 @@
                 :disabled="modelDownloadRunning || !model.downloaded || !model.runtimeAvailable || modelMemoryBusy"
               >
                 {{ model.loaded ? 'Unload' : 'Load' }}
+              </button>
+              <button
+                class="btn btn-danger"
+                @click="deleteAutoTagModelById(model.id)"
+                :disabled="modelDownloadRunning || !model.downloaded || modelDeleteBusy"
+              >
+                Delete
               </button>
             </div>
           </div>
@@ -651,6 +920,13 @@
               <button type="button" class="info-icon" :data-tooltip="thresholdHelp.unsafe" :aria-label="thresholdHelp.unsafe">?</button>
             </span>
             <input type="number" min="0" max="1" step="0.01" v-model.number="autoTagSettings.unsafeThreshold" />
+          </label>
+          <label class="field-row">
+            <span class="label-with-help">
+              Sketchy threshold
+              <button type="button" class="info-icon" :data-tooltip="thresholdHelp.sketchy" :aria-label="thresholdHelp.sketchy">?</button>
+            </span>
+            <input type="number" min="0" max="1" step="0.01" v-model.number="autoTagSettings.sketchyThreshold" />
           </label>
           <label class="field-row">
             <span class="label-with-help">
@@ -837,6 +1113,22 @@ const currentSettings = ref({})
 const dataDir = ref('')
 const saving = ref(false)
 const isWindows = ref(navigator.platform.toLowerCase().includes('win'))
+const SEARCH_PREDICTION_KEY = 'nekobooru.searchPredictionEnabled'
+const NAME_PART_AUTOCOMPLETE_KEY = 'nekobooru.namePartAutocompleteEnabled'
+const searchPredictionEnabled = ref(false)
+const namePartAutocompleteEnabled = ref(false)
+const serverSettings = ref({
+  host: '127.0.0.1',
+  port: 8772,
+  frontend_port: 5173,
+  cors_origins: '',
+})
+const savingServer = ref(false)
+const serverStatus = ref({
+  show: false,
+  success: false,
+  message: '',
+})
 
 const cookiesFileInput = ref(null)
 const savingCookies = ref(false)
@@ -852,6 +1144,31 @@ const ytdlpSettings = ref({
 })
 const ytdlpBusy = ref(false)
 const ytdlpMessage = ref({
+  show: false,
+  success: false,
+  message: '',
+})
+const runtimeStatus = ref({})
+const updateStatus = ref({})
+const updateSettings = ref({
+  owner: 'm0nnnna',
+  repo: 'NekoBooru',
+  channel: 'stable',
+  autoCheck: true,
+  autoDownload: false,
+  includePrereleases: false,
+})
+const updateBusy = ref(false)
+const updateMessage = ref({
+  show: false,
+  success: false,
+  message: '',
+})
+const aiRuntimeProfiles = ref([])
+const selectedAiRuntimeProfile = ref('auto')
+const aiRuntimeJob = ref(null)
+const aiRuntimeBusy = ref(false)
+const aiRuntimeMessage = ref({
   show: false,
   success: false,
   message: '',
@@ -881,6 +1198,7 @@ const savingToken = ref(false)
 const modelCatalog = ref([])
 const modelDownloadJob = ref(null)
 const modelMemoryBusy = ref(false)
+const modelDeleteBusy = ref(false)
 const workerToken = ref('')
 const savingWorkerToken = ref(false)
 const testingWorker = ref(false)
@@ -895,10 +1213,17 @@ const modelStatusMessage = ref({
 const thresholdHelp = {
   general: 'Minimum confidence for general booru tags. Lower values add more tags but more noise; raise it if posts are getting vague or wrong tags. Typical range: 0.30-0.45.',
   character: 'Minimum confidence for character, copyright, and source tags. Lower it if known characters are missed; raise it if false character names appear. Typical range: 0.40-0.60.',
-  unsafe: 'Confidence required before auto-tagging can promote a post to unsafe. Lower catches more NSFW content; raise it to avoid false unsafe ratings. It will not downgrade safer ratings when downgrade protection is on.',
+  unsafe: 'Explicit-rating confidence required before auto-tagging can promote a post to unsafe. Questionable/sensitive evidence can only promote to sketchy when it is very strong. Raise this to avoid false unsafe ratings.',
+  sketchy: 'Confidence required before auto-tagging can promote a post to sketchy. The backend enforces a conservative floor so weak questionable/sensitive evidence does not relabel ordinary posts.',
   maxTags: 'Maximum number of tags kept from model output. Increase for richer search coverage; decrease if posts become cluttered. This limit applies before manual review.',
   videoFrames: 'Number of sampled video frames for visual tagging. More frames improve AMV/edit coverage but take longer. 3-4 is a good default; use 1 for fast middle-frame tagging.',
   lightCutoff: 'Posts with this many tags or fewer count as lightly tagged for bulk jobs. Increase to retag sparse libraries; decrease to only target nearly empty posts.',
+}
+const serverHelp = {
+  host: '127.0.0.1 keeps NekoBooru available only on this PC. Use 0.0.0.0 only if you intentionally want LAN devices to reach it; NekoBooru has no built-in user login.',
+  port: 'The TCP port for the backend and packaged web UI. Change it if another app already uses 8772. Restart required.',
+  frontendPort: 'Dev/source mode only. Packaged installs serve the frontend from the backend port. Restart the Vite frontend dev server after changing this.',
+  cors: 'Comma-separated browser origins allowed to call the API. Keep localhost/127.0.0.1 entries for the active port. Only add LAN origins you trust.',
 }
 const torchDeviceHelp = 'Auto uses CUDA/GPU when the installed torch build can see it, otherwise CPU. GPU only forces CUDA and reports an error if this venv has CPU-only torch. CPU only is slower but useful when you need VRAM free.'
 const bulkActionHelp = {
@@ -913,6 +1238,7 @@ const bulkActionHelp = {
 let autoTagPollTimer = null
 let modelDownloadPollTimer = null
 let ytdlpPollTimer = null
+let aiRuntimePollTimer = null
 
 const migrationPrompt = ref({
   show: false,
@@ -928,13 +1254,28 @@ const migrationStatus = ref({
 })
 
 onMounted(async () => {
-  await Promise.all([loadSettings(), loadStats(), loadAutoTags(), refreshYtdlpStatus()])
+  loadSearchPredictionSetting()
+  await Promise.all([loadSettings(), loadStats(), loadAutoTags(), refreshYtdlpStatus(), loadRuntimeStatus(), loadUpdateStatus(true)])
 })
+
+function loadSearchPredictionSetting() {
+  searchPredictionEnabled.value = localStorage.getItem(SEARCH_PREDICTION_KEY) === 'true'
+  namePartAutocompleteEnabled.value = localStorage.getItem(NAME_PART_AUTOCOMPLETE_KEY) === 'true'
+}
+
+function saveSearchPredictionSetting() {
+  localStorage.setItem(SEARCH_PREDICTION_KEY, searchPredictionEnabled.value ? 'true' : 'false')
+}
+
+function saveNamePartAutocompleteSetting() {
+  localStorage.setItem(NAME_PART_AUTOCOMPLETE_KEY, namePartAutocompleteEnabled.value ? 'true' : 'false')
+}
 
 onUnmounted(() => {
   if (autoTagPollTimer) clearInterval(autoTagPollTimer)
   if (modelDownloadPollTimer) clearInterval(modelDownloadPollTimer)
   if (ytdlpPollTimer) clearInterval(ytdlpPollTimer)
+  if (aiRuntimePollTimer) clearInterval(aiRuntimePollTimer)
 })
 
 const autoTagJobRunning = computed(() =>
@@ -977,13 +1318,45 @@ const ytdlpJobClass = computed(() => {
   return ''
 })
 
+const runtimeAiSummary = computed(() => {
+  const ai = runtimeStatus.value.ai || {}
+  if (ai.runtimeInstalled) return ai.profile || 'installed'
+  const receiptError = ai.receipt?.error
+  return receiptError ? `receipt error: ${receiptError}` : 'Install from Auto Tagging setup'
+})
+
+const runtimeToolSummary = computed(() => {
+  const tools = runtimeStatus.value.tools || {}
+  const ready = ['ffmpeg', 'ffprobe', 'ytdlp'].filter((key) => tools[key]?.available).length
+  return `${ready}/3 ready`
+})
+
+const aiRuntimeProfileRows = computed(() => aiRuntimeProfiles.value.length
+  ? aiRuntimeProfiles.value
+  : [
+      { id: 'auto', label: 'Auto-detect NVIDIA GPU', description: 'Pick GPU, legacy GPU, or CPU automatically.', downloadSize: '~3-8 GB', vram: 'Depends on models' },
+      { id: 'cpu', label: 'Local CPU AI', description: 'No CUDA required. Slower, but simple.', downloadSize: '~3-5 GB', vram: '0 GB' },
+      { id: 'gpu-cu128', label: 'Local NVIDIA AI', description: 'CUDA 12.8 for newer NVIDIA GPUs.', downloadSize: '~6-8 GB', vram: 'Model dependent' },
+      { id: 'gpu-cu126-legacy', label: 'Local legacy NVIDIA AI', description: 'CUDA 12.6 for GTX 10-series/Pascal.', downloadSize: '~6-8 GB', vram: 'Model dependent' },
+      { id: 'remote', label: 'Remote/server AI', description: 'Use another GPU machine instead of local CUDA wheels.', downloadSize: '0 GB on this client', vram: 'Remote worker' },
+    ])
+
+const aiRuntimeInstallProgress = computed(() => {
+  if (!aiRuntimeJob.value) return 0
+  return Math.max(0, Math.min(100, Number(aiRuntimeJob.value.progress || 0)))
+})
+
 const autoTagProgressPercent = computed(() => {
   if (!autoTagJob.value || !autoTagJob.value.total) return 0
   return Math.round((autoTagJob.value.processed / autoTagJob.value.total) * 100)
 })
 
 const modelDownloadRunning = computed(() =>
-  modelDownloadJob.value && ['queued', 'running'].includes(modelDownloadJob.value.status)
+  modelDownloadJob.value && ['queued', 'running', 'cancelling'].includes(modelDownloadJob.value.status)
+)
+
+const modelDownloadCancelling = computed(() =>
+  modelDownloadJob.value?.status === 'cancelling'
 )
 
 const downloadJobModels = computed(() =>
@@ -1003,24 +1376,32 @@ const downloadJobFailed = computed(() =>
 )
 
 const downloadJobRunningRows = computed(() =>
-  downloadJobModels.value.filter((model) => ['queued', 'running'].includes(model.status))
+  downloadJobModels.value.filter((model) => ['queued', 'running', 'cancelling'].includes(model.status))
 )
 
 const downloadJobActiveRow = computed(() =>
   downloadJobModels.value.find((model) => model.status === 'running') ||
+  downloadJobModels.value.find((model) => model.status === 'cancelling') ||
   downloadJobModels.value.find((model) => model.status === 'queued') ||
   null
 )
 
 const downloadJobProgress = computed(() => {
   if (!downloadJobTotal.value) return 0
-  return Math.round((downloadJobCompleted.value / downloadJobTotal.value) * 100)
+  const progress = downloadJobModels.value.reduce((total, model) => {
+    if (['completed', 'skipped'].includes(model.status)) return total + 1
+    if (!['running', 'cancelling'].includes(model.status)) return total
+    return total + modelProgressFraction(model)
+  }, 0)
+  return Math.max(0, Math.min(100, Math.round((progress / downloadJobTotal.value) * 100)))
 })
 
 const downloadJobTitle = computed(() => {
   if (!modelDownloadJob.value) return ''
   if (modelDownloadJob.value.status === 'completed') return 'Model downloads complete'
   if (modelDownloadJob.value.status === 'failed') return 'Model downloads finished with errors'
+  if (modelDownloadJob.value.status === 'cancelled') return 'Model download cancelled'
+  if (modelDownloadJob.value.status === 'cancelling') return 'Cancelling model download'
   return 'Downloading model weights'
 })
 
@@ -1030,8 +1411,13 @@ const downloadJobCounts = computed(() =>
 
 const downloadJobDetail = computed(() => {
   const active = downloadJobActiveRow.value
-  if (active) return `${active.name || active.modelId}: ${active.current || active.status}`
+  if (active) {
+    const bytes = downloadBytesLabel(active)
+    const current = active.current || active.status
+    return `${active.name || active.modelId}: ${modelProgressPercent(active.id)}% ${current}${bytes ? ` - ${bytes}` : ' - waiting for file progress'}`
+  }
   if (downloadJobFailed.value) return 'Check the model rows below for the failure details.'
+  if (modelDownloadJob.value?.status === 'cancelled') return 'Download was cancelled. Already completed model files were kept.'
   if (downloadJobTotal.value && downloadJobCompleted.value === downloadJobTotal.value) {
     return 'All selected models are downloaded.'
   }
@@ -1101,13 +1487,33 @@ const remoteWorkerSummary = computed(() => {
 })
 
 const aiSetupCommand = computed(() =>
-  aiSetupTarget.value === 'cpu'
-    ? 'pip install -r backend/requirements-tagger-cpu.txt'
-    : 'pip install -r backend/requirements-tagger.txt'
+  ({
+    cpu: 'nekobooru --install-ai --profile cpu',
+    'gpu-cu128': 'nekobooru --install-ai --profile gpu-cu128',
+    'gpu-cu126-legacy': 'nekobooru --install-ai --profile gpu-cu126-legacy',
+    remote: 'Configure remote/server AI worker below; no local CUDA wheels are installed.',
+    auto: 'nekobooru --install-ai --profile auto',
+  }[selectedAiRuntimeProfile.value] || 'nekobooru --install-ai --profile auto')
 )
 
+const effectiveTorch = computed(() => {
+  const remote = autoTagStatus.value.remote || {}
+  if (autoTagSettings.value.remoteEnabled && remote.reachable && remote.worker?.torch) {
+    return remote.worker.torch
+  }
+  return autoTagStatus.value.torch || {}
+})
+
+const effectiveOnnxReady = computed(() => {
+  const remote = autoTagStatus.value.remote || {}
+  if (autoTagSettings.value.remoteEnabled && remote.reachable && remote.worker?.onnx) {
+    return !!remote.worker.onnx.availableProviders?.length || !!remote.worker.onnx.available
+  }
+  return !!autoTagStatus.value.dependencies?.onnxruntime
+})
+
 const torchSummary = computed(() => {
-  const torch = autoTagStatus.value.torch || {}
+  const torch = effectiveTorch.value
   if (!torch.available) return 'Torch missing'
   if (!torch.cudaAvailable) return 'CPU only'
   const first = torch.devices?.[0]
@@ -1115,10 +1521,10 @@ const torchSummary = computed(() => {
 })
 
 const torchDeviceDetail = computed(() => {
-  const torch = autoTagStatus.value.torch || {}
+  const torch = effectiveTorch.value
   const qwen = autoTagStatus.value.qwenDevice || {}
   if (!torch.available) return 'Install torch before using Qwen, OCR, or Whisper.'
-  if (!torch.cudaAvailable) return 'CUDA is not available to this venv. Qwen will load on CPU unless you install a CUDA torch wheel.'
+  if (!torch.cudaAvailable) return 'CUDA is not available to the active AI runtime. Qwen will load on CPU unless you install a CUDA torch wheel or connect a GPU worker.'
   const devices = (torch.devices || [])
     .map((device) => `${device.name} ${device.totalMemoryGb} GB VRAM`)
     .join(', ')
@@ -1187,6 +1593,105 @@ async function loadStats() {
   }
 }
 
+async function loadRuntimeStatus() {
+  try {
+    const [status, profiles] = await Promise.all([
+      api.getRuntimeStatus(),
+      api.getAiRuntimeProfiles(),
+    ])
+    runtimeStatus.value = status || {}
+    aiRuntimeProfiles.value = profiles.profiles || []
+    aiRuntimeJob.value = profiles.installJob || aiRuntimeJob.value
+    aiRuntimeBusy.value = ['queued', 'running', 'cancelling'].includes(aiRuntimeJob.value?.status)
+    if (aiRuntimeBusy.value) startAiRuntimePolling()
+  } catch (e) {
+    aiRuntimeMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to load runtime status: ' + e.message,
+    }
+  }
+}
+
+async function startAiRuntimeInstall() {
+  aiRuntimeBusy.value = true
+  aiRuntimeMessage.value = {
+    show: true,
+    success: true,
+    message: 'Starting AI runtime install. Large CUDA wheels can take a while.',
+  }
+  try {
+    aiRuntimeJob.value = await api.installAiRuntime(selectedAiRuntimeProfile.value)
+    if (aiRuntimeJob.value?.status === 'completed') {
+      aiRuntimeBusy.value = false
+      aiRuntimeMessage.value = {
+        show: true,
+        success: true,
+        message: aiRuntimeJob.value.message || 'AI runtime is already installed.',
+      }
+      await Promise.all([loadRuntimeStatus(), refreshAutoTagStatus()])
+      return
+    }
+    startAiRuntimePolling()
+  } catch (e) {
+    aiRuntimeBusy.value = false
+    aiRuntimeMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to start AI runtime install: ' + e.message,
+    }
+  }
+}
+
+async function cancelAiRuntimeInstall() {
+  try {
+    aiRuntimeJob.value = await api.cancelAiRuntimeInstall()
+    aiRuntimeMessage.value = {
+      show: true,
+      success: false,
+      message: 'AI runtime install cancellation requested.',
+    }
+  } catch (e) {
+    aiRuntimeMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to cancel AI runtime install: ' + e.message,
+    }
+  }
+}
+
+function startAiRuntimePolling() {
+  if (aiRuntimePollTimer) clearInterval(aiRuntimePollTimer)
+  aiRuntimePollTimer = setInterval(async () => {
+    try {
+      aiRuntimeJob.value = await api.getAiRuntimeInstallJob()
+      aiRuntimeBusy.value = ['queued', 'running', 'cancelling'].includes(aiRuntimeJob.value?.status)
+      if (!aiRuntimeBusy.value) {
+        clearInterval(aiRuntimePollTimer)
+        aiRuntimePollTimer = null
+        const ok = aiRuntimeJob.value?.status === 'completed'
+        aiRuntimeMessage.value = {
+          show: true,
+          success: ok,
+          message: ok
+            ? 'AI runtime install completed.'
+            : `AI runtime install failed: ${aiRuntimeJob.value?.error || 'open installer output for details'}`,
+        }
+        await Promise.all([loadRuntimeStatus(), refreshAutoTagStatus()])
+      }
+    } catch (e) {
+      clearInterval(aiRuntimePollTimer)
+      aiRuntimePollTimer = null
+      aiRuntimeBusy.value = false
+      aiRuntimeMessage.value = {
+        show: true,
+        success: false,
+        message: 'Failed to poll AI runtime install: ' + e.message,
+      }
+    }
+  }, 1500)
+}
+
 function formatDate(isoString) {
   if (!isoString) return 'N/A'
   const date = new Date(isoString)
@@ -1199,12 +1704,122 @@ function formatDate(isoString) {
   })
 }
 
+function applyUpdateStatus(result) {
+  updateStatus.value = result || {}
+  const raw = updateStatus.value.settings || {}
+  updateSettings.value = {
+    owner: raw.owner || 'm0nnnna',
+    repo: raw.repo || 'NekoBooru',
+    channel: raw.channel || 'stable',
+    autoCheck: raw.autoCheck !== false,
+    autoDownload: raw.autoDownload === true,
+    includePrereleases: raw.includePrereleases === true,
+  }
+}
+
+async function loadUpdateStatus(auto = false) {
+  try {
+    applyUpdateStatus(await api.getUpdateStatus(auto))
+  } catch (e) {
+    updateMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to load update status: ' + e.message,
+    }
+  }
+}
+
+async function saveUpdateSettings() {
+  updateBusy.value = true
+  updateMessage.value.show = false
+  try {
+    applyUpdateStatus(await api.updateUpdateSettings({
+      ...updateSettings.value,
+      includePrereleases: updateSettings.value.channel === 'prerelease',
+    }))
+    updateMessage.value = {
+      show: true,
+      success: true,
+      message: 'Update settings saved.',
+    }
+  } catch (e) {
+    updateMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to save update settings: ' + e.message,
+    }
+  } finally {
+    updateBusy.value = false
+  }
+}
+
+async function checkForUpdates() {
+  updateBusy.value = true
+  updateMessage.value = {
+    show: true,
+    success: true,
+    message: 'Checking GitHub Releases...',
+  }
+  try {
+    applyUpdateStatus(await api.checkForUpdates())
+    const check = updateStatus.value.lastCheck || {}
+    updateMessage.value = {
+      show: true,
+      success: !check.error,
+      message: check.message || 'Update check completed.',
+    }
+  } catch (e) {
+    updateMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to check for updates: ' + e.message,
+    }
+  } finally {
+    updateBusy.value = false
+  }
+}
+
 async function loadSettings() {
   try {
     currentSettings.value = await api.getSettings()
     dataDir.value = currentSettings.value.data_dir || ''
+    serverSettings.value = {
+      host: currentSettings.value.host || '127.0.0.1',
+      port: currentSettings.value.port || 8772,
+      frontend_port: currentSettings.value.frontend_port || 5173,
+      cors_origins: currentSettings.value.cors_origins || '',
+    }
   } catch (e) {
     alert('Failed to load settings: ' + e.message)
+  }
+}
+
+async function saveServerSettings() {
+  savingServer.value = true
+  serverStatus.value.show = false
+  try {
+    const result = await api.updateServerSettings({
+      host: serverSettings.value.host,
+      port: Number(serverSettings.value.port || 8772),
+      frontend_port: Number(serverSettings.value.frontend_port || 5173),
+      cors_origins: serverSettings.value.cors_origins,
+    })
+    serverStatus.value = {
+      show: true,
+      success: true,
+      message: result.restartRequired
+        ? 'Server settings saved. Restart NekoBooru and the dev frontend to use new ports.'
+        : 'Server settings saved.',
+    }
+    await loadSettings()
+  } catch (e) {
+    serverStatus.value = {
+      show: true,
+      success: false,
+      message: 'Failed to save server settings: ' + e.message,
+    }
+  } finally {
+    savingServer.value = false
   }
 }
 
@@ -1479,6 +2094,35 @@ async function unloadAutoTagModelById(id) {
   }
 }
 
+async function deleteAutoTagModelById(id) {
+  const model = modelCatalog.value.find((row) => row.id === id)
+  if (!model?.downloaded) return
+  const confirmed = window.confirm(`Delete downloaded files for ${model.name}? You can download them again later.`)
+  if (!confirmed) return
+
+  modelDeleteBusy.value = true
+  try {
+    const result = await api.deleteAutoTagModelById(id)
+    modelCatalog.value = result.models || modelCatalog.value
+    autoTagStatus.value = await api.getAutoTagStatus()
+    modelStatusMessage.value = {
+      show: true,
+      success: true,
+      message: result.deleted
+        ? `${model.name} files deleted.`
+        : `${model.name} files were already absent.`,
+    }
+  } catch (e) {
+    modelStatusMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to delete model files: ' + e.message,
+    }
+  } finally {
+    modelDeleteBusy.value = false
+  }
+}
+
 async function waitForModelLoad() {
   for (let i = 0; i < 600; i += 1) {
     const job = await api.getAutoTagModelLoadJob()
@@ -1529,12 +2173,12 @@ function optimisticDownloadJob(ids, options = {}) {
 }
 
 async function pollModelDownloadOnce() {
-  const [job, modelsResult] = await Promise.all([
-    api.getAutoTagModelDownloadJob(),
-    api.getAutoTagModels(),
-  ])
+  const job = await api.getAutoTagModelDownloadJob()
   if (job) modelDownloadJob.value = job
-  modelCatalog.value = modelsResult.models || modelCatalog.value
+  if (!job || !['queued', 'running', 'cancelling'].includes(job.status)) {
+    const modelsResult = await api.getAutoTagModels()
+    modelCatalog.value = modelsResult.models || modelCatalog.value
+  }
 }
 
 function startModelDownloadPolling() {
@@ -1548,9 +2192,11 @@ function startModelDownloadPolling() {
         autoTagStatus.value = await api.getAutoTagStatus()
         modelStatusMessage.value = {
           show: true,
-          success: modelDownloadJob.value?.status === 'completed',
+          success: modelDownloadJob.value?.status === 'completed' || modelDownloadJob.value?.status === 'cancelled',
           message: modelDownloadJob.value?.status === 'completed'
             ? 'Model downloads completed.'
+            : modelDownloadJob.value?.status === 'cancelled'
+              ? 'Model download cancelled.'
             : 'One or more model downloads failed.',
         }
       }
@@ -1560,20 +2206,46 @@ function startModelDownloadPolling() {
   }, 1000)
 }
 
+async function cancelModelDownload() {
+  if (!modelDownloadRunning.value || modelDownloadCancelling.value) return
+  try {
+    modelDownloadJob.value = await api.cancelAutoTagModelDownloadJob()
+    startModelDownloadPolling()
+  } catch (e) {
+    modelStatusMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to cancel model download: ' + e.message,
+    }
+  }
+}
+
 function modelDownloadState(id) {
   return modelDownloadJob.value?.models?.[id] || null
+}
+
+function modelDownloadActiveFor(id) {
+  const state = modelDownloadState(id)
+  return !!state && ['queued', 'running', 'cancelling'].includes(state.status)
 }
 
 function modelProgressPercent(id) {
   const state = modelDownloadState(id)
   if (!state) return 0
   if (state.status === 'completed') return 100
-  if (!state.bytesTotal) {
-    if (state.status === 'running') return 18
-    if (state.status === 'queued') return 4
-    return 0
+  return Math.round(modelProgressFraction(state) * 100)
+}
+
+function modelProgressFraction(state) {
+  if (!state) return 0
+  if (['completed', 'skipped'].includes(state.status)) return 1
+  if (state.status === 'failed') return 0
+  if (state.bytesTotal) {
+    return Math.max(0.02, Math.min(0.99, Number(state.bytesDownloaded || 0) / Number(state.bytesTotal)))
   }
-  return Math.min(100, Math.round((state.bytesDownloaded / state.bytesTotal) * 100))
+  if (state.status === 'running' || state.status === 'cancelling') return 0.08
+  if (state.status === 'queued') return 0.02
+  return 0
 }
 
 function modelDownloadStateLabel(id) {
@@ -1581,6 +2253,8 @@ function modelDownloadStateLabel(id) {
   if (!state) return ''
   if (state.status === 'completed') return 'completed'
   if (state.status === 'running') return 'downloading'
+  if (state.status === 'cancelling') return 'cancelling'
+  if (state.status === 'cancelled') return 'cancelled'
   if (state.status === 'queued') return 'queued'
   if (state.status === 'failed') return 'failed'
   return state.status || ''
@@ -1588,6 +2262,10 @@ function modelDownloadStateLabel(id) {
 
 function modelDownloadBytes(id) {
   const state = modelDownloadState(id)
+  return downloadBytesLabel(state)
+}
+
+function downloadBytesLabel(state) {
   if (!state?.bytesTotal) return ''
   return `${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.bytesTotal)}`
 }
@@ -2107,6 +2785,17 @@ function startYtdlpPolling() {
   background: var(--bg-secondary);
 }
 
+.update-panel {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--bg-secondary);
+}
+
+.update-summary {
+  margin-top: 1rem;
+}
+
 .ytdlp-status-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2193,6 +2882,47 @@ function startYtdlpPolling() {
   background: var(--bg-primary);
   padding: 0.5rem;
   border-radius: 0.25rem;
+}
+
+.runtime-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.runtime-summary-grid > div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+}
+
+.runtime-summary-grid span {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.runtime-summary-grid strong {
+  color: var(--text-primary);
+}
+
+.runtime-summary-grid small {
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.runtime-details {
+  margin-top: 1rem;
+}
+
+.runtime-details summary {
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-bottom: 0.75rem;
 }
 
 /* Stats Section */
@@ -2432,6 +3162,18 @@ function startYtdlpPolling() {
   line-height: 1.35;
 }
 
+.radio-row em {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-style: normal;
+}
+
+.ai-profile-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
 .ai-setup-command {
   display: flex;
   align-items: center;
@@ -2569,8 +3311,20 @@ function startYtdlpPolling() {
 }
 
 .field-row input,
-.field-row select {
+.field-row select,
+.field-row textarea {
   width: 100%;
+}
+
+.cors-field {
+  margin-top: 0.75rem;
+}
+
+.cors-field textarea {
+  min-height: 76px;
+  resize: vertical;
+  font-family: 'Courier New', monospace;
+  font-size: 0.84rem;
 }
 
 .runtime-card {

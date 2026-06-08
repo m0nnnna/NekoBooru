@@ -2,6 +2,10 @@
 """Production server launcher for NekoBooru."""
 
 import uvicorn
+from app.ai_runtime_link import link_ai_runtime
+
+link_ai_runtime()
+
 from app.config import settings
 
 if __name__ == "__main__":
@@ -19,4 +23,5 @@ if __name__ == "__main__":
         port=settings.port,
         reload=False,  # No reload in production
         log_level="info",
+        access_log=False,
     )

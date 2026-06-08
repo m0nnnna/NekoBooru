@@ -208,25 +208,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const filename = msg.filename || filenameFromUrl(msg.url, response.headers.get('content-type') || '')
         const mime = msg.mime || blob.type || response.headers.get('content-type') || mediaMimeFromFilename(filename)
         const dataUrl = await blobToDataUrl(blob)
-        chrome.tabs.sendMessage(
-          tabId,
-          {
-            type: 'nekobooru-paste-media-file',
-            filename,
-            mime,
-            dataUrl,
-            size: blob.size,
-          },
-          { frameId: Number.isInteger(msg.frameId) ? msg.frameId : 0 },
-          (result) => {
-            const error = chrome.runtime.lastError
-            if (error) {
-              sendResponse({ ok: false, error: error.message })
-              return
-            }
-            sendResponse(result || { ok: false, error: 'No paste response from page.' })
-          },
-        )
+        const result = await sendPasteMediaMessage(tabId, Number.isInteger(msg.frameId) ? msg.frameId : 0, {
+          type: 'nekobooru-paste-media-file',
+          filename,
+          mime,
+          dataUrl,
+          size: blob.size,
+        })
+        sendResponse(result)
       } catch (e) {
         sendResponse({ ok: false, error: e.message || String(e) })
       }
@@ -234,6 +223,62 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 })
+
+async function sendPasteMediaMessage(tabId, frameId, payload) {
+  const first = await sendMessageToFrame(tabId, frameId, payload)
+  if (first.ok || !isMissingContentScriptError(first.error)) return first
+
+  const injected = await injectPasteContentScript(tabId, frameId)
+  if (!injected.ok) return injected
+
+  const retry = await sendMessageToFrame(tabId, frameId, payload)
+  if (retry.ok) return retry
+  return {
+    ok: false,
+    error: retry.error || 'Paste helper injected, but the page did not answer.',
+  }
+}
+
+function sendMessageToFrame(tabId, frameId, payload) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, payload, { frameId }, (result) => {
+      const error = chrome.runtime.lastError
+      if (error) {
+        resolve({ ok: false, error: error.message || 'Could not reach page paste helper.' })
+        return
+      }
+      resolve(result || { ok: false, error: 'No paste response from page.' })
+    })
+  })
+}
+
+function injectPasteContentScript(tabId, frameId) {
+  return new Promise((resolve) => {
+    if (!chrome.scripting?.executeScript) {
+      resolve({ ok: false, error: 'Paste helper is not available until the target tab is reloaded.' })
+      return
+    }
+    chrome.scripting.executeScript(
+      {
+        target: { tabId, frameIds: [frameId] },
+        files: ['track-cursor.js'],
+      },
+      () => {
+        const error = chrome.runtime.lastError
+        if (error) {
+          resolve({ ok: false, error: error.message || 'Could not inject paste helper into the target tab.' })
+          return
+        }
+        resolve({ ok: true })
+      },
+    )
+  })
+}
+
+function isMissingContentScriptError(message = '') {
+  const lower = String(message).toLowerCase()
+  return lower.includes('receiving end does not exist') || lower.includes('could not establish connection')
+}
 
 function filenameFromUrl(raw, mime = '') {
   try {

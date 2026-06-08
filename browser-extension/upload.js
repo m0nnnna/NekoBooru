@@ -95,6 +95,8 @@ const els = {
   suggestions: document.getElementById('suggestions'),
   safety: document.getElementById('safety'),
   includeSource: document.getElementById('include-source'),
+  includeTweetTag: document.getElementById('include-tweet-tag'),
+  includeMediaUrl: document.getElementById('include-media-url'),
   aiTag: document.getElementById('ai-tag'),
   aiProfileButtons: Array.from(document.querySelectorAll('[data-ai-profile]')),
   submit: document.getElementById('submit'),
@@ -144,7 +146,13 @@ class DuplicatePostError extends Error {
 init()
 
 async function init() {
-  const stored = await chrome.storage.sync.get(['instanceUrl', 'lastSafety'])
+  const stored = await chrome.storage.sync.get([
+    'instanceUrl',
+    'lastSafety',
+    'saveTweetTag',
+    'saveSourcePageUrl',
+    'saveMediaUrl',
+  ])
   instanceUrl = (stored.instanceUrl || '').replace(/\/+$/, '')
 
   if (!instanceUrl) {
@@ -156,6 +164,9 @@ async function init() {
   els.formWrap.classList.remove('hidden')
 
   if (stored.lastSafety) els.safety.value = stored.lastSafety
+  els.includeTweetTag.checked = stored.saveTweetTag !== false
+  els.includeSource.checked = stored.saveSourcePageUrl !== false
+  els.includeMediaUrl.checked = stored.saveMediaUrl === true
 
   // AI controls stay hidden until the server reports auto-tagging is enabled.
   // loadAutoTagControls() flips this on once it fetches status.
@@ -544,6 +555,11 @@ function onTagKeydown(e) {
 function parseTags() {
   // Fold any half-typed tag still sitting in the input into the pill list.
   commitInput()
+  const tweetTag = twitterPostTag()
+  if (els.includeTweetTag.checked && tweetTag && !tags.includes(tweetTag)) {
+    tags.push(tweetTag)
+    renderPills()
+  }
   return [...tags]
 }
 
@@ -603,6 +619,16 @@ function tweetIdFromUrl(raw) {
   }
 }
 
+function twitterPostTag() {
+  return xTweetId ? `twitter_${xTweetId}` : ''
+}
+
+function selectedSourceUrl() {
+  if (els.includeSource.checked && pageUrl) return pageUrl
+  if (els.includeMediaUrl.checked && srcUrl) return srcUrl
+  return ''
+}
+
 function getXCookiePermissionSpec() {
   return {
     permissions: ['cookies'],
@@ -648,10 +674,7 @@ async function doUpload() {
 
     setStatus('Uploaded to NekoBooru.', 'success')
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
-    // Upload succeeded: close the popup so it doesn't linger. It only stays
-    // open on failure (or a duplicate, handled below) so the user can react.
-    // A short delay lets the success notification register before we close.
-    setTimeout(() => window.close(), 300)
+    convertUploadButtonToPostLink(post)
   } catch (e) {
     if (e instanceof DuplicatePostError) {
       const post = e.post || { id: e.postId }
@@ -684,7 +707,8 @@ async function createPostFromPopup(options = {}) {
     tags: parseTags(),
   }
   if (Object.prototype.hasOwnProperty.call(options, 'autoTag')) body.autoTag = options.autoTag
-  if (els.includeSource.checked && pageUrl) body.source = pageUrl
+  const source = selectedSourceUrl()
+  if (source) body.source = source
 
   const res = await fetch(`${instanceUrl}/api/posts`, {
     method: 'POST',
@@ -712,7 +736,8 @@ async function updateCreatedPost() {
     safety: els.safety.value,
     tags: parseTags(),
   }
-  if (els.includeSource.checked && pageUrl) body.source = pageUrl
+  const source = selectedSourceUrl()
+  if (source) body.source = source
   const res = await fetch(`${instanceUrl}/api/posts/${createdPost.id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

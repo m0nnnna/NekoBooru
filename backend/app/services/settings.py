@@ -19,7 +19,7 @@ class SettingsManager:
         """Load settings from config file."""
         if self.config_file.exists():
             try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
+                with open(self.config_file, 'r', encoding='utf-8-sig') as f:
                     return json.load(f)
             except Exception as e:
                 logger.error(f"Failed to load settings: {e}")
@@ -66,6 +66,28 @@ class SettingsManager:
         """Persist yt-dlp update settings without disturbing other settings."""
         settings = self.load_settings()
         settings["ytdlp"] = ytdlp
+        self.save_settings(settings)
+
+    def get_update_settings(self) -> dict:
+        """Get persisted app update settings."""
+        settings = self.load_settings()
+        return dict(settings.get("updates") or {})
+
+    def set_update_settings(self, updates: dict) -> None:
+        """Persist app update settings without disturbing other settings."""
+        settings = self.load_settings()
+        settings["updates"] = updates
+        self.save_settings(settings)
+
+    def get_server_settings(self) -> dict:
+        """Get persisted server bind/CORS settings."""
+        settings = self.load_settings()
+        return dict(settings.get("server") or {})
+
+    def set_server_settings(self, server: dict) -> None:
+        """Persist server bind/CORS settings without disturbing other settings."""
+        settings = self.load_settings()
+        settings["server"] = server
         self.save_settings(settings)
 
     def get_huggingface_token(self) -> Optional[str]:

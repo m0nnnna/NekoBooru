@@ -1,4 +1,7 @@
 const instanceInput = document.getElementById('instance')
+const saveTweetTagInput = document.getElementById('save-tweet-tag')
+const saveSourcePageUrlInput = document.getElementById('save-source-page-url')
+const saveMediaUrlInput = document.getElementById('save-media-url')
 const saveBtn = document.getElementById('save')
 const testBtn = document.getElementById('test')
 const status = document.getElementById('status')
@@ -6,8 +9,16 @@ const status = document.getElementById('status')
 init()
 
 async function init() {
-  const stored = await chrome.storage.sync.get('instanceUrl')
+  const stored = await chrome.storage.sync.get([
+    'instanceUrl',
+    'saveTweetTag',
+    'saveSourcePageUrl',
+    'saveMediaUrl',
+  ])
   if (stored.instanceUrl) instanceInput.value = stored.instanceUrl
+  saveTweetTagInput.checked = stored.saveTweetTag !== false
+  saveSourcePageUrlInput.checked = stored.saveSourcePageUrl !== false
+  saveMediaUrlInput.checked = stored.saveMediaUrl === true
 
   saveBtn.addEventListener('click', save)
   testBtn.addEventListener('click', testConnection)
@@ -33,7 +44,12 @@ async function save() {
     setStatus('URL must start with http:// or https://', 'error')
     return
   }
-  await chrome.storage.sync.set({ instanceUrl: url })
+  await chrome.storage.sync.set({
+    instanceUrl: url,
+    saveTweetTag: saveTweetTagInput.checked,
+    saveSourcePageUrl: saveSourcePageUrlInput.checked,
+    saveMediaUrl: saveMediaUrlInput.checked,
+  })
   setStatus('Saved! You can now right-click images to upload them.', 'success')
 }
 

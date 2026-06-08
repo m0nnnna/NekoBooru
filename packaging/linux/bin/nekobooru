@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ -n "${NEKO_APP_DIR:-}" ]; then
+  APP_DIR="$NEKO_APP_DIR"
+elif [ -d "/app/opt/nekobooru" ]; then
+  APP_DIR="/app/opt/nekobooru"
+else
+  APP_DIR="/opt/nekobooru"
+fi
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+CORE_VENV="$DATA_HOME/nekobooru/runtimes/python-core"
+AI_VENV="$DATA_HOME/nekobooru/runtimes/python-ai"
+LOG_DIR="$STATE_HOME/nekobooru/logs"
+CORE_RECEIPT="$CORE_VENV/.nekobooru-core-runtime.json"
+
+mkdir -p "$LOG_DIR" "$(dirname "$CORE_VENV")"
+
+select_python() {
+  local python_bin="${NEKO_CORE_PYTHON:-${NEKO_PYTHON:-}}"
+  if [ -z "$python_bin" ]; then
+    python_bin="$(command -v python3 || command -v python || true)"
+  fi
+  [ -n "$python_bin" ] || { echo "Python 3.10+ not found in PATH." >&2; exit 1; }
+  python_bin="$("$python_bin" -c "import sys; print(sys.executable)" 2>/dev/null || echo "$python_bin")"
+  "$python_bin" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" \
+    || { echo "Python 3.10+ is required. Selected: $python_bin" >&2; exit 1; }
+  echo "$python_bin"
+}
+
+receipt_value() {
+  local key="$1"
+  [ -f "$CORE_RECEIPT" ] || return 1
+  "$SELECTED_PYTHON" - "$CORE_RECEIPT" "$key" <<'PY' 2>/dev/null
+import json
+import sys
+from pathlib import Path
+
+try:
+    data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+value = data.get(sys.argv[2])
+if value is None:
+    raise SystemExit(1)
+print(value)
+PY
+}
+
+write_core_receipt() {
+  "$CORE_VENV/bin/python" - "$CORE_RECEIPT" "$SELECTED_PYTHON" "$CORE_VENV/bin/python" "$APP_DIR/backend/requirements.txt" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = {
+    "kind": "nekobooru-core-runtime",
+    "schema": 1,
+    "pythonExecutable": sys.argv[2],
+    "venvPython": sys.argv[3],
+    "pythonVersion": sys.version.split()[0],
+    "requirements": sys.argv[4],
+    "installedAt": datetime.now(timezone.utc).isoformat(),
+}
+path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+}
+
+SELECTED_PYTHON="$(select_python)"
+if [ -x "$CORE_VENV/bin/python" ]; then
+  RECORDED_PYTHON="$(receipt_value pythonExecutable || true)"
+  if [ -n "$RECORDED_PYTHON" ] && [ "$RECORDED_PYTHON" != "$SELECTED_PYTHON" ]; then
+    echo "Core runtime was created with a different Python; rebuilding $CORE_VENV." >&2
+    rm -rf "$CORE_VENV"
+  fi
+fi
+
+if [ ! -x "$CORE_VENV/bin/python" ]; then
+  "$SELECTED_PYTHON" -m venv "$CORE_VENV"
+fi
+
+if [ ! -f "$CORE_RECEIPT" ] || [ "$APP_DIR/backend/requirements.txt" -nt "$CORE_RECEIPT" ]; then
+  "$CORE_VENV/bin/python" -m pip install --upgrade pip >"$LOG_DIR/core-runtime-install.log" 2>&1
+  "$CORE_VENV/bin/python" -m pip install -r "$APP_DIR/backend/requirements.txt" >>"$LOG_DIR/core-runtime-install.log" 2>&1
+  write_core_receipt
+fi
+
+export NEKO_PACKAGED=1
+export NEKO_APP_DIR="$APP_DIR"
+export NEKO_CORE_VENV="$CORE_VENV"
+export NEKO_CORE_PYTHON="$CORE_VENV/bin/python"
+export NEKO_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nekobooru"
+export NEKO_DATA_DIR="$DATA_HOME/nekobooru"
+export NEKO_LOGS_DIR="$LOG_DIR"
+export NEKO_MODELS_DIR="$DATA_HOME/nekobooru/models"
+export NEKO_RUNTIMES_DIR="$DATA_HOME/nekobooru/runtimes"
+export NEKO_AI_VENV="$AI_VENV"
+export NEKO_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/nekobooru"
+
+cd "$APP_DIR/backend"
+exec "$CORE_VENV/bin/python" run_prod.py "$@"

@@ -22,11 +22,13 @@
 #   ./install-ai.sh --cpu      # force CPU-only
 #   ./install-ai.sh --force    # reinstall even if already correct
 #   ./install-ai.sh --venv=/path/to/venv
+#   ./install-ai.sh --python=/path/to/python3
+#   ./install-ai.sh --receipt=/path/to/receipt.json
 #
 set -uo pipefail
 cd "$(dirname "$0")"
 
-CPU=0; LEGACY=0; GPU=0; FORCE=0; VENV="venv"
+CPU=0; LEGACY=0; GPU=0; FORCE=0; VENV="${NEKO_AI_VENV:-venv}"; RECEIPT=""; PYTHON_BIN="${NEKO_AI_PYTHON:-${NEKO_PYTHON:-}}"
 for arg in "$@"; do
   case "$arg" in
     --cpu)     CPU=1 ;;
@@ -34,6 +36,8 @@ for arg in "$@"; do
     --gpu)     GPU=1 ;;
     --force)   FORCE=1 ;;
     --venv=*)  VENV="${arg#*=}" ;;
+    --python=*) PYTHON_BIN="${arg#*=}" ;;
+    --receipt=*) RECEIPT="${arg#*=}" ;;
     -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
@@ -42,9 +46,76 @@ if [ $((CPU + LEGACY + GPU)) -gt 1 ]; then
   echo "Pick at most one of --cpu / --legacy / --gpu." >&2; exit 2
 fi
 
-PY="$(command -v python3 || command -v python || true)"
+PY="${PYTHON_BIN:-$(command -v python3 || command -v python || true)}"
 [ -n "$PY" ] || { echo "Python 3 not found in PATH. Install Python 3.10+ first." >&2; exit 1; }
+PY="$("$PY" -c "import sys; print(sys.executable)" 2>/dev/null || echo "$PY")"
+"$PY" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" \
+  || { echo "Python 3.10+ is required for the AI runtime. Selected: $PY" >&2; exit 1; }
 
+if [ -z "$RECEIPT" ]; then
+  RECEIPT="$VENV/.nekobooru-ai-runtime.json"
+fi
+
+receipt_value() {
+  local key="$1"
+  [ -f "$RECEIPT" ] || return 1
+  "$PY" - "$RECEIPT" "$key" <<'PY' 2>/dev/null
+import json
+import sys
+from pathlib import Path
+
+try:
+    data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+value = data.get(sys.argv[2])
+if value is None:
+    raise SystemExit(1)
+print(value)
+PY
+}
+
+write_receipt() {
+  local target="$1"
+  local variant="$2"
+  local class="$3"
+  local req="$4"
+  mkdir -p "$(dirname "$RECEIPT")"
+  "$VPY" - "$RECEIPT" "$PY" "$VPY" "$target" "$variant" "$class" "$req" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = {
+    "kind": "nekobooru-ai-runtime",
+    "schema": 1,
+    "pythonExecutable": sys.argv[2],
+    "venvPython": sys.argv[3],
+    "pythonVersion": sys.version.split()[0],
+    "target": sys.argv[4],
+    "torchVariant": sys.argv[5],
+    "torchClass": sys.argv[6],
+    "requirements": sys.argv[7],
+    "installedAt": datetime.now(timezone.utc).isoformat(),
+}
+path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+}
+
+if [ -x "$VENV/bin/python" ] && [ "$FORCE" -eq 0 ]; then
+  RECORDED_PY="$(receipt_value pythonExecutable || true)"
+  if [ -n "$RECORDED_PY" ] && [ "$RECORDED_PY" != "$PY" ]; then
+    echo "AI venv was created with a different Python:"
+    echo "  recorded: $RECORDED_PY"
+    echo "  selected: $PY"
+    echo "Recreating $VENV so PyTorch/CUDA wheels link to the selected interpreter."
+    rm -rf "$VENV"
+  fi
+fi
+
+mkdir -p "$(dirname "$VENV")"
 if [ ! -x "$VENV/bin/python" ]; then
   echo "Creating virtual environment at $VENV ..."
   "$PY" -m venv "$VENV"
@@ -113,6 +184,16 @@ echo "Installed torch: $VARIANT (class: $CLASS) | target: $TARGET"
 NEED=0
 [ "$FORCE" -eq 1 ] && NEED=1
 [ "$CLASS" != "$TARGET" ] && NEED=1
+if [ ! -f "$RECEIPT" ]; then
+  echo "No NekoBooru AI runtime receipt found; validating by reinstalling the selected stack once."
+  NEED=1
+else
+  RECEIPT_TARGET="$(receipt_value target || true)"
+  if [ -n "$RECEIPT_TARGET" ] && [ "$RECEIPT_TARGET" != "$TARGET" ]; then
+    echo "AI runtime receipt target is [$RECEIPT_TARGET], selected target is [$TARGET]; reinstalling."
+    NEED=1
+  fi
+fi
 if [ "$NEED" -eq 0 ] && [ "$TARGET" != "cpu" ]; then
   if ! cuda_kernel_ok; then
     echo "Installed $VARIANT torch can't run a CUDA kernel on this GPU; will reinstall."
@@ -153,6 +234,9 @@ echo
 echo "Verifying install ..."
 "$VPY" -c "import torch, onnxruntime as ort; print('torch', torch.__version__, '| cuda', torch.cuda.is_available()); print('onnxruntime', ort.__version__, '| providers', ort.get_available_providers())" \
   || { echo "Verification failed: torch/onnxruntime not importable in $VENV." >&2; exit 1; }
+FINAL_VARIANT="$(installed_variant)"
+FINAL_CLASS="$(class_of "$FINAL_VARIANT")"
+write_receipt "$TARGET" "$FINAL_VARIANT" "$FINAL_CLASS" "$(req_file "$TARGET")"
 
 echo
 echo "AI auto-tagging stack ready in $VENV (target: $TARGET)."

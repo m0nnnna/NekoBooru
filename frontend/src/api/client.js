@@ -68,6 +68,13 @@ export const api = {
     })
   },
 
+  async bulkUpdatePosts(data) {
+    return request('/posts/bulk-update', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
   async toggleFavorite(id) {
     return request(`/posts/${id}/favorite`, { method: 'POST' })
   },
@@ -167,12 +174,20 @@ export const api = {
     return request('/auto-tags/models/download-job')
   },
 
+  async cancelAutoTagModelDownloadJob() {
+    return request('/auto-tags/models/download-job/cancel', { method: 'POST' })
+  },
+
   async loadAutoTagModelById(id) {
     return request(`/auto-tags/models/${encodeURIComponent(id)}/load`, { method: 'POST' })
   },
 
   async unloadAutoTagModelById(id) {
     return request(`/auto-tags/models/${encodeURIComponent(id)}/unload`, { method: 'POST' })
+  },
+
+  async deleteAutoTagModelById(id) {
+    return request(`/auto-tags/models/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   async getAutoTagModelLoadJob() {
@@ -239,8 +254,10 @@ export const api = {
     return request(`/tags${query ? `?${query}` : ''}`)
   },
 
-  async autocomplete(q) {
-    return request(`/tags/autocomplete?q=${encodeURIComponent(q)}`)
+  async autocomplete(q, options = {}) {
+    const params = new URLSearchParams({ q })
+    if (options.nameParts) params.set('nameParts', 'true')
+    return request(`/tags/autocomplete?${params.toString()}`)
   },
 
   async getTag(name) {
@@ -410,6 +427,13 @@ export const api = {
     })
   },
 
+  async updateServerSettings(data) {
+    return request('/settings/server', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
   async migrateData(dataDir) {
     return request('/settings/migrate', {
       method: 'POST',
@@ -448,6 +472,46 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ target }),
     })
+  },
+
+  // Runtime / packaging
+  async getRuntimeStatus() {
+    return request('/runtime/status')
+  },
+
+  async getAiRuntimeProfiles() {
+    return request('/runtime/ai/profiles')
+  },
+
+  async installAiRuntime(profile = 'auto', force = false) {
+    return request('/runtime/ai/install', {
+      method: 'POST',
+      body: JSON.stringify({ profile, force }),
+    })
+  },
+
+  async getAiRuntimeInstallJob() {
+    return request('/runtime/ai/install-job')
+  },
+
+  async cancelAiRuntimeInstall() {
+    return request('/runtime/ai/cancel-install', { method: 'POST' })
+  },
+
+  // App updates
+  async getUpdateStatus(auto = false) {
+    return request(`/updates/status${auto ? '?auto=true' : ''}`)
+  },
+
+  async updateUpdateSettings(data) {
+    return request('/updates/settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async checkForUpdates() {
+    return request('/updates/check', { method: 'POST' })
   },
 }
 

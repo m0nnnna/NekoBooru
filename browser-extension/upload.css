@@ -662,9 +662,21 @@ select:focus {
   margin-bottom: 0.75rem;
 }
 
+.picker-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: start;
+  margin-bottom: 0.6rem;
+}
+
 .tag-input-wrap {
   position: relative;
-  margin-bottom: 0.6rem;
+}
+
+.picker-search-row .btn {
+  min-height: 42px;
+  padding-inline: 0.9rem;
 }
 
 .picker-filters {

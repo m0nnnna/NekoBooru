@@ -224,11 +224,11 @@ per-image latency, throughput, and projected times for bulk runs. Use
 > option above (CUDA 12.6 wheels, which still include `sm_61`). Maxwell cards (GTX 9-series,
 > `sm_50/52`) aren't in CUDA 12.6 either — use the CPU stack there.
 
-> **Note:** the AI stack only works from a source checkout. The shipped Windows
-> `nekobooru.exe` excludes torch/onnxruntime/transformers and cannot load them,
-> so run the app from source (`start.bat`) on any machine that does tagging —
-> including a [remote GPU worker](#remote-gpu-worker-run-inference-on-another-machine)
-> (`start-worker.bat`).
+> **Packaged Windows note:** the shipped Windows `nekobooru.exe` still keeps
+> torch/onnxruntime/transformers out of the main frozen process, but the
+> installer can create a managed local AI worker venv. Local AI requests are
+> forwarded to that worker, while source checkouts can still run AI directly or
+> through a [remote GPU worker](#remote-gpu-worker-run-inference-on-another-machine).
 
 ### Remote GPU worker (run inference on another machine)
 If your GPU is on a different LAN machine, keep the main server light and offload tagging to a **worker**:

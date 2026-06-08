@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 
 from .config import settings, get_bundle_dir
 from .database import init_db
-from .routers import uploads, posts, tags, pools, notes, comments, sync, auto_tags, settings as settings_router
+from .routers import uploads, posts, tags, pools, notes, comments, sync, auto_tags, runtime, updates, settings as settings_router
 
 # Configure logging
 logging.basicConfig(
@@ -59,6 +59,8 @@ app.include_router(notes.router)
 app.include_router(comments.router)
 app.include_router(sync.router)
 app.include_router(auto_tags.router)
+app.include_router(runtime.router)
+app.include_router(updates.router)
 app.include_router(settings_router.router)
 
 
@@ -107,6 +109,8 @@ async def debug_paths():
         "bundle_dir": str(bundle_dir.resolve()),
         "base_dir": str(settings.base_dir.resolve()),
         "data_dir": str(settings.data_dir),
+        "config_dir": str(settings.config_dir),
+        "logs_dir": str(settings.logs_dir),
         "frontend_found": frontend_dist is not None,
         "frontend_path": str(frontend_dist.resolve()) if frontend_dist else None,
     }

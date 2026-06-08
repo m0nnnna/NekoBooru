@@ -1,7 +1,7 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -85,14 +85,33 @@ async def list_tags(
 async def autocomplete_tags(
     q: str = Query(..., min_length=1),
     limit: int = Query(10, ge=1, le=50),
+    name_parts: bool = Query(False, alias="nameParts"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get tag suggestions for autocomplete."""
+    needle = q.lower()
+    name = func.lower(Tag.name)
+    if name_parts:
+        match_condition = Tag.name.ilike(f"%{q}%")
+        rank = case(
+            (name.like(f"%_{needle}"), 0),
+            (name.like(f"%_{needle}_%"), 1),
+            (name.like(f"{needle}_%"), 2),
+            (name == needle, 3),
+            else_=4,
+        )
+    else:
+        match_condition = Tag.name.ilike(f"{q}%")
+        rank = case(
+            (name == needle, 0),
+            else_=1,
+        )
+
     stmt = (
         select(Tag)
         .options(selectinload(Tag.category))
-        .where(Tag.name.ilike(f"{q}%"))
-        .order_by(Tag.usage_count.desc())
+        .where(match_condition)
+        .order_by(rank.asc(), Tag.usage_count.desc(), Tag.name.asc())
         .limit(limit)
     )
 

@@ -6,6 +6,7 @@ __pycache__/
 .venv/
 venv/
 env/
+build-venv/
 
 # Node
 node_modules/

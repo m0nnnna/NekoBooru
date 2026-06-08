@@ -8,6 +8,8 @@
       @keydown.down.prevent="onArrowDown"
       @keydown.up.prevent="onArrowUp"
       @input="onInput"
+      @focus="inputFocused = true"
+      @blur="inputFocused = false"
     />
     <ul v-if="suggestions.length > 0" class="suggestions">
       <li
@@ -36,7 +38,11 @@ const tagsStore = useTagsStore()
 const searchQuery = ref('')
 const suggestions = ref([])
 const selectedIndex = ref(-1)
+const inputFocused = ref(false)
+const SEARCH_PREDICTION_KEY = 'nekobooru.searchPredictionEnabled'
+const NAME_PART_AUTOCOMPLETE_KEY = 'nekobooru.namePartAutocompleteEnabled'
 let debounceTimer = null
+let predictedRouteQuery = ''
 
 function onInput() {
   clearTimeout(debounceTimer)
@@ -44,13 +50,20 @@ function onInput() {
     const words = searchQuery.value.split(' ')
     const lastWord = words[words.length - 1]
     if (lastWord && lastWord.length >= 1) {
-      suggestions.value = await tagsStore.autocomplete(lastWord.replace('-', ''))
+      suggestions.value = await tagsStore.autocomplete(lastWord.replace('-', ''), autocompleteOptions())
       selectedIndex.value = -1
+      applyAutomaticPrediction()
     } else {
       suggestions.value = []
       selectedIndex.value = -1
     }
   }, 150)
+}
+
+function autocompleteOptions() {
+  return {
+    nameParts: localStorage.getItem(NAME_PART_AUTOCOMPLETE_KEY) === 'true',
+  }
 }
 
 function selectTag(tag) {
@@ -78,11 +91,32 @@ function onArrowUp() {
 }
 
 function onEnter() {
-  if (suggestions.value.length > 0 && selectedIndex.value >= 0) {
-    selectTag(suggestions.value[selectedIndex.value])
+  if (suggestions.value.length > 0) {
+    const index = selectedIndex.value >= 0 ? selectedIndex.value : 0
+    selectTag(suggestions.value[index])
   } else {
     search()
   }
+}
+
+function applyAutomaticPrediction() {
+  const query = predictedSearchQuery()
+  if (!query || query === (router.currentRoute.value.query.q || '')) return
+  predictedRouteQuery = query
+  router.push({ path: '/', query: { q: query } })
+}
+
+function predictedSearchQuery() {
+  if (localStorage.getItem(SEARCH_PREDICTION_KEY) !== 'true') return ''
+  const top = suggestions.value[0]
+  if (!top?.name) return ''
+  const words = searchQuery.value.trimEnd().split(/\s+/)
+  const lastWord = words[words.length - 1] || ''
+  const plainWord = lastWord.startsWith('-') ? lastWord.slice(1) : lastWord
+  if (!plainWord) return ''
+  if (plainWord.includes(':') && top.name !== plainWord) return ''
+  words[words.length - 1] = lastWord.startsWith('-') ? `-${top.name}` : top.name
+  return words.join(' ').trim()
 }
 
 function search() {
@@ -94,6 +128,7 @@ function search() {
 watch(
   () => router.currentRoute.value.query.q,
   (q) => {
+    if (inputFocused.value && q === predictedRouteQuery) return
     if (q !== undefined) {
       searchQuery.value = q
     }

@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ -n "${NEKO_APP_DIR:-}" ]; then
+  APP_DIR="$NEKO_APP_DIR"
+elif [ -d "/app/opt/nekobooru" ]; then
+  APP_DIR="/app/opt/nekobooru"
+else
+  APP_DIR="/opt/nekobooru"
+fi
+CORE_VENV="${XDG_DATA_HOME:-$HOME/.local/share}/nekobooru/runtimes/python-core"
+AI_VENV="${XDG_DATA_HOME:-$HOME/.local/share}/nekobooru/runtimes/python-ai"
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/nekobooru/logs"
+CORE_RECEIPT="$CORE_VENV/.nekobooru-core-runtime.json"
+mkdir -p "$LOG_DIR" "$(dirname "$CORE_VENV")"
+
+select_python() {
+  local python_bin="${NEKO_CORE_PYTHON:-${NEKO_PYTHON:-}}"
+  if [ -z "$python_bin" ]; then
+    python_bin="$(command -v python3 || command -v python || true)"
+  fi
+  [ -n "$python_bin" ] || { echo "Python 3.10+ not found in PATH." >&2; exit 1; }
+  python_bin="$("$python_bin" -c "import sys; print(sys.executable)" 2>/dev/null || echo "$python_bin")"
+  "$python_bin" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" \
+    || { echo "Python 3.10+ is required. Selected: $python_bin" >&2; exit 1; }
+  echo "$python_bin"
+}
+
+write_core_receipt() {
+  "$CORE_VENV/bin/python" - "$CORE_RECEIPT" "$SELECTED_PYTHON" "$CORE_VENV/bin/python" "$APP_DIR/backend/requirements.txt" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+Path(sys.argv[1]).write_text(json.dumps({
+    "kind": "nekobooru-core-runtime",
+    "schema": 1,
+    "pythonExecutable": sys.argv[2],
+    "venvPython": sys.argv[3],
+    "pythonVersion": sys.version.split()[0],
+    "requirements": sys.argv[4],
+    "installedAt": datetime.now(timezone.utc).isoformat(),
+}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+}
+
+SELECTED_PYTHON="$(select_python)"
+echo "Repairing NekoBooru core runtime..."
+"$SELECTED_PYTHON" -m venv --clear "$CORE_VENV"
+"$CORE_VENV/bin/python" -m pip install --upgrade pip >/dev/null
+"$CORE_VENV/bin/python" -m pip install -r "$APP_DIR/backend/requirements.txt" >"$LOG_DIR/repair-core.log" 2>&1
+write_core_receipt
+
+if [ "${1:-}" = "--ai" ] && [ -x "$APP_DIR/install-ai.sh" ]; then
+  echo "Repairing selected AI runtime..."
+  "$APP_DIR/install-ai.sh" --force "--venv=$AI_VENV" "--python=${NEKO_AI_PYTHON:-$SELECTED_PYTHON}" "--receipt=$AI_VENV/.nekobooru-ai-runtime.json" "${@:2}" >"$LOG_DIR/repair-ai.log" 2>&1
+fi
+
+if [ -x "$APP_DIR/browser-extension/native-host/install-native-host.sh" ]; then
+  echo "Repairing browser native host registration..."
+  "$APP_DIR/browser-extension/native-host/install-native-host.sh" >"$LOG_DIR/repair-native-host.log" 2>&1 || true
+fi
+
+echo "Repair complete."
+echo "Logs: $LOG_DIR"
+echo "Core venv: $CORE_VENV"
+echo "AI venv: $AI_VENV"
