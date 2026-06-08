@@ -108,34 +108,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, h } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '../api/client'
-
-// Tiny inline stacked-bar component for breakdowns.
-const BreakdownBar = {
-  props: { items: { type: Array, default: () => [] } },
-  setup(props) {
-    return () => {
-      const total = props.items.reduce((s, i) => s + i.value, 0) || 1
-      return h('div', { class: 'breakdown' }, [
-        h('div', { class: 'breakdown-track' },
-          props.items.filter(i => i.value > 0).map(i =>
-            h('div', {
-              class: 'breakdown-seg',
-              style: { width: `${(i.value / total) * 100}%`, background: i.color },
-              title: `${i.label}: ${i.value}`,
-            }))),
-        h('ul', { class: 'breakdown-legend' },
-          props.items.map(i =>
-            h('li', {}, [
-              h('span', { class: 'dot', style: { background: i.color } }),
-              `${i.label} `,
-              h('b', {}, i.value),
-            ]))),
-      ])
-    }
-  },
-}
+import BreakdownBar from '../components/BreakdownBar.vue'
 
 const data = ref(null)
 const loading = ref(true)
@@ -286,27 +261,6 @@ h2 {
 
 .kv dt { color: var(--text-secondary); }
 .kv dd { margin: 0; text-align: right; color: var(--text-primary); }
-
-.breakdown-track {
-  display: flex;
-  height: 16px;
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg-tertiary);
-}
-
-.breakdown-seg { height: 100%; }
-
-.breakdown-legend {
-  list-style: none;
-  margin: 0.75rem 0 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
 
 .dot {
   display: inline-block;
