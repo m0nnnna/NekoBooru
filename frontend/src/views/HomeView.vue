@@ -193,6 +193,10 @@
                 <input type="number" min="0" max="1" step="0.01" v-model.number="batchAiSettings.unsafeThreshold" />
               </label>
               <label>
+                Sketchy threshold
+                <input type="number" min="0" max="1" step="0.01" v-model.number="batchAiSettings.sketchyThreshold" />
+              </label>
+              <label>
                 Max tags
                 <input type="number" min="1" max="100" step="1" v-model.number="batchAiSettings.maxTags" />
               </label>
