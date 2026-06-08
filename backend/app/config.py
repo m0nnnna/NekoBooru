@@ -83,6 +83,14 @@ class Settings(BaseSettings):
             self.config_dir = runtime_paths.config_dir
         if self.config_file is None:
             self.config_file = runtime_paths.config_file
+        server = SettingsManager(self.config_file).get_server_settings()
+        if server:
+            if not os.environ.get("NEKO_HOST") and server.get("host"):
+                self.host = str(server.get("host"))
+            if not os.environ.get("NEKO_PORT") and server.get("port"):
+                self.port = int(server.get("port"))
+            if not os.environ.get("NEKO_CORS_ORIGINS") and server.get("corsOrigins"):
+                self.cors_origins = str(server.get("corsOrigins"))
         return self
 
     @property

@@ -68,6 +68,17 @@ class SettingsManager:
         settings["ytdlp"] = ytdlp
         self.save_settings(settings)
 
+    def get_server_settings(self) -> dict:
+        """Get persisted server bind/CORS settings."""
+        settings = self.load_settings()
+        return dict(settings.get("server") or {})
+
+    def set_server_settings(self, server: dict) -> None:
+        """Persist server bind/CORS settings without disturbing other settings."""
+        settings = self.load_settings()
+        settings["server"] = server
+        self.save_settings(settings)
+
     def get_huggingface_token(self) -> Optional[str]:
         """Get the locally stored Hugging Face token, if configured."""
         settings = self.load_settings()

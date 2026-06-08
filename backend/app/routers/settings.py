@@ -25,6 +25,10 @@ class SettingsResponse(BaseModel):
     posts_dir: str
     thumbs_dir: str
     uploads_dir: str
+    host: str
+    port: int
+    cors_origins: str
+    server_restart_required: bool = False
     ytdlp_cookies_configured: bool = False
 
 
@@ -40,6 +44,12 @@ class YtdlpSettingsRequest(BaseModel):
 
 class YtdlpUpdateRequest(BaseModel):
     target: str = "latest"
+
+
+class ServerSettingsRequest(BaseModel):
+    host: str = "127.0.0.1"
+    port: int = 8772
+    cors_origins: str = ""
 
 
 class MigrationResponse(BaseModel):
@@ -89,8 +99,41 @@ async def get_settings():
         posts_dir=str(settings.posts_dir),
         thumbs_dir=str(settings.thumbs_dir),
         uploads_dir=str(settings.uploads_dir),
+        host=settings.host,
+        port=settings.port,
+        cors_origins=settings.cors_origins,
+        server_restart_required=False,
         ytdlp_cookies_configured=cookies_configured,
     )
+
+
+@router.put("/server")
+async def update_server_settings(request: ServerSettingsRequest):
+    """Persist host/port/CORS settings for the next backend start."""
+    host = str(request.host or "").strip() or "127.0.0.1"
+    if host == "localhost":
+        host = "127.0.0.1"
+    if not (1 <= int(request.port) <= 65535):
+        raise HTTPException(status_code=400, detail="Port must be between 1 and 65535")
+
+    cors = str(request.cors_origins or "").strip()
+    if not cors:
+        cors = (
+            f"http://localhost:{int(request.port)},http://127.0.0.1:{int(request.port)},"
+            "http://localhost:5173,http://127.0.0.1:5173"
+        )
+
+    server_settings = {
+        "host": host,
+        "port": int(request.port),
+        "corsOrigins": cors,
+    }
+    SettingsManager(settings.config_file).set_server_settings(server_settings)
+    return {
+        **server_settings,
+        "restartRequired": host != settings.host or int(request.port) != settings.port or cors != settings.cors_origins,
+        "message": "Server settings saved. Restart NekoBooru for host/port changes to take effect.",
+    }
 
 
 @router.put("/data-dir")

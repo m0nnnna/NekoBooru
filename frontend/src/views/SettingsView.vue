@@ -97,6 +97,49 @@
     </div>
 
     <div class="settings-section">
+      <h2>Server</h2>
+      <p class="section-description">
+        Configure the local address NekoBooru binds to. Host and port changes take effect after restart.
+      </p>
+
+      <div class="numeric-grid">
+        <label class="field-row">
+          <span class="label-with-help">
+            Host
+            <button type="button" class="info-icon" :data-tooltip="serverHelp.host" :aria-label="serverHelp.host">?</button>
+          </span>
+          <input v-model="serverSettings.host" type="text" placeholder="127.0.0.1" />
+        </label>
+        <label class="field-row">
+          <span class="label-with-help">
+            Port
+            <button type="button" class="info-icon" :data-tooltip="serverHelp.port" :aria-label="serverHelp.port">?</button>
+          </span>
+          <input v-model.number="serverSettings.port" type="number" min="1" max="65535" />
+        </label>
+      </div>
+
+      <label class="field-row cors-field">
+        <span class="label-with-help">
+          Allowed browser origins
+          <button type="button" class="info-icon" :data-tooltip="serverHelp.cors" :aria-label="serverHelp.cors">?</button>
+        </span>
+        <textarea v-model="serverSettings.cors_origins" rows="3" spellcheck="false"></textarea>
+      </label>
+
+      <p v-if="serverStatus.show" class="cookies-status" :class="serverStatus.success ? 'success' : 'error'">
+        <strong>{{ serverStatus.message }}</strong>
+      </p>
+
+      <div class="form-actions">
+        <button class="btn" @click="saveServerSettings" :disabled="savingServer">
+          {{ savingServer ? 'Saving...' : 'Save Server Settings' }}
+        </button>
+        <span class="status-note">Current URL: http://{{ currentSettings.host || '127.0.0.1' }}:{{ currentSettings.port || 8772 }}</span>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h2>Video Downloads (yt-dlp)</h2>
       <p class="section-description">
         Configure cookies for downloading age-restricted or login-required videos from platforms like X/Twitter.
@@ -959,6 +1002,17 @@ const SEARCH_PREDICTION_KEY = 'nekobooru.searchPredictionEnabled'
 const NAME_PART_AUTOCOMPLETE_KEY = 'nekobooru.namePartAutocompleteEnabled'
 const searchPredictionEnabled = ref(false)
 const namePartAutocompleteEnabled = ref(false)
+const serverSettings = ref({
+  host: '127.0.0.1',
+  port: 8772,
+  cors_origins: '',
+})
+const savingServer = ref(false)
+const serverStatus = ref({
+  show: false,
+  success: false,
+  message: '',
+})
 
 const cookiesFileInput = ref(null)
 const savingCookies = ref(false)
@@ -1032,6 +1086,11 @@ const thresholdHelp = {
   maxTags: 'Maximum number of tags kept from model output. Increase for richer search coverage; decrease if posts become cluttered. This limit applies before manual review.',
   videoFrames: 'Number of sampled video frames for visual tagging. More frames improve AMV/edit coverage but take longer. 3-4 is a good default; use 1 for fast middle-frame tagging.',
   lightCutoff: 'Posts with this many tags or fewer count as lightly tagged for bulk jobs. Increase to retag sparse libraries; decrease to only target nearly empty posts.',
+}
+const serverHelp = {
+  host: '127.0.0.1 keeps NekoBooru available only on this PC. Use 0.0.0.0 only if you intentionally want LAN devices to reach it; NekoBooru has no built-in user login.',
+  port: 'The TCP port for the backend and packaged web UI. Change it if another app already uses 8772. Restart required.',
+  cors: 'Comma-separated browser origins allowed to call the API. Keep localhost/127.0.0.1 entries for the active port. Only add LAN origins you trust.',
 }
 const torchDeviceHelp = 'Auto uses CUDA/GPU when the installed torch build can see it, otherwise CPU. GPU only forces CUDA and reports an error if this venv has CPU-only torch. CPU only is slower but useful when you need VRAM free.'
 const bulkActionHelp = {
@@ -1483,8 +1542,41 @@ async function loadSettings() {
   try {
     currentSettings.value = await api.getSettings()
     dataDir.value = currentSettings.value.data_dir || ''
+    serverSettings.value = {
+      host: currentSettings.value.host || '127.0.0.1',
+      port: currentSettings.value.port || 8772,
+      cors_origins: currentSettings.value.cors_origins || '',
+    }
   } catch (e) {
     alert('Failed to load settings: ' + e.message)
+  }
+}
+
+async function saveServerSettings() {
+  savingServer.value = true
+  serverStatus.value.show = false
+  try {
+    const result = await api.updateServerSettings({
+      host: serverSettings.value.host,
+      port: Number(serverSettings.value.port || 8772),
+      cors_origins: serverSettings.value.cors_origins,
+    })
+    serverStatus.value = {
+      show: true,
+      success: true,
+      message: result.restartRequired
+        ? 'Server settings saved. Restart NekoBooru to use the new host/port.'
+        : 'Server settings saved.',
+    }
+    await loadSettings()
+  } catch (e) {
+    serverStatus.value = {
+      show: true,
+      success: false,
+      message: 'Failed to save server settings: ' + e.message,
+    }
+  } finally {
+    savingServer.value = false
   }
 }
 
@@ -2902,8 +2994,20 @@ function startYtdlpPolling() {
 }
 
 .field-row input,
-.field-row select {
+.field-row select,
+.field-row textarea {
   width: 100%;
+}
+
+.cors-field {
+  margin-top: 0.75rem;
+}
+
+.cors-field textarea {
+  min-height: 76px;
+  resize: vertical;
+  font-family: 'Courier New', monospace;
+  font-size: 0.84rem;
 }
 
 .runtime-card {

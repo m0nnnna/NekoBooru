@@ -419,6 +419,13 @@ export const api = {
     })
   },
 
+  async updateServerSettings(data) {
+    return request('/settings/server', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
   async migrateData(dataDir) {
     return request('/settings/migrate', {
       method: 'POST',
