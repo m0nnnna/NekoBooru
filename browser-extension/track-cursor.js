@@ -374,27 +374,33 @@ function installXButtonStyle() {
   const style = document.createElement('style')
   style.id = 'nekobooru-x-button-style'
   style.textContent = `
+    /* Match X's native action buttons: a 1.25em icon (== 18.75px at the 15px
+       font base) centred in a ~34.75px round hit area, so our button is the
+       same size and sits in line with reply/retweet/like/share. */
     .nekobooru-x-download {
       appearance: none;
       background: transparent;
       border: 0;
       border-radius: 999px;
+      box-sizing: border-box;
       color: rgb(113, 118, 123);
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font: 700 18px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      height: 34px;
-      margin-left: 8px;
-      min-width: 34px;
+      font-size: 15px;
+      line-height: 1;
+      height: 34.75px;
+      width: 34.75px;
+      min-width: 34.75px;
+      margin-left: 12px;
       padding: 0;
       transition: background-color 120ms ease, color 120ms ease;
       vertical-align: middle;
     }
     .nekobooru-x-download-native-shell {
       align-items: center;
-      display: flex;
+      display: inline-flex;
       justify-content: center;
     }
     .nekobooru-x-download-native-shell .nekobooru-x-download {
@@ -402,8 +408,8 @@ function installXButtonStyle() {
     }
     .nekobooru-x-download svg {
       display: block;
-      height: 22px;
-      width: 22px;
+      height: 1.25em;
+      width: 1.25em;
       stroke: currentColor;
     }
     .nekobooru-x-download:hover {
