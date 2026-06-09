@@ -192,18 +192,19 @@ const autoTagUploads = ref(false)
 const aiEnabled = ref(false)
 const autoTagSettings = ref({})
 const savedAutoTagSettings = ref({})
+const savedAutoTagProfileDefaults = ref({ custom: {}, anime: {}, realistic: {} })
 let uploadIdCounter = 0
 
 const aiProfiles = [
   {
     id: 'anime',
     label: 'Anime / Booru',
-    tooltip: 'Best for anime, manga, illustrations, and booru-style art. Uses Camie character/source tags plus TrOCR text; videos also use Whisper for speech, music, AMV/edit signals, and transcript context.',
+    tooltip: 'Best for anime, manga, illustrations, and booru-style art. Uses the Anime / Booru model stack from Settings, typically PixAI/Camie plus TrOCR; videos can add Whisper. If Qwen is enabled for Anime, it adds semantic context.',
   },
   {
     id: 'realistic',
     label: 'Realistic',
-    tooltip: 'Best for realistic photos, screenshots, videos, edits, and memes. Uses WD broad visual/media tags plus TrOCR text; videos also use Whisper. If semantic/Qwen defaults are enabled, Realistic includes Qwen too.',
+    tooltip: 'Best for realistic photos, screenshots, videos, edits, and memes. Uses the Realistic model stack from Settings. If Qwen is enabled for Realistic, it replaces WD as the primary visual/semantic model.',
   },
   {
     id: 'custom',
@@ -220,13 +221,21 @@ onMounted(() => {
 
 async function loadAiEnabled() {
   try {
-    const [settings, status] = await Promise.all([
+    const [settings, status, defaultsResult] = await Promise.all([
       api.getAutoTagSettings(),
       api.getAutoTagStatus(),
+      api.getAiModelDefaults(),
     ])
+    const modelDefaults = normalizeAiModelDefaults(defaultsResult?.modelDefaults)
+    savedAutoTagProfileDefaults.value = normalizeAiProfileDefaults(defaultsResult?.modelDefaults?.profileDefaults, modelDefaults)
     autoTagSettings.value = {
       ...settings,
       wdEnabled: settings.wdEnabled !== false,
+      semanticModelId: settings.semanticModelId || 'qwen',
+      ...modelDefaults,
+    }
+    if (Object.prototype.hasOwnProperty.call(modelDefaults, 'qwenEnabled')) {
+      autoTagSettings.value.semanticPoliticalEnabled = modelDefaults.semanticPoliticalEnabled ?? modelDefaults.qwenEnabled
     }
     savedAutoTagSettings.value = { ...autoTagSettings.value }
     aiEnabled.value = Boolean(status?.enabled)
@@ -235,6 +244,36 @@ async function loadAiEnabled() {
   }
   // Never request tagging when AI is off, even if a stale value lingers.
   if (!aiEnabled.value) autoTagUploads.value = false
+}
+
+function normalizeAiModelDefaults(raw = {}) {
+  const defaults = raw && typeof raw === 'object' ? raw : {}
+  const normalized = {}
+  for (const key of ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']) {
+    if (Object.prototype.hasOwnProperty.call(defaults, key)) {
+      normalized[key] = defaults[key] === true
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(normalized, 'qwenEnabled') && !Object.prototype.hasOwnProperty.call(normalized, 'semanticPoliticalEnabled')) {
+    normalized.semanticPoliticalEnabled = normalized.qwenEnabled
+  }
+  return normalized
+}
+
+function normalizeAiProfileDefaults(raw = {}, fallback = {}) {
+  const profiles = raw && typeof raw === 'object' ? raw : {}
+  const defaults = {
+    custom: fallback,
+    anime: { wdEnabled: false, pixaiEnabled: true, characterModelEnabled: true, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+    realistic: { wdEnabled: true, pixaiEnabled: false, characterModelEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+  }
+  return ['custom', 'anime', 'realistic'].reduce((memo, profileId) => {
+    memo[profileId] = {
+      ...defaults[profileId],
+      ...normalizeAiModelDefaults(profiles[profileId] || {}),
+    }
+    return memo
+  }, {})
 }
 
 onUnmounted(() => {
@@ -672,9 +711,13 @@ async function previewUploadAiTags(upload, profileId = 'custom') {
 }
 
 function uploadAiRunSettings(upload, profileId) {
+  const profileSettings = uploadAiProfileSettings(upload, profileId)
+  const qwenEnabled = profileSettings.qwenEnabled === true || (profileId === 'custom' && autoTagSettings.value.qwenEnabled === true)
   return {
     ...autoTagSettings.value,
-    ...uploadAiProfileSettings(upload, profileId),
+    ...profileSettings,
+    qwenEnabled,
+    semanticPoliticalEnabled: qwenEnabled,
     enabled: true,
   }
 }
@@ -682,14 +725,21 @@ function uploadAiRunSettings(upload, profileId) {
 function uploadAiProfileSettings(upload, profileId) {
   if (profileId === 'custom') return {}
   const isVideo = isVideoUpload(upload)
+  const profileDefaults = savedAutoTagProfileDefaults.value?.[profileId] || {}
+  const useSemanticQwen = [
+    profileDefaults.qwenEnabled,
+    autoTagSettings.value.qwenEnabled,
+  ].some(Boolean)
   if (profileId === 'anime') {
     return {
-      wdEnabled: false,
-      characterModelEnabled: true,
-      ocrEnabled: true,
-      whisperEnabled: isVideo,
-      qwenEnabled: false,
-      semanticPoliticalEnabled: false,
+      wdEnabled: profileDefaults.wdEnabled === true,
+      pixaiEnabled: profileDefaults.pixaiEnabled === true,
+      characterModelEnabled: profileDefaults.characterModelEnabled !== false,
+      ocrEnabled: profileDefaults.ocrEnabled !== false,
+      whisperEnabled: isVideo && profileDefaults.whisperEnabled !== false,
+      qwenEnabled: useSemanticQwen,
+      semanticPoliticalEnabled: useSemanticQwen,
+      semanticModelId: savedAutoTagSettings.value.semanticModelId || 'qwen',
       generalThreshold: 0.35,
       characterThreshold: 0.45,
       maxTags: 40,
@@ -697,14 +747,15 @@ function uploadAiProfileSettings(upload, profileId) {
     }
   }
   if (profileId === 'realistic') {
-    const useSemanticQwen = Boolean(savedAutoTagSettings.value.qwenEnabled || savedAutoTagSettings.value.semanticPoliticalEnabled)
     return {
-      wdEnabled: true,
-      characterModelEnabled: false,
-      ocrEnabled: true,
-      whisperEnabled: isVideo,
+      wdEnabled: useSemanticQwen ? false : profileDefaults.wdEnabled !== false,
+      pixaiEnabled: profileDefaults.pixaiEnabled === true,
+      characterModelEnabled: profileDefaults.characterModelEnabled === true,
+      ocrEnabled: profileDefaults.ocrEnabled !== false,
+      whisperEnabled: isVideo && profileDefaults.whisperEnabled !== false,
       qwenEnabled: useSemanticQwen,
       semanticPoliticalEnabled: useSemanticQwen,
+      semanticModelId: savedAutoTagSettings.value.semanticModelId || 'qwen',
       generalThreshold: 0.5,
       characterThreshold: 0.6,
       maxTags: isVideo ? 20 : 18,

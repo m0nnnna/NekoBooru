@@ -430,12 +430,21 @@ const actionMessageKind = ref('success')
 let actionMessageTimer = null
 
 const defaultSemanticPrompt = [
-  'Return compact JSON only with keys tags, safety, rationale.',
-  'Use snake_case tags. Look for higher-level context such as political_edit, meme_edit, amv, music_video, captioned, protest, politician, propaganda, and contextual edit signals only when visually or transcript supported.',
-  'Use national_socialism only for clear Nazi/far-right symbols such as a swastika, sonnenrad, or black_sun.',
-  'Use communism only for clear communist symbols such as a hammer_and_sickle or communist red star.',
-  'If transcript or audio evidence suggests a song or music-driven edit, include music and edit.',
-].join(' ')
+  'Return compact JSON only with keys: tags, safety, rationale.',
+  'Use snake_case tags only.',
+  '',
+  'Semantic description:',
+  '- The rationale should describe the visible image or frame collection in detail, including clothing garments, describe the pose, setting, text, audio/transcript evidence, and why semantic/context tags were included.',
+  '',
+  'Tags in priority order:',
+  '- Return 6-28 useful searchable tags supported by the image, frame, OCR, transcript, or source page.',
+  '- Start with directly visible tags: media type, pose, subject count, male/female/girl/boy, setting, objects, actions, expression, hair color, eye color, framing, text/audio presence, and meme/edit format.',
+  '- Decompose clothing into specific garments and attributes. Name the garment type separately from pattern or theme. Example cow_print_outfit, bikini, swimsuit, would all be included.',
+  '- Do not confuse animal ears or horns for clothing, or horns for ears. Tag what is visibly present, such as animal_ears, cow_horns, white_horns, tail, or cow_tail.',
+  '- Add frequent or matching primary colors for the scene or clothing, hair color, eye color, standout accessories, exact pose, and anything visually distinctive.',
+  '- Include screenshot, photo, video, image, or gif when they fit.',
+  '- Add semantic/context tags only when supported: political_edit, meme_edit, amv, music_video, captioned, protest, politician, propaganda, music, edit, has_text, text_overlay, has_speech, swastika, sonnenrad, black_sun, national_socialism, hammer_and_sickle, communism.',
+].join('\n')
 const batchTagMode = ref('add')
 const batchTagText = ref('')
 const batchSafety = ref('')
@@ -457,13 +466,13 @@ const batchAiProfiles = [
     id: 'anime',
     label: 'Anime',
     short: 'Camie + OCR + audio',
-    help: 'Best for anime, manga, illustrations, AMVs, and booru-style art. Uses Camie, OCR, and Whisper for videos.',
+    help: 'Best for anime, manga, illustrations, AMVs, and booru-style art. Uses Camie, OCR, Whisper for videos, and Qwen when your saved semantic defaults enable it.',
   },
   {
     id: 'realistic',
     label: 'Realistic',
-    short: 'WD + OCR + audio',
-    help: 'Best for real-life videos, screenshots, memes, and edits. Uses WD, OCR, Whisper, and Qwen when your saved semantic defaults enable it.',
+    short: 'WD or Qwen + OCR + audio',
+    help: 'Best for real-life videos, screenshots, memes, and edits. Uses WD by default; when saved semantic defaults enable Qwen, Qwen replaces WD. OCR and video audio still run.',
   },
   {
     id: 'custom',
@@ -686,6 +695,7 @@ function defaultBatchAiSettings() {
     whisperEnabled: false,
     qwenEnabled: false,
     semanticPoliticalEnabled: false,
+    semanticModelId: 'qwen',
     generalThreshold: 0.35,
     characterThreshold: 0.45,
     unsafeThreshold: 0.7,
@@ -694,6 +704,8 @@ function defaultBatchAiSettings() {
     videoMaxFrames: 4,
     applySafety: true,
     semanticPrompt: defaultSemanticPrompt,
+    semanticPromptEnabled: true,
+    semanticSearchEnabled: false,
   }
 }
 
@@ -812,6 +824,12 @@ function batchAiRunSettings() {
 
   const counts = selectedMediaSummary()
   const hasVideo = counts.videos > 0
+  const useSemanticQwen = Boolean(
+    batchAiSettings.value.qwenEnabled ||
+    batchAiSettings.value.semanticPoliticalEnabled ||
+    base.qwenEnabled ||
+    base.semanticPoliticalEnabled,
+  )
   if (batchAiProfile.value === 'anime') {
     return {
       ...base,
@@ -820,8 +838,8 @@ function batchAiRunSettings() {
       characterModelEnabled: true,
       ocrEnabled: true,
       whisperEnabled: hasVideo,
-      qwenEnabled: false,
-      semanticPoliticalEnabled: false,
+      qwenEnabled: useSemanticQwen,
+      semanticPoliticalEnabled: useSemanticQwen,
       generalThreshold: 0.35,
       characterThreshold: 0.45,
       maxTags: 40,
@@ -829,11 +847,10 @@ function batchAiRunSettings() {
     }
   }
   if (batchAiProfile.value === 'realistic') {
-    const useSemanticQwen = Boolean(base.qwenEnabled || base.semanticPoliticalEnabled)
     return {
       ...base,
       enabled: true,
-      wdEnabled: true,
+      wdEnabled: !useSemanticQwen,
       characterModelEnabled: false,
       ocrEnabled: true,
       whisperEnabled: hasVideo,
@@ -857,6 +874,7 @@ async function loadBatchAiSettings() {
       ...settings,
       enabled: true,
       semanticPrompt: settings.semanticPrompt || defaultSemanticPrompt,
+      semanticModelId: settings.semanticModelId || 'qwen',
     }
   } catch (e) {
     console.error('Failed to load batch AI settings:', e)

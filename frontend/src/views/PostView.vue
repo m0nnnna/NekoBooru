@@ -73,6 +73,59 @@
         </dl>
       </div>
 
+      <div v-if="semanticSidebarAnalysis" class="sidebar-section semantic-description-section">
+        <h3>Semantic Description</h3>
+        <div class="semantic-description-card">
+          <div class="semantic-description-meta">
+            <div>
+              <strong>{{ semanticSidebarAnalysis.model }}</strong>
+              <small>{{ semanticSidebarAnalysis.profile }}{{ semanticSidebarAnalysis.timing ? ` · ${semanticSidebarAnalysis.timing}` : '' }}</small>
+            </div>
+            <button
+              v-if="editingAiAnalysisId !== semanticSidebarAnalysis.id"
+              type="button"
+              class="semantic-description-edit"
+              @click="startEditAiAnalysis(semanticSidebarAnalysis)"
+            >
+              Edit
+            </button>
+          </div>
+          <template v-if="editingAiAnalysisId === semanticSidebarAnalysis.id">
+            <textarea
+              v-model="aiAnalysisDescriptionDraft"
+              class="semantic-description-editor"
+              rows="8"
+              spellcheck="true"
+            ></textarea>
+            <div class="semantic-description-actions">
+              <button
+                type="button"
+                class="link-btn"
+                @click="cancelEditAiAnalysis"
+                :disabled="savingAiAnalysis"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="link-btn primary"
+                @click="saveAiAnalysisDescription(semanticSidebarAnalysis)"
+                :disabled="savingAiAnalysis"
+              >
+                {{ savingAiAnalysis ? 'Saving...' : 'Save' }}
+              </button>
+            </div>
+            <small v-if="aiAnalysisEditError" class="saved-analysis-error">{{ aiAnalysisEditError }}</small>
+          </template>
+          <template v-else>
+            <p>{{ semanticSidebarAnalysis.description }}</p>
+          </template>
+          <div v-if="semanticSidebarAnalysis.tags.length" class="semantic-description-tags">
+            <span v-for="tag in semanticSidebarAnalysis.tags" :key="tag">{{ tag }}</span>
+          </div>
+        </div>
+      </div>
+
       <div class="sidebar-section">
         <h3>Tags</h3>
         <TagList :tags="post.tags" />
@@ -281,49 +334,72 @@
     </div>
 
     <div v-if="showAutoTagModal" class="modal-overlay" @click.self="showAutoTagModal = false">
-      <div class="modal">
+      <div class="modal auto-tag-preview-modal">
         <h2>AI Tag Preview</h2>
-        <div v-if="autoTagSuggestion?.error" class="auto-error">
-          {{ autoTagSuggestion.error }}
-        </div>
-        <div v-else>
-          <div class="safety-review">
-            <div>
-              <strong>Safety rating</strong>
-              <small>Suggested by the model. You can override before applying.</small>
-            </div>
-            <div class="safety-choice-group">
-              <button
-                v-for="safety in safetyOptions"
-                :key="safety.value"
-                type="button"
-                class="safety-choice"
-                :class="[safety.value, { active: autoTagEditedSafety === safety.value }]"
-                @click="autoTagEditedSafety = safety.value"
-              >
-                <span></span>{{ safety.label }}
-              </button>
-            </div>
+        <p v-if="autoTagTimingLabel" class="auto-timing">Completed in {{ autoTagTimingLabel }}</p>
+        <div class="auto-tag-preview-body">
+          <div v-if="autoTagSuggestion?.error" class="auto-error">
+            {{ autoTagSuggestion.error }}
           </div>
-          <TagInput v-model="autoTagEditedTags" />
-          <div v-if="autoTagEvidenceModels.length" class="auto-evidence">
-            <h3>Model Evidence</h3>
-            <div v-for="(model, index) in autoTagEvidenceModels" :key="index" class="evidence-card">
-              <div class="evidence-head">
-                <strong>{{ model.model || 'Unknown model' }}</strong>
-                <span v-if="model.error" class="evidence-error">{{ model.error }}</span>
+          <div v-else>
+            <div class="safety-review">
+              <div>
+                <strong>Safety rating</strong>
+                <small>Suggested by the model. You can override before applying.</small>
               </div>
-              <dl>
-                <template v-for="item in evidenceRows(model)" :key="item.label">
-                  <dt>{{ item.label }}</dt>
-                  <dd>{{ item.value }}</dd>
-                </template>
-              </dl>
+              <div class="safety-choice-group">
+                <button
+                  v-for="safety in safetyOptions"
+                  :key="safety.value"
+                  type="button"
+                  class="safety-choice"
+                  :class="[safety.value, { active: autoTagEditedSafety === safety.value }]"
+                  @click="autoTagEditedSafety = safety.value"
+                >
+                  <span></span>{{ safety.label }}
+                </button>
+              </div>
             </div>
-            <details v-if="autoTagEvidenceRaw" class="raw-evidence">
-              <summary>Raw evidence</summary>
-              <pre>{{ autoTagEvidenceRaw }}</pre>
-            </details>
+            <TagInput v-model="autoTagEditedTags" />
+            <label v-if="autoTagHasSemanticEvidence" class="save-analysis-toggle">
+              <input type="checkbox" v-model="saveSemanticAnalysisForPreview" />
+              <span>
+                <strong>Save Qwen semantic analysis</strong>
+                <small>Stores rationale, semantic tags, raw output, and timing so semantic search can find this post by phrases.</small>
+              </span>
+            </label>
+            <div v-if="autoTagSemanticPreview" class="semantic-preview-card">
+              <div class="semantic-preview-head">
+                <div>
+                  <strong>Semantic Analysis</strong>
+                  <small>{{ autoTagSemanticPreview.model }}{{ autoTagSemanticPreview.timing ? ` · ${autoTagSemanticPreview.timing}` : '' }}</small>
+                </div>
+                <span v-if="autoTagSemanticPreview.safety">{{ autoTagSemanticPreview.safety }}</span>
+              </div>
+              <p>{{ autoTagSemanticPreview.rationale || autoTagSemanticPreview.summary || autoTagSemanticPreview.raw }}</p>
+              <div v-if="autoTagSemanticPreview.tags.length" class="semantic-preview-tags">
+                <span v-for="tag in autoTagSemanticPreview.tags" :key="tag">{{ tag }}</span>
+              </div>
+            </div>
+            <div v-if="autoTagEvidenceModels.length" class="auto-evidence">
+              <h3>Model Evidence</h3>
+              <div v-for="(model, index) in autoTagEvidenceModels" :key="index" class="evidence-card">
+                <div class="evidence-head">
+                  <strong>{{ model.model || 'Unknown model' }}</strong>
+                  <span v-if="model.error" class="evidence-error">{{ model.error }}</span>
+                </div>
+                <dl>
+                  <template v-for="item in evidenceRows(model)" :key="item.label">
+                    <dt>{{ item.label }}</dt>
+                    <dd>{{ item.value }}</dd>
+                  </template>
+                </dl>
+              </div>
+              <details v-if="autoTagEvidenceRaw" class="raw-evidence">
+                <summary>Raw evidence</summary>
+                <pre>{{ autoTagEvidenceRaw }}</pre>
+              </details>
+            </div>
           </div>
         </div>
         <div class="modal-actions">
@@ -412,6 +488,11 @@ const loading = ref(true)
 const similar = ref([])
 const similarLoading = ref(false)
 const similarLoaded = ref(false)
+const postAiAnalyses = ref([])
+const editingAiAnalysisId = ref(null)
+const aiAnalysisDescriptionDraft = ref('')
+const savingAiAnalysis = ref(false)
+const aiAnalysisEditError = ref('')
 const showTagEditor = ref(false)
 const showPoolModal = ref(false)
 const showAutoTagModal = ref(false)
@@ -438,6 +519,14 @@ const DEFAULT_AUTO_TAG_MODELS = [
     purpose: 'Anime character, copyright, artist, rating, and broad tag coverage',
     downloadSize: '~1-3 GB',
     vramRequirement: '~0.5-2 GB',
+  },
+  {
+    id: 'pixai',
+    name: 'PixAI Tagger v0.9',
+    repoId: 'deepghs/pixai-tagger-v0.9-onnx',
+    purpose: 'Fast PixAI/Danbooru anime and illustration tags',
+    downloadSize: '~1.3 GB',
+    vramRequirement: '~0.5-1.5 GB',
   },
   {
     id: 'qwen',
@@ -467,18 +556,26 @@ const DEFAULT_AUTO_TAG_MODELS = [
 const autoTagEditedTags = ref([])
 const autoTagEditedSafety = ref('safe')
 const autoTagSuggestion = ref(null)
+const saveSemanticAnalysisForPreview = ref(false)
 const autoTagLoading = ref(false)
 const autoTagStatus = ref({ enabled: true, models: DEFAULT_AUTO_TAG_MODELS })
 const postAutoTagSettings = ref({
   wdEnabled: true,
+  pixaiEnabled: false,
   characterModelEnabled: false,
   ocrEnabled: false,
   whisperEnabled: false,
   qwenEnabled: false,
   semanticPoliticalEnabled: false,
+  semanticModelId: 'qwen',
+  semanticPromptEnabled: true,
+  semanticSearchEnabled: false,
+  saveSemanticAnalysis: false,
 })
 const savedAutoTagSettings = ref({ ...postAutoTagSettings.value })
+const savedAutoTagProfileDefaults = ref({ custom: {}, anime: {}, realistic: {} })
 const activeAutoTagProfile = ref('')
+const previewAutoTagProfile = ref('post')
 const autoModelPickerOpen = ref(false)
 const showAutoProcessModal = ref(false)
 const autoTagStage = ref('idle')
@@ -521,12 +618,12 @@ const autoTagProfiles = [
   {
     id: 'anime',
     label: 'Anime / Booru',
-    tooltip: 'Best for anime, manga, illustrations, and booru-style art. Uses Camie character/source tags plus TrOCR text; videos also use Whisper for speech, music, AMV/edit signals, and transcript context.',
+    tooltip: 'Best for anime, manga, illustrations, and booru-style art. Uses the Anime / Booru model stack from Settings, typically PixAI/Camie plus TrOCR; videos can add Whisper. If Qwen is enabled for Anime, it adds semantic context.',
   },
   {
     id: 'realistic',
     label: 'Realistic',
-    tooltip: 'Best for realistic photos, screenshots, videos, edits, and memes. Uses WD broad visual/media tags plus TrOCR text; videos also use Whisper. If semantic/Qwen defaults are enabled, Realistic includes Qwen too.',
+    tooltip: 'Best for realistic photos, screenshots, videos, edits, and memes. Uses the Realistic model stack from Settings. If Qwen is enabled for Realistic, it replaces WD as the primary visual/semantic model.',
   },
   {
     id: 'custom',
@@ -545,6 +642,63 @@ const autoTagEvidenceModels = computed(() => {
   if (!evidence) return []
   if (Array.isArray(evidence.models)) return evidence.models
   return [{ model: autoTagSuggestion.value?.model || 'Auto tagger', evidence }]
+})
+
+const autoTagHasSemanticEvidence = computed(() =>
+  autoTagEvidenceModels.value.some((model) => {
+    const evidence = model.evidence || {}
+    const marker = `${evidence.kind || ''} ${evidence.modelId || ''} ${model.model || ''}`.toLowerCase()
+    return marker.includes('qwen') || ['qwen', 'qwen_gguf'].includes(String(evidence.kind || '').toLowerCase())
+  })
+)
+
+const autoTagSemanticPreview = computed(() => {
+  for (const model of autoTagEvidenceModels.value) {
+    const evidence = model.evidence || {}
+    const parsed = semanticParsedEvidence(evidence)
+    const marker = `${evidence.kind || ''} ${evidence.modelId || ''} ${model.model || ''}`.toLowerCase()
+    const isSemantic = marker.includes('qwen') || ['qwen', 'qwen_gguf'].includes(String(evidence.kind || '').toLowerCase())
+    if (!isSemantic) continue
+    const rationale = String(parsed.rationale || parsed.description || parsed.summary || '').trim()
+    const raw = String(evidence.raw || '').trim()
+    const tags = Array.isArray(parsed.tags) ? parsed.tags.map(String).filter(Boolean) : []
+    if (!rationale && !raw && !tags.length) continue
+    return {
+      model: model.model || evidence.modelId || 'Qwen',
+      timing: formatDurationMs(model.durationMs ?? evidence.durationMs),
+      safety: parsed.safety || '',
+      rationale,
+      summary: String(parsed.summary || parsed.description || '').trim(),
+      raw,
+      tags,
+    }
+  }
+  return null
+})
+
+const semanticSidebarAnalysis = computed(() => {
+  for (const analysis of postAiAnalyses.value || []) {
+    const description = aiAnalysisDescription(analysis)
+    if (!description) continue
+    const rawParsed = parseSemanticRawOutput(analysis.rawOutput)
+    const semanticTags = Array.isArray(analysis.semanticTags) && analysis.semanticTags.length
+      ? analysis.semanticTags
+      : (Array.isArray(rawParsed.tags) ? rawParsed.tags : [])
+    return {
+      id: analysis.id,
+      model: analysis.modelName || analysis.modelId || 'Qwen',
+      profile: analysis.profile || 'default',
+      timing: formatDurationMs(analysis.durationMs),
+      description,
+      tags: semanticTags.map(String).filter(Boolean).slice(0, 12),
+    }
+  }
+  return null
+})
+
+const autoTagTimingLabel = computed(() => {
+  const duration = Number(autoTagSuggestion.value?.durationMs ?? autoTagSuggestion.value?.evidence?.durationMs)
+  return Number.isFinite(duration) && duration > 0 ? formatDurationMs(duration) : ''
 })
 
 const hasAutoTagChanges = computed(() => {
@@ -606,7 +760,8 @@ const autoTagProcessSteps = computed(() => {
 })
 const postModelRows = computed(() => {
   const models = autoTagStatus.value?.models?.length ? autoTagStatus.value.models : DEFAULT_AUTO_TAG_MODELS
-  return models.map((model) => ({
+  const selectedSemantic = postAutoTagSettings.value.semanticModelId || savedAutoTagSettings.value.semanticModelId || autoTagStatus.value?.semanticModelId || 'qwen'
+  return models.filter((model) => !isSemanticModel(model) || model.id === selectedSemantic).map((model) => ({
     ...model,
     settingKey: modelSettingKey(model.id),
     canToggle: true,
@@ -694,20 +849,30 @@ function onKeydown(e) {
 function modelSettingKey(id) {
   return {
     wd: 'wdEnabled',
+    pixai: 'pixaiEnabled',
     camie: 'characterModelEnabled',
     ocr: 'ocrEnabled',
     whisper: 'whisperEnabled',
     qwen: 'qwenEnabled',
+    qwen_gguf_q4: 'qwenEnabled',
+    qwen_gguf_q8: 'qwenEnabled',
   }[id] || `${id}Enabled`
+}
+
+function isSemanticModel(model) {
+  return model?.role === 'semantic' || ['qwen', 'qwen_gguf_q4', 'qwen_gguf_q8'].includes(model?.id)
 }
 
 function modelPipelineDescription(id) {
   return {
     wd: 'Runs on images and sampled video frames. Best baseline for visual library tags.',
+    pixai: 'Runs fast PixAI/Danbooru anime tags on images and sampled video frames.',
     camie: 'Adds anime characters, copyright/source tags, artist tags, and rating evidence.',
     ocr: 'Reads visible captions, subtitles, and meme text from representative frames.',
     whisper: 'Extracts speech from video audio for AMVs, edits, narration, and spoken context.',
     qwen: 'Uses image plus OCR/transcript context for higher-level edit and scene meaning.',
+    qwen_gguf_q4: 'Uses Qwen3-VL GGUF Q4 through llama.cpp for faster low-memory semantic tags.',
+    qwen_gguf_q8: 'Uses Qwen3-VL GGUF Q8 through llama.cpp for higher-quality semantic tags.',
   }[id] || 'Use this model in the per-post auto-tagging pipeline.'
 }
 
@@ -742,7 +907,12 @@ function hideModelTooltip() {
 
 function evidenceRows(model) {
   const evidence = model.evidence || {}
+  const parsed = semanticParsedEvidence(evidence)
   const rows = []
+  const duration = Number(model.durationMs ?? evidence.durationMs)
+  if (Number.isFinite(duration) && duration > 0) {
+    rows.push({ label: 'Time', value: formatDurationMs(duration) })
+  }
   if (evidence.kind) rows.push({ label: 'Source', value: evidence.kind })
   if (Array.isArray(evidence.topTags) && evidence.topTags.length) {
     rows.push({ label: 'Top tags', value: evidence.topTags.slice(0, 8).map(formatTagScore).join(', ') })
@@ -758,14 +928,63 @@ function evidenceRows(model) {
   }
   if (evidence.text) rows.push({ label: 'OCR text', value: evidence.text })
   if (evidence.transcript) rows.push({ label: 'Transcript', value: evidence.transcript })
-  if (evidence.parsed?.tags?.length) rows.push({ label: 'Semantic tags', value: evidence.parsed.tags.join(', ') })
-  if (evidence.parsed?.safety) rows.push({ label: 'Semantic safety', value: evidence.parsed.safety })
+  if (parsed.tags?.length) rows.push({ label: 'Semantic tags', value: parsed.tags.join(', ') })
+  if (parsed.safety) rows.push({ label: 'Semantic safety', value: parsed.safety })
+  if (parsed.rationale) rows.push({ label: 'Semantic analysis', value: String(parsed.rationale).slice(0, 800) })
   if (evidence.raw && !rows.some((row) => row.label === 'Semantic tags')) {
     rows.push({ label: 'Model output', value: String(evidence.raw).slice(0, 500) })
   }
   if (!rows.length && model.error) rows.push({ label: 'Status', value: model.error })
   if (!rows.length) rows.push({ label: 'Details', value: 'No structured evidence returned.' })
   return rows
+}
+
+function semanticParsedEvidence(evidence) {
+  if (evidence?.parsed && typeof evidence.parsed === 'object') return evidence.parsed
+  const raw = String(evidence?.raw || '').trim()
+  if (!raw) return {}
+  try {
+    const match = raw.match(/\{[\s\S]*\}/)
+    const parsed = JSON.parse(match ? match[0] : raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function parseSemanticRawOutput(raw) {
+  const text = String(raw || '').trim()
+  if (!text) return {}
+  try {
+    const match = text.match(/\{[\s\S]*\}/)
+    const parsed = JSON.parse(match ? match[0] : text)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    const rationale = extractJsonStringFragment(text, 'rationale')
+    const description = extractJsonStringFragment(text, 'description')
+    const summary = extractJsonStringFragment(text, 'summary')
+    return { rationale, description, summary }
+  }
+}
+
+function extractJsonStringFragment(text, key) {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const quoted = new RegExp(`"${escapedKey}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, 'i').exec(text)
+  const fragment = quoted?.[1] || new RegExp(`"${escapedKey}"\\s*:\\s*"([\\s\\S]*)$`, 'i').exec(text)?.[1] || ''
+  return fragment
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .replace(/[}\],\s]*$/g, '')
+    .trim()
+}
+
+function cleanSemanticDescription(value) {
+  const text = String(value || '').trim()
+  if (/^[{\[]/.test(text)) return ''
+  return text
+    .replace(/\s+/g, ' ')
+    .replace(/^rationale:\s*/i, '')
+    .trim()
 }
 
 function formatTagScore(item) {
@@ -783,15 +1002,36 @@ function formatScoreMap(map) {
     .join(', ')
 }
 
+function formatDurationMs(ms) {
+  const value = Number(ms || 0)
+  if (!Number.isFinite(value) || value <= 0) return ''
+  if (value < 1000) return `${Math.round(value)} ms`
+  if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)} s`
+  const minutes = Math.floor(value / 60_000)
+  const seconds = Math.round((value % 60_000) / 1000)
+  return `${minutes}m ${seconds}s`
+}
+
 async function loadAutoTagControls() {
   try {
-    const [settingsResult, statusResult] = await Promise.all([
+    const [settingsResult, statusResult, defaultsResult] = await Promise.all([
       api.getAutoTagSettings(),
       api.getAutoTagStatus(),
+      api.getAiModelDefaults(),
     ])
+    const modelDefaults = normalizeAiModelDefaults(defaultsResult?.modelDefaults)
+    savedAutoTagProfileDefaults.value = normalizeAiProfileDefaults(defaultsResult?.modelDefaults?.profileDefaults, modelDefaults)
     postAutoTagSettings.value = {
       ...settingsResult,
       wdEnabled: settingsResult.wdEnabled !== false,
+      semanticPromptEnabled: settingsResult.semanticPromptEnabled !== false,
+      semanticSearchEnabled: settingsResult.semanticSearchEnabled === true,
+      saveSemanticAnalysis: settingsResult.saveSemanticAnalysis === true,
+      semanticModelId: settingsResult.semanticModelId || 'qwen',
+      ...modelDefaults,
+    }
+    if (Object.prototype.hasOwnProperty.call(modelDefaults, 'qwenEnabled')) {
+      postAutoTagSettings.value.semanticPoliticalEnabled = modelDefaults.semanticPoliticalEnabled ?? modelDefaults.qwenEnabled
     }
     savedAutoTagSettings.value = { ...postAutoTagSettings.value }
     autoTagStatus.value = statusResult
@@ -800,15 +1040,111 @@ async function loadAutoTagControls() {
   }
 }
 
+function normalizeAiModelDefaults(raw = {}) {
+  const defaults = raw && typeof raw === 'object' ? raw : {}
+  const normalized = {}
+  for (const key of ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']) {
+    if (Object.prototype.hasOwnProperty.call(defaults, key)) {
+      normalized[key] = defaults[key] === true
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(normalized, 'qwenEnabled') && !Object.prototype.hasOwnProperty.call(normalized, 'semanticPoliticalEnabled')) {
+    normalized.semanticPoliticalEnabled = normalized.qwenEnabled
+  }
+  return normalized
+}
+
+function normalizeAiProfileDefaults(raw = {}, fallback = {}) {
+  const profiles = raw && typeof raw === 'object' ? raw : {}
+  const defaults = {
+    custom: fallback,
+    anime: { wdEnabled: false, pixaiEnabled: true, characterModelEnabled: true, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+    realistic: { wdEnabled: true, pixaiEnabled: false, characterModelEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+  }
+  return ['custom', 'anime', 'realistic'].reduce((memo, profileId) => {
+    memo[profileId] = {
+      ...defaults[profileId],
+      ...normalizeAiModelDefaults(profiles[profileId] || {}),
+    }
+    return memo
+  }, {})
+}
+
 async function loadPost() {
   loading.value = true
   try {
     post.value = await api.getPost(route.params.id)
     editedTags.value = [...post.value.tags]
+    loadPostAiAnalysis()
   } catch (e) {
     post.value = null
+    postAiAnalyses.value = []
   } finally {
     loading.value = false
+  }
+}
+
+async function loadPostAiAnalysis() {
+  if (!post.value?.id) return
+  try {
+    const result = await api.getPostAiAnalysis(post.value.id)
+    postAiAnalyses.value = result.results || []
+  } catch {
+    postAiAnalyses.value = []
+  }
+}
+
+function aiAnalysisDescription(analysis) {
+  if (analysis?.description) return String(analysis.description).trim()
+  return cleanSemanticDescription(
+    semanticDescriptionFromField(analysis?.rationale) ||
+    semanticDescriptionFromField(analysis?.summary) ||
+    semanticDescriptionFromField(analysis?.rawOutput)
+  )
+}
+
+function semanticDescriptionFromField(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (!/^[{\[]/.test(text)) return text
+  const parsed = parseSemanticRawOutput(text)
+  return (
+    parsed.rationale ||
+    parsed.description ||
+    parsed.summary ||
+    parsed.scene ||
+    ''
+  )
+}
+
+function startEditAiAnalysis(analysis) {
+  editingAiAnalysisId.value = analysis.id
+  aiAnalysisDescriptionDraft.value = aiAnalysisDescription(analysis)
+  aiAnalysisEditError.value = ''
+}
+
+function cancelEditAiAnalysis() {
+  editingAiAnalysisId.value = null
+  aiAnalysisDescriptionDraft.value = ''
+  aiAnalysisEditError.value = ''
+}
+
+async function saveAiAnalysisDescription(analysis) {
+  if (!post.value?.id || !analysis?.id) return
+  savingAiAnalysis.value = true
+  aiAnalysisEditError.value = ''
+  try {
+    const updated = await api.updatePostAiAnalysis(post.value.id, analysis.id, {
+      description: aiAnalysisDescriptionDraft.value,
+    })
+    postAiAnalyses.value = postAiAnalyses.value.map((item) => (
+      item.id === updated.id ? updated : item
+    ))
+    cancelEditAiAnalysis()
+  } catch (error) {
+    aiAnalysisEditError.value = error.message || 'Failed to save description.'
+  } finally {
+    savingAiAnalysis.value = false
   }
 }
 
@@ -984,6 +1320,7 @@ async function saveTags() {
 async function previewAutoTags(profileId = 'custom') {
   autoTagLoading.value = true
   activeAutoTagProfile.value = profileId
+  previewAutoTagProfile.value = profileId
   applyAutoTagProfile(profileId)
   beginAutoTagProcess('checking', 'Checking settings, selected models, and local runtime packages.')
   try {
@@ -1000,9 +1337,7 @@ async function previewAutoTags(profileId = 'custom') {
       return
     }
 
-    const missingDeps = Object.entries(autoTagStatus.value.dependencies || {})
-      .filter(([, available]) => !available)
-      .map(([name]) => name)
+    const missingDeps = selectedMissingBackendPackages()
     if (missingDeps.length > 0) {
       autoTagSuggestion.value = {
         error: `AI tagging is missing optional backend packages: ${missingDeps.join(', ')}. Install backend/requirements-tagger.txt and restart the backend.`,
@@ -1023,6 +1358,7 @@ async function previewAutoTags(profileId = 'custom') {
     })
     autoTagEditedTags.value = [...(autoTagSuggestion.value.suggestedTags || post.value.tags)]
     autoTagEditedSafety.value = autoTagSuggestion.value.suggestedSafety || post.value.safety || 'safe'
+    saveSemanticAnalysisForPreview.value = Boolean(postAutoTagSettings.value.saveSemanticAnalysis)
     beginAutoTagStage('ready', 'Preview is ready. Review the suggested tags and safety rating before applying.')
     showAutoTagModal.value = true
   } catch (e) {
@@ -1048,14 +1384,21 @@ function applyAutoTagProfile(profileId) {
 function autoTagProfileSettings(profileId) {
   if (profileId === 'custom') return null
   const isVideo = mediaType.value === 'video'
+  const profileDefaults = savedAutoTagProfileDefaults.value?.[profileId] || {}
+  const useSemanticQwen = [
+    profileDefaults.qwenEnabled,
+    postAutoTagSettings.value.qwenEnabled,
+  ].some(Boolean)
   if (profileId === 'anime') {
     return {
-      wdEnabled: false,
-      characterModelEnabled: true,
-      ocrEnabled: true,
-      whisperEnabled: isVideo,
-      qwenEnabled: false,
-      semanticPoliticalEnabled: false,
+      wdEnabled: profileDefaults.wdEnabled === true,
+      pixaiEnabled: profileDefaults.pixaiEnabled === true,
+      characterModelEnabled: profileDefaults.characterModelEnabled !== false,
+      ocrEnabled: profileDefaults.ocrEnabled !== false,
+      whisperEnabled: isVideo && profileDefaults.whisperEnabled !== false,
+      qwenEnabled: useSemanticQwen,
+      semanticPoliticalEnabled: useSemanticQwen,
+      semanticModelId: savedAutoTagSettings.value.semanticModelId || 'qwen',
       generalThreshold: 0.35,
       characterThreshold: 0.45,
       maxTags: 40,
@@ -1063,14 +1406,15 @@ function autoTagProfileSettings(profileId) {
     }
   }
   if (profileId === 'realistic') {
-    const useSemanticQwen = Boolean(savedAutoTagSettings.value.qwenEnabled || savedAutoTagSettings.value.semanticPoliticalEnabled)
     return {
-      wdEnabled: true,
-      characterModelEnabled: false,
-      ocrEnabled: true,
-      whisperEnabled: isVideo,
+      wdEnabled: useSemanticQwen ? false : profileDefaults.wdEnabled !== false,
+      pixaiEnabled: profileDefaults.pixaiEnabled === true,
+      characterModelEnabled: profileDefaults.characterModelEnabled === true,
+      ocrEnabled: profileDefaults.ocrEnabled !== false,
+      whisperEnabled: isVideo && profileDefaults.whisperEnabled !== false,
       qwenEnabled: useSemanticQwen,
       semanticPoliticalEnabled: useSemanticQwen,
+      semanticModelId: savedAutoTagSettings.value.semanticModelId || 'qwen',
       generalThreshold: 0.5,
       characterThreshold: 0.6,
       maxTags: isVideo ? 20 : 18,
@@ -1081,14 +1425,36 @@ function autoTagProfileSettings(profileId) {
 }
 
 function autoTagRunSettings() {
+  const qwenEnabled = postAutoTagSettings.value.qwenEnabled === true
   return {
     ...postAutoTagSettings.value,
+    qwenEnabled,
+    semanticPoliticalEnabled: qwenEnabled,
     enabled: true,
   }
 }
 
 function enabledModelRows() {
   return postModelRows.value.filter((model) => Boolean(postAutoTagSettings.value[model.settingKey]))
+}
+
+function selectedMissingBackendPackages() {
+  const missing = new Set()
+  enabledModelRows().forEach((model) => {
+    dependenciesForModel(model).forEach((name) => {
+      if (autoTagStatus.value.dependencies?.[name] === false) missing.add(name)
+    })
+  })
+  return Array.from(missing)
+}
+
+function dependenciesForModel(model) {
+  if (!model) return []
+  if (model.id === 'wd' || model.id === 'pixai' || model.id === 'camie') return ['onnxruntime', 'numpy', 'pillow']
+  if (model.id === 'ocr' || model.id === 'whisper') return ['transformers', 'torch']
+  if (model.id === 'qwen') return ['transformers', 'torch', 'qwen_vl_utils']
+  if (model.id === 'qwen_gguf_q4' || model.id === 'qwen_gguf_q8') return ['llama_cpp']
+  return []
 }
 
 async function loadEnabledAutoTagModels() {
@@ -1228,8 +1594,12 @@ async function applyAutoTags() {
       safety: autoTagEditedSafety.value || post.value.safety,
       categories: autoTagSuggestion.value?.categories || {},
       settings: autoTagRunSettings(),
+      suggestion: autoTagSuggestion.value || {},
+      saveAnalysis: saveSemanticAnalysisForPreview.value === true,
+      profile: previewAutoTagProfile.value || 'post',
     })
     editedTags.value = [...post.value.tags]
+    await loadPostAiAnalysis()
     showAutoTagModal.value = false
   } catch (e) {
     alert('Failed to apply AI tags: ' + e.message)
@@ -1639,6 +2009,219 @@ function tweetIdFromUrl(raw) {
   min-width: 58px;
 }
 
+.save-analysis-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: start;
+  margin: 0.9rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.save-analysis-toggle small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.saved-analysis-card {
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+}
+
+.saved-analysis-card + .saved-analysis-card {
+  margin-top: 0.5rem;
+}
+
+.saved-analysis-card summary {
+  display: grid;
+  gap: 0.15rem;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.saved-analysis-card summary small {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.saved-analysis-body {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.saved-analysis-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.saved-analysis-tags span {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.35rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+}
+
+.saved-analysis-body pre {
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 0.55rem;
+  border-radius: 0.4rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.72rem;
+}
+
+.saved-analysis-editor {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  padding: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.45;
+}
+
+.saved-analysis-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.saved-analysis-edit {
+  justify-self: start;
+}
+
+.saved-analysis-error {
+  color: var(--coral);
+}
+
+.semantic-description-card {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+}
+
+.semantic-description-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.semantic-description-meta > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.semantic-description-meta strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.semantic-description-meta small {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.semantic-description-card p {
+  max-height: 170px;
+  margin: 0;
+  overflow: auto;
+  padding-right: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.semantic-description-edit {
+  flex: 0 0 auto;
+  padding: 0.18rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+
+.semantic-description-edit:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.semantic-description-editor {
+  width: 100%;
+  min-height: 145px;
+  resize: vertical;
+  padding: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.45;
+}
+
+.semantic-description-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.semantic-description-actions .link-btn.primary {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.semantic-description-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.semantic-description-tags span {
+  padding: 0.16rem 0.4rem;
+  border: 1px solid rgba(96, 165, 250, 0.55);
+  border-radius: 0.35rem;
+  background: rgba(96, 165, 250, 0.12);
+  color: var(--accent);
+  font-size: 0.7rem;
+}
+
 .ai-model-tooltip-layer {
   position: fixed;
   z-index: 5000;
@@ -1688,9 +2271,53 @@ function tweetIdFromUrl(raw) {
   box-shadow: 0 20px 40px var(--shadow);
 }
 
+.auto-tag-preview-modal {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: min(470px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 0;
+  overflow: hidden;
+}
+
+.auto-tag-preview-modal h2 {
+  margin: 0;
+  padding: 1.25rem 1.25rem 0.35rem;
+}
+
+.auto-tag-preview-modal .auto-timing {
+  margin: 0;
+  padding: 0 1.25rem 0.75rem;
+}
+
+.auto-tag-preview-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 1.25rem 1rem;
+}
+
+.auto-tag-preview-modal .modal-actions {
+  position: sticky;
+  bottom: 0;
+  margin: 0;
+  padding: 0.9rem 1.25rem 1.25rem;
+  border-top: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(17, 24, 39, 0.92), var(--bg-primary) 35%);
+}
+
 .modal h2 {
   margin-bottom: 1.25rem;
   color: var(--text-primary);
+}
+
+.auto-tag-preview-modal h2 {
+  margin-bottom: 0;
+}
+
+.auto-timing {
+  margin: -0.8rem 0 1rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
 }
 
 .tag-editor-toolbar {
@@ -1974,6 +2601,68 @@ function tweetIdFromUrl(raw) {
   color: var(--text-primary);
 }
 
+.semantic-preview-card {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(96, 165, 250, 0.38);
+  border-radius: 0.55rem;
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.semantic-preview-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.semantic-preview-head div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.semantic-preview-head strong {
+  color: var(--text-primary);
+}
+
+.semantic-preview-head small {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.semantic-preview-head span {
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.semantic-preview-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.semantic-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.semantic-preview-tags span {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid rgba(96, 165, 250, 0.48);
+  border-radius: 0.35rem;
+  color: var(--accent);
+  font-size: 0.72rem;
+}
+
 .auto-evidence {
   margin-top: 1rem;
   max-height: 240px;
@@ -2166,14 +2855,35 @@ function tweetIdFromUrl(raw) {
     overflow-y: auto;
   }
 
+  .auto-tag-preview-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .auto-tag-preview-body {
+    overflow-y: auto;
+  }
+
   .modal h2 {
     font-size: 1.1rem;
     margin-bottom: 1rem;
   }
 
+  .auto-tag-preview-modal h2 {
+    margin-bottom: 0;
+  }
+
   .modal-actions {
     flex-direction: column;
     gap: 0.5rem;
+  }
+
+  .auto-tag-preview-modal .modal-actions {
+    flex-direction: column;
+    margin: 0;
   }
 
   .modal-actions .btn {

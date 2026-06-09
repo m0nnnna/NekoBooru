@@ -110,6 +110,28 @@ export const api = {
     })
   },
 
+  async getPostAiAnalysis(id) {
+    return request(`/posts/${id}/ai-analysis`)
+  },
+
+  async savePostAiAnalysis(id, data = {}) {
+    return request(`/posts/${id}/ai-analysis`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async updatePostAiAnalysis(postId, analysisId, data = {}) {
+    return request(`/posts/${postId}/ai-analysis/${analysisId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async deletePostAiAnalysis(id) {
+    return request(`/posts/${id}/ai-analysis`, { method: 'DELETE' })
+  },
+
   // Uploads
   async uploadFile(file) {
     const formData = new FormData()
@@ -455,6 +477,28 @@ export const api = {
     })
   },
 
+  async getExtensionSettings() {
+    return request('/settings/extension')
+  },
+
+  async updateExtensionSettings(data) {
+    return request('/settings/extension', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async getAiModelDefaults() {
+    return request('/settings/ai-model-defaults')
+  },
+
+  async updateAiModelDefaults(modelDefaults) {
+    return request('/settings/ai-model-defaults', {
+      method: 'PUT',
+      body: JSON.stringify({ modelDefaults }),
+    })
+  },
+
   async migrateData(dataDir) {
     return request('/settings/migrate', {
       method: 'POST',
@@ -517,6 +561,10 @@ export const api = {
 
   async cancelAiRuntimeInstall() {
     return request('/runtime/ai/cancel-install', { method: 'POST' })
+  },
+
+  async restartApp() {
+    return request('/runtime/restart', { method: 'POST' })
   },
 
   // App updates

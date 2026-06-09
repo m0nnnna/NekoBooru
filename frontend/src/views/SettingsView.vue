@@ -77,11 +77,10 @@
       <label class="toggle-card">
         <input type="checkbox" v-model="searchPredictionEnabled" @change="saveSearchPredictionSetting" />
         <span>
-          <strong>Auto-search top tag prediction while typing</strong>
+          <strong>Auto-search while typing</strong>
           <small>
-            When enabled, partial tag searches use the first autocomplete match automatically while
-            keeping your typed text and suggestions visible. Exact tags and filters like rating:safe
-            still search as typed.
+            When semantic search is off, partial tag searches use the top autocomplete match automatically.
+            When semantic search is on, the typed phrase searches as-is and suggestions require a click or arrow+Enter.
           </small>
         </span>
       </label>
@@ -94,6 +93,112 @@
           </small>
         </span>
       </label>
+      <label class="toggle-card">
+        <input type="checkbox" v-model="autoTagSettings.semanticSearchEnabled" @change="saveSemanticSearchSetting" />
+        <span>
+          <strong>Semantic search</strong>
+          <small>
+            Searches tags plus saved Qwen semantic analysis so phrases like music edit, protest, or pink bikini can find posts without running a model.
+          </small>
+        </span>
+      </label>
+    </div>
+
+    <div class="settings-section">
+      <h2>AI Model Defaults</h2>
+      <p class="section-description">
+        Default model checkboxes used by per-post AI Tag, the upload form, browser extension previews, and custom profile starts.
+        You can still override them per run.
+      </p>
+
+      <div class="profile-defaults-grid">
+        <div
+          v-for="profile in aiDefaultProfiles"
+          :key="profile.id"
+          class="extension-defaults-panel profile-default-card"
+        >
+          <div class="extension-defaults-head">
+            <div>
+              <strong>{{ profile.name }}</strong>
+              <small>{{ profile.description }}</small>
+            </div>
+            <span>{{ aiDefaultModelSummary(profile.id) }}</span>
+          </div>
+          <div class="extension-model-grid">
+            <label
+              v-for="model in aiDefaultModels"
+              :key="`${profile.id}-${model.key}`"
+              class="toggle-card extension-model-toggle"
+            >
+              <input
+                type="checkbox"
+                v-model="aiModelProfileDefaults[profile.id][model.key]"
+                @change="aiModelDefaultsPersisted = true"
+              />
+              <span>
+                <strong>{{ model.name }}</strong>
+                <small>{{ profileModelDescription(profile.id, model) }}</small>
+              </span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <p v-if="aiModelDefaultsStatus.show" class="cookies-status" :class="aiModelDefaultsStatus.success ? 'success' : 'error'">
+        <strong>{{ aiModelDefaultsStatus.message }}</strong>
+      </p>
+
+      <div class="form-actions">
+        <button class="btn" @click="saveAiModelDefaults" :disabled="savingAiModelDefaults">
+          {{ savingAiModelDefaults ? 'Saving...' : 'Save AI Model Defaults' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h2>Browser Extension</h2>
+      <p class="section-description">
+        Defaults used by the upload popup. You can still override these per upload in the extension window.
+      </p>
+
+      <label class="toggle-card">
+        <input type="checkbox" v-model="extensionSettings.saveTweetTag" />
+        <span>
+          <strong>Save tweet ID as tag</strong>
+          <small>Adds tags like <code>twitter_2063698076431200361</code> when uploading from X/Twitter.</small>
+        </span>
+      </label>
+      <label class="toggle-card">
+        <input type="checkbox" v-model="extensionSettings.saveSourcePageUrl" />
+        <span>
+          <strong>Save source page URL</strong>
+          <small>Saves the page where the media was found, including non-tweet pages.</small>
+        </span>
+      </label>
+      <label class="toggle-card">
+        <input type="checkbox" v-model="extensionSettings.saveMediaUrl" />
+        <span>
+          <strong>Save image/media URL when no page URL is saved</strong>
+          <small>Uses the direct image or video URL as the post source if the page URL option is off or unavailable.</small>
+        </span>
+      </label>
+      <label class="toggle-card">
+        <input type="checkbox" v-model="extensionSettings.saveSemanticAnalysis" />
+        <span>
+          <strong>Save Qwen semantic analysis</strong>
+          <small>When an extension AI preview uses Qwen, stores its rationale and raw semantic output for semantic search.</small>
+        </span>
+      </label>
+
+      <p v-if="extensionStatus.show" class="cookies-status" :class="extensionStatus.success ? 'success' : 'error'">
+        <strong>{{ extensionStatus.message }}</strong>
+      </p>
+
+      <div class="form-actions">
+        <button class="btn" @click="saveExtensionSettings" :disabled="savingExtension">
+          {{ savingExtension ? 'Saving...' : 'Save Extension Defaults' }}
+        </button>
+      </div>
     </div>
 
     <div class="settings-section">
@@ -643,8 +748,165 @@
           <p>{{ downloadJobDetail }}</p>
         </div>
 
-        <div class="model-list">
-          <div v-for="model in modelCatalog" :key="model.id" class="model-row">
+        <div v-if="semanticModels.length" class="semantic-manager">
+          <div class="semantic-manager-head">
+            <div>
+              <h4>Qwen Semantic Backend</h4>
+              <p>Choose one Qwen backend for higher-level context, political/edit tags, and multimodal evidence.</p>
+            </div>
+            <span class="semantic-selected-pill">{{ selectedSemanticModel?.name || 'No backend selected' }}</span>
+          </div>
+
+          <label class="pipeline-toggle semantic-default-toggle">
+            <input type="checkbox" v-model="autoTagSettings.qwenEnabled" />
+            <span>
+              <strong>Enable semantic tags by default</strong>
+              <small>Uses the selected Qwen backend during imports, per-post AI Tag, extension previews, and bulk jobs.</small>
+            </span>
+          </label>
+
+          <div class="semantic-backend-grid">
+            <div
+              v-for="model in semanticModels"
+              :key="model.id"
+              class="semantic-model-card"
+              :class="{ active: autoTagSettings.semanticModelId === model.id }"
+            >
+              <div class="semantic-model-head">
+                <label class="semantic-model-choice">
+                  <input type="radio" :value="model.id" v-model="autoTagSettings.semanticModelId" />
+                  <span>
+                    <strong>{{ model.name }}</strong>
+                    <code>{{ model.repoId }}</code>
+                  </span>
+                </label>
+                <span :class="model.downloaded ? 'model-ok' : 'model-missing'">
+                  {{ model.downloaded ? 'Downloaded' : 'Not downloaded' }}
+                </span>
+              </div>
+              <p>{{ model.purpose }}</p>
+              <small>{{ semanticBackendDescription(model) }}</small>
+              <div class="model-facts compact">
+                <span><strong>Size</strong>{{ model.downloadSize || 'Unknown' }}</span>
+                <span><strong>VRAM</strong>{{ model.vramRequirement || 'Unknown' }}</span>
+                <span :class="model.runtimeAvailable ? 'model-ok' : 'model-missing'">
+                  <strong>Runtime</strong>{{ model.runtimeAvailable ? 'Ready' : 'Missing' }}
+                </span>
+                <span :class="model.loaded ? 'model-ok' : 'model-missing'">
+                  <strong>Memory</strong>{{ model.loaded ? 'Loaded' : 'Not loaded' }}
+                </span>
+              </div>
+              <div v-if="modelDownloadState(model.id)" class="model-progress compact-progress">
+                <div class="progress-bar">
+                  <div class="progress-fill" :style="{ width: modelProgressPercent(model.id) + '%' }"></div>
+                </div>
+                <p>
+                  <strong>{{ modelProgressPercent(model.id) }}%</strong>
+                  {{ modelDownloadStateLabel(model.id) }}
+                  <span v-if="modelDownloadState(model.id).current">: {{ modelDownloadState(model.id).current }}</span>
+                  <span v-if="modelDownloadBytes(model.id)"> - {{ modelDownloadBytes(model.id) }}</span>
+                </p>
+                <p v-if="modelDownloadState(model.id).error" class="stats-error">{{ modelDownloadState(model.id).error }}</p>
+              </div>
+              <div class="model-actions compact-actions">
+                <button
+                  class="btn btn-secondary"
+                  :class="{ 'btn-danger': modelDownloadActiveFor(model.id) }"
+                  @click="modelDownloadActiveFor(model.id) ? cancelModelDownload() : downloadAutoTagModelById(model.id)"
+                  :disabled="(!modelDownloadActiveFor(model.id) && (modelDownloadRunning || model.downloaded)) || modelDownloadCancelling"
+                >
+                  {{ modelDownloadActiveFor(model.id) ? (modelDownloadCancelling ? 'Cancelling...' : 'Cancel') : (model.downloaded ? 'Downloaded' : 'Download') }}
+                </button>
+                <button
+                  class="btn btn-secondary"
+                  @click="model.loaded ? unloadAutoTagModelById(model.id) : loadAutoTagModelById(model.id)"
+                  :disabled="modelDownloadRunning || !model.downloaded || !model.runtimeAvailable || modelMemoryBusy"
+                >
+                  {{ model.loaded ? 'Unload' : 'Load' }}
+                </button>
+                <button
+                  class="btn btn-danger"
+                  @click="deleteAutoTagModelById(model.id)"
+                  :disabled="modelDownloadRunning || !model.downloaded || modelDeleteBusy"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="semantic-prompt-panel semantic-prompt-standalone">
+          <div class="semantic-prompt-head">
+            <div>
+              <strong>Semantic prompt</strong>
+              <small>Customize what the selected Qwen backend should look for and which tags it should return.</small>
+            </div>
+            <div class="semantic-prompt-actions">
+              <button
+                type="button"
+                class="btn btn-secondary btn-small"
+                title="Restore the built-in NekoBooru semantic prompt"
+                @click="resetSemanticPrompt"
+              >
+                Restore Default Prompt
+              </button>
+              <button
+                type="button"
+                class="btn btn-small"
+                title="Save only the semantic prompt and related semantic options"
+                @click="saveSemanticPrompt"
+                :disabled="savingAutoTags"
+              >
+                {{ savingAutoTags ? 'Saving...' : 'Save Prompt' }}
+              </button>
+            </div>
+          </div>
+          <div class="semantic-option-grid">
+            <label class="pipeline-toggle">
+              <input type="checkbox" v-model="autoTagSettings.semanticPromptEnabled" />
+              <span>
+                <strong>Use saved semantic prompt</strong>
+                <small>When enabled, Qwen uses the prompt below. When disabled, it falls back to NekoBooru's built-in default prompt.</small>
+              </span>
+            </label>
+            <label class="pipeline-toggle">
+              <input type="checkbox" v-model="autoTagSettings.semanticSearchEnabled" />
+              <span>
+                <strong>Semantic search</strong>
+                <small>Searches tags plus saved Qwen semantic analysis so phrases can match model rationale, summaries, and semantic tags.</small>
+              </span>
+            </label>
+            <label class="pipeline-toggle">
+              <input type="checkbox" v-model="autoTagSettings.saveSemanticAnalysis" />
+              <span>
+                <strong>Save Qwen analysis when applying</strong>
+                <small>Stores semantic tags, safety, rationale, prompt hash, timings, and raw Qwen output for app, import, and bulk auto-tagging.</small>
+              </span>
+            </label>
+          </div>
+          <textarea
+            v-model="autoTagSettings.semanticPrompt"
+            rows="7"
+            maxlength="4000"
+            spellcheck="true"
+            :disabled="autoTagSettings.semanticPromptEnabled === false"
+            placeholder="Describe the semantic tags Qwen should look for..."
+          ></textarea>
+          <small class="semantic-prompt-note">
+            Used when semantic tags are enabled for per-post, import, extension preview, or bulk auto-tagging. Keep requested tags in snake_case for best results.
+          </small>
+          <p
+            v-if="semanticPromptStatus.show"
+            class="cookies-status compact-status"
+            :class="semanticPromptStatus.success ? 'success' : 'error'"
+          >
+            <strong>{{ semanticPromptStatus.message }}</strong>
+          </p>
+        </div>
+
+        <div class="model-list compact-model-list">
+          <div v-for="model in nonSemanticModels" :key="model.id" class="model-row compact-model-row">
             <div class="model-head">
               <div class="model-title">
                 <strong>{{ model.name }}</strong>
@@ -675,34 +937,13 @@
                   <strong>Memory</strong>{{ model.loaded ? 'Loaded' : 'Not loaded' }}
                 </span>
               </div>
-              <label class="pipeline-toggle">
+              <label v-if="modelPipelineConfigurable(model)" class="pipeline-toggle">
                 <input type="checkbox" v-model="autoTagSettings[modelSettingKey(model.id)]" />
                 <span>
                   <strong>{{ modelPipelineLabel(model.id) }}</strong>
                   <small>{{ modelPipelineDescription(model.id) }}</small>
                 </span>
               </label>
-              <div v-if="model.id === 'qwen'" class="semantic-prompt-panel">
-                <div class="semantic-prompt-head">
-                  <div>
-                    <strong>Semantic prompt</strong>
-                    <small>Customize what Qwen should look for and which tags it should return.</small>
-                  </div>
-                  <button type="button" class="btn btn-secondary btn-small" @click="resetSemanticPrompt">
-                    Reset
-                  </button>
-                </div>
-                <textarea
-                  v-model="autoTagSettings.semanticPrompt"
-                  rows="7"
-                  maxlength="4000"
-                  spellcheck="true"
-                  placeholder="Describe the semantic tags Qwen should look for..."
-                ></textarea>
-                <small class="semantic-prompt-note">
-                  Used when Qwen is enabled for per-post, import, extension preview, or bulk auto-tagging. Keep requested tags in snake_case for best results.
-                </small>
-              </div>
             </div>
             <div v-if="modelDownloadState(model.id)" class="model-progress">
               <div class="progress-bar">
@@ -999,6 +1240,31 @@
       </div>
     </div>
 
+    <div class="settings-section">
+      <h2>Restart</h2>
+      <p class="section-description">
+        Restart the packaged NekoBooru app after changing runtime, packaging, or port settings.
+      </p>
+
+      <div class="form-actions">
+        <button
+          class="btn"
+          @click="restartNekoBooru"
+          :disabled="restartBusy || !runtimeStatus.restart?.available"
+          :title="runtimeStatus.restart?.message || 'Restart NekoBooru'"
+        >
+          {{ restartBusy ? 'Restarting...' : 'Restart NekoBooru' }}
+        </button>
+      </div>
+      <p
+        v-if="restartMessage.show || runtimeStatus.restart"
+        class="status-note"
+        :class="restartMessage.show ? (restartMessage.success ? 'model-ok' : 'model-missing') : ''"
+      >
+        {{ restartMessage.show ? restartMessage.message : runtimeStatus.restart?.message }}
+      </p>
+    </div>
+
     <div v-if="showPreviewModal" class="modal-overlay" @click.self="showPreviewModal = false">
       <div class="preview-modal">
         <div class="modal-head">
@@ -1077,6 +1343,31 @@ const SEARCH_PREDICTION_KEY = 'nekobooru.searchPredictionEnabled'
 const NAME_PART_AUTOCOMPLETE_KEY = 'nekobooru.namePartAutocompleteEnabled'
 const searchPredictionEnabled = ref(false)
 const namePartAutocompleteEnabled = ref(false)
+const extensionSettings = ref({
+  saveTweetTag: true,
+  saveSourcePageUrl: true,
+  saveMediaUrl: false,
+  saveSemanticAnalysis: false,
+})
+const aiModelDefaults = ref({})
+const aiModelProfileDefaults = ref({
+  custom: {},
+  anime: {},
+  realistic: {},
+})
+const aiModelDefaultsPersisted = ref(false)
+const savingAiModelDefaults = ref(false)
+const aiModelDefaultsStatus = ref({
+  show: false,
+  success: true,
+  message: '',
+})
+const savingExtension = ref(false)
+const extensionStatus = ref({
+  show: false,
+  success: true,
+  message: '',
+})
 const serverSettings = ref({
   host: '127.0.0.1',
   port: 8772,
@@ -1133,6 +1424,12 @@ const aiRuntimeMessage = ref({
   success: false,
   message: '',
 })
+const restartBusy = ref(false)
+const restartMessage = ref({
+  show: false,
+  success: true,
+  message: '',
+})
 
 const autoTagSettings = ref({})
 const autoTagStatus = ref({})
@@ -1143,13 +1440,27 @@ const showPreviewModal = ref(false)
 const previewSuggestions = ref([])
 const previewLoading = ref(false)
 const savingAutoTags = ref(false)
+const semanticPromptStatus = ref({
+  show: false,
+  success: true,
+  message: '',
+})
 const defaultSemanticPrompt = [
-  'Return compact JSON only with keys tags, safety, rationale.',
-  'Use snake_case tags. Look for higher-level context such as political_edit, meme_edit, amv, music_video, captioned, protest, politician, propaganda, and contextual edit signals only when visually or transcript supported.',
-  'Use national_socialism only for clear Nazi/far-right symbols such as a swastika, sonnenrad, or black_sun.',
-  'Use communism only for clear communist symbols such as a hammer_and_sickle or communist red star.',
-  'If transcript or audio evidence suggests a song or music-driven edit, include music and edit.',
-].join(' ')
+  'Return compact JSON only with keys: tags, safety, rationale.',
+  'Use snake_case tags only.',
+  '',
+  'Semantic description:',
+  '- The rationale should describe the visible image or frame collection in detail, including clothing garments, describe the pose, setting, text, audio/transcript evidence, and why semantic/context tags were included.',
+  '',
+  'Tags in priority order:',
+  '- Return 6-28 useful searchable tags supported by the image, frame, OCR, transcript, or source page.',
+  '- Start with directly visible tags: media type, pose, subject count, male/female/girl/boy, setting, objects, actions, expression, hair color, eye color, framing, text/audio presence, and meme/edit format.',
+  '- Decompose clothing into specific garments and attributes. Name the garment type separately from pattern or theme. Example cow_print_outfit, bikini, swimsuit, would all be included.',
+  '- Do not confuse animal ears or horns for clothing, or horns for ears. Tag what is visibly present, such as animal_ears, cow_horns, white_horns, tail, or cow_tail.',
+  '- Add frequent or matching primary colors for the scene or clothing, hair color, eye color, standout accessories, exact pose, and anything visually distinctive.',
+  '- Include screenshot, photo, video, image, or gif when they fit.',
+  '- Add semantic/context tags only when supported: political_edit, meme_edit, amv, music_video, captioned, protest, politician, propaganda, music, edit, has_text, text_overlay, has_speech, swastika, sonnenrad, black_sun, national_socialism, hammer_and_sickle, communism.',
+].join('\n')
 const huggingFaceToken = ref('')
 const savingToken = ref(false)
 const modelCatalog = ref([])
@@ -1192,6 +1503,15 @@ const bulkActionHelp = {
   applyPreview: 'Apply only the saved suggestions from a completed Preview Job. Disabled until a preview finishes successfully.',
   cancel: 'Request the current bulk job to stop. The current model call may finish first, then the job moves to cancelled.',
 }
+const extensionModelDefaultKeys = [
+  'wdEnabled',
+  'pixaiEnabled',
+  'characterModelEnabled',
+  'qwenEnabled',
+  'ocrEnabled',
+  'whisperEnabled',
+]
+const aiDefaultProfileIds = ['custom', 'anime', 'realistic']
 let autoTagPollTimer = null
 let modelDownloadPollTimer = null
 let ytdlpPollTimer = null
@@ -1212,7 +1532,8 @@ const migrationStatus = ref({
 
 onMounted(async () => {
   loadSearchPredictionSetting()
-  await Promise.all([loadSettings(), loadAutoTags(), refreshYtdlpStatus(), loadRuntimeStatus(), loadUpdateStatus(true)])
+  await Promise.all([loadSettings(), loadExtensionSettings(), loadAutoTags(), refreshYtdlpStatus(), loadRuntimeStatus(), loadUpdateStatus(true)])
+  await loadAiModelDefaults()
 })
 
 function loadSearchPredictionSetting() {
@@ -1226,6 +1547,195 @@ function saveSearchPredictionSetting() {
 
 function saveNamePartAutocompleteSetting() {
   localStorage.setItem(NAME_PART_AUTOCOMPLETE_KEY, namePartAutocompleteEnabled.value ? 'true' : 'false')
+}
+
+async function saveSemanticSearchSetting() {
+  try {
+    if (!Object.keys(autoTagSettings.value || {}).length) {
+      await loadAutoTags()
+    }
+    autoTagSettings.value.semanticSearchEnabled = autoTagSettings.value.semanticSearchEnabled === true
+    await saveAutoTagSettings()
+    window.dispatchEvent(new CustomEvent('nekobooru:semantic-search-setting', {
+      detail: { enabled: autoTagSettings.value.semanticSearchEnabled === true },
+    }))
+  } catch (e) {
+    alert('Failed to save semantic search setting: ' + e.message)
+  }
+}
+
+async function loadExtensionSettings() {
+  try {
+    const result = await api.getExtensionSettings()
+    extensionSettings.value = {
+      saveTweetTag: result.saveTweetTag !== false,
+      saveSourcePageUrl: result.saveSourcePageUrl !== false,
+      saveMediaUrl: result.saveMediaUrl === true,
+      saveSemanticAnalysis: result.saveSemanticAnalysis === true,
+    }
+  } catch (e) {
+    console.error('Failed to load extension defaults:', e)
+  }
+}
+
+async function loadAiModelDefaults() {
+  try {
+    const result = await api.getAiModelDefaults()
+    const modelDefaults = normalizeAiModelDefaults(result.modelDefaults)
+    const profileDefaults = normalizeAiProfileDefaults(result.modelDefaults?.profileDefaults, modelDefaults)
+    aiModelDefaultsPersisted.value = Object.keys(modelDefaults).length > 0
+    aiModelDefaults.value = modelDefaults
+    aiModelProfileDefaults.value = profileDefaults
+    hydrateAiModelDefaults()
+  } catch (e) {
+    console.error('Failed to load AI model defaults:', e)
+    hydrateAiModelDefaults()
+  }
+}
+
+async function saveExtensionSettings() {
+  savingExtension.value = true
+  extensionStatus.value.show = false
+  try {
+    extensionSettings.value = await api.updateExtensionSettings({
+      saveTweetTag: extensionSettings.value.saveTweetTag !== false,
+      saveSourcePageUrl: extensionSettings.value.saveSourcePageUrl !== false,
+      saveMediaUrl: extensionSettings.value.saveMediaUrl === true,
+      saveSemanticAnalysis: extensionSettings.value.saveSemanticAnalysis === true,
+    })
+    extensionStatus.value = {
+      show: true,
+      success: true,
+      message: 'Extension defaults saved.',
+    }
+  } catch (e) {
+    extensionStatus.value = {
+      show: true,
+      success: false,
+      message: 'Failed to save extension defaults: ' + e.message,
+    }
+  } finally {
+    savingExtension.value = false
+  }
+}
+
+async function saveAiModelDefaults() {
+  savingAiModelDefaults.value = true
+  aiModelDefaultsStatus.value.show = false
+  try {
+    hydrateAiModelDefaults()
+    const result = await api.updateAiModelDefaults(aiModelDefaultsPayload())
+    aiModelDefaults.value = normalizeAiModelDefaults(result.modelDefaults)
+    aiModelProfileDefaults.value = normalizeAiProfileDefaults(result.modelDefaults?.profileDefaults, aiModelDefaults.value)
+    aiModelDefaultsPersisted.value = true
+    hydrateAiModelDefaults()
+    aiModelDefaultsStatus.value = {
+      show: true,
+      success: true,
+      message: 'AI model defaults saved.',
+    }
+  } catch (e) {
+    aiModelDefaultsStatus.value = {
+      show: true,
+      success: false,
+      message: 'Failed to save AI model defaults: ' + e.message,
+    }
+  } finally {
+    savingAiModelDefaults.value = false
+  }
+}
+
+function normalizeAiModelDefaults(raw = {}) {
+  const defaults = raw && typeof raw === 'object' ? raw : {}
+  return extensionModelDefaultKeys.reduce((memo, key) => {
+    if (Object.prototype.hasOwnProperty.call(defaults, key)) {
+      memo[key] = defaults[key] === true
+    }
+    return memo
+  }, {})
+}
+
+function normalizeAiProfileDefaults(raw = {}, fallback = {}) {
+  const defaults = raw && typeof raw === 'object' ? raw : {}
+  return aiDefaultProfileIds.reduce((memo, profileId) => {
+    memo[profileId] = normalizeAiModelDefaults(defaults[profileId] || (profileId === 'custom' ? fallback : {}))
+    return memo
+  }, {})
+}
+
+function autoTagDefaultsForAiModels() {
+  return {
+    wdEnabled: autoTagSettings.value.wdEnabled !== false,
+    pixaiEnabled: autoTagSettings.value.pixaiEnabled === true,
+    characterModelEnabled: autoTagSettings.value.characterModelEnabled === true,
+    qwenEnabled: Boolean(autoTagSettings.value.qwenEnabled || autoTagSettings.value.semanticPoliticalEnabled),
+    ocrEnabled: autoTagSettings.value.ocrEnabled === true,
+    whisperEnabled: autoTagSettings.value.whisperEnabled === true,
+  }
+}
+
+function hydrateAiModelDefaults() {
+  const fallback = autoTagDefaultsForAiModels()
+  const current = normalizeAiModelDefaults(aiModelDefaults.value)
+  const customDefaults = extensionModelDefaultKeys.reduce((memo, key) => {
+    memo[key] = aiModelDefaultsPersisted.value && Object.prototype.hasOwnProperty.call(current, key)
+      ? current[key]
+      : fallback[key]
+    return memo
+  }, {})
+  aiModelDefaults.value = customDefaults
+  const currentProfiles = normalizeAiProfileDefaults(aiModelProfileDefaults.value, customDefaults)
+  aiModelProfileDefaults.value = {
+    custom: customDefaults,
+    anime: hydrateProfileDefaults('anime', currentProfiles.anime),
+    realistic: hydrateProfileDefaults('realistic', currentProfiles.realistic),
+  }
+}
+
+function hydrateProfileDefaults(profileId, current) {
+  if (aiModelDefaultsPersisted.value && Object.keys(current || {}).length) {
+    return extensionModelDefaultKeys.reduce((memo, key) => {
+      memo[key] = current[key] === true
+      return memo
+    }, {})
+  }
+  const isAnime = profileId === 'anime'
+  return {
+    wdEnabled: !isAnime,
+    pixaiEnabled: isAnime,
+    characterModelEnabled: isAnime,
+    qwenEnabled: false,
+    semanticPoliticalEnabled: false,
+    ocrEnabled: true,
+    whisperEnabled: !isAnime ? true : true,
+  }
+}
+
+function aiModelDefaultsPayload() {
+  const profiles = normalizeAiProfileDefaults(aiModelProfileDefaults.value, normalizeAiModelDefaults(aiModelDefaults.value))
+  const defaults = normalizeAiModelDefaults(profiles.custom)
+  return {
+    wdEnabled: defaults.wdEnabled === true,
+    pixaiEnabled: defaults.pixaiEnabled === true,
+    characterModelEnabled: defaults.characterModelEnabled === true,
+    qwenEnabled: defaults.qwenEnabled === true,
+    semanticPoliticalEnabled: defaults.qwenEnabled === true,
+    ocrEnabled: defaults.ocrEnabled === true,
+    whisperEnabled: defaults.whisperEnabled === true,
+    profileDefaults: aiDefaultProfileIds.reduce((memo, profileId) => {
+      const stack = normalizeAiModelDefaults(profiles[profileId])
+      memo[profileId] = {
+        wdEnabled: stack.wdEnabled === true,
+        pixaiEnabled: stack.pixaiEnabled === true,
+        characterModelEnabled: stack.characterModelEnabled === true,
+        qwenEnabled: stack.qwenEnabled === true,
+        semanticPoliticalEnabled: stack.qwenEnabled === true,
+        ocrEnabled: stack.ocrEnabled === true,
+        whisperEnabled: stack.whisperEnabled === true,
+      }
+      return memo
+    }, {}),
+  }
 }
 
 onUnmounted(() => {
@@ -1390,7 +1900,7 @@ const loadedModelCount = computed(() =>
 )
 
 const missingRuntimeModels = computed(() =>
-  modelCatalog.value.filter((model) => !model.runtimeAvailable)
+  enabledModels.value.filter((model) => !model.runtimeAvailable)
 )
 
 const enabledModels = computed(() =>
@@ -1404,6 +1914,85 @@ const enabledModelNames = computed(() =>
 const enabledModelsMissingDownloads = computed(() =>
   enabledModels.value.filter((model) => !model.downloaded)
 )
+
+const semanticModels = computed(() =>
+  modelCatalog.value.filter((model) => isSemanticModel(model))
+)
+
+const nonSemanticModels = computed(() =>
+  modelCatalog.value.filter((model) => !isSemanticModel(model))
+)
+
+const selectedSemanticModel = computed(() =>
+  semanticModels.value.find((model) => model.id === (autoTagSettings.value.semanticModelId || 'qwen')) ||
+  semanticModels.value[0] ||
+  null
+)
+
+const aiDefaultModels = computed(() => [
+  {
+    key: 'wdEnabled',
+    name: 'WD Tagger',
+    description: 'Broad booru-style image and sampled video-frame tags.',
+  },
+  {
+    key: 'pixaiEnabled',
+    name: 'PixAI Tagger v0.9',
+    description: 'Fast PixAI/Danbooru anime and illustration tags.',
+  },
+  {
+    key: 'characterModelEnabled',
+    name: 'Camie Tagger v2',
+    description: 'Anime character, copyright/source, artist, and rating tags.',
+  },
+  {
+    key: 'qwenEnabled',
+    name: selectedSemanticModel.value?.name || 'Qwen semantic backend',
+    description: 'Higher-level semantic analysis using the selected Qwen backend.',
+  },
+  {
+    key: 'ocrEnabled',
+    name: 'TrOCR Printed',
+    description: 'Visible captions, subtitles, and meme text from images or frames.',
+  },
+  {
+    key: 'whisperEnabled',
+    name: 'Whisper Small',
+    description: 'Speech, music, and audio transcript signals from videos.',
+  },
+])
+
+const aiDefaultProfiles = computed(() => [
+  {
+    id: 'custom',
+    name: 'Custom profile',
+    description: 'Used by Custom AI Tag buttons, imports, and bulk jobs.',
+  },
+  {
+    id: 'anime',
+    name: 'Anime / Booru profile',
+    description: 'Used when you click Anime / Booru on posts, uploads, or the extension.',
+  },
+  {
+    id: 'realistic',
+    name: 'Realistic profile',
+    description: 'Used when you click Realistic on posts, uploads, or the extension.',
+  },
+])
+
+function aiDefaultModelSummary(profileId = 'custom') {
+  const defaults = aiModelProfileDefaults.value?.[profileId] || {}
+  const count = extensionModelDefaultKeys.filter((key) => defaults[key] === true).length
+  return `${count} model${count === 1 ? '' : 's'} enabled`
+}
+
+function profileModelDescription(profileId, model) {
+  if (profileId === 'anime' && model.key === 'wdEnabled') return 'Usually off for anime; enable only if you want WD broad booru backup tags.'
+  if (profileId === 'anime' && model.key === 'pixaiEnabled') return 'Recommended fast anime/Danbooru tagger for illustration-heavy posts.'
+  if (profileId === 'realistic' && model.key === 'qwenEnabled') return 'When enabled, Qwen replaces WD for Realistic semantic runs.'
+  if (profileId === 'realistic' && model.key === 'pixaiEnabled') return 'Optional; useful for stylized/anime-like realistic edits, otherwise keep off.'
+  return model.description
+}
 
 const bulkPipelineSummary = computed(() => {
   const names = enabledModels.value.map((model) => model.name)
@@ -1492,31 +2081,62 @@ const torchDeviceDetail = computed(() => {
 function modelSettingKey(id) {
   return {
     wd: 'wdEnabled',
+    pixai: 'pixaiEnabled',
     camie: 'characterModelEnabled',
     ocr: 'ocrEnabled',
     whisper: 'whisperEnabled',
     qwen: 'qwenEnabled',
+    qwen_gguf_q4: 'qwenEnabled',
+    qwen_gguf_q8: 'qwenEnabled',
   }[id] || `${id}Enabled`
 }
 
 function modelPipelineLabel(id) {
   return {
     wd: 'Enable by default for booru tags',
+    pixai: 'Enable by default for PixAI anime tags',
     camie: 'Enable by default for character/source tags',
     ocr: 'Enable by default for text extraction',
     whisper: 'Enable by default for audio transcripts',
     qwen: 'Enable by default for semantic tags',
+    qwen_gguf_q4: 'Enable by default for semantic tags',
+    qwen_gguf_q8: 'Enable by default for semantic tags',
   }[id] || 'Enable by default'
 }
 
 function modelPipelineDescription(id) {
   return {
     wd: 'Runs on images and sampled video frames. Best baseline for visual library tags.',
+    pixai: 'Runs fast PixAI/Danbooru anime tags on images and sampled video frames.',
     camie: 'Adds anime characters, copyright/source tags, artist tags, and rating evidence.',
     ocr: 'Reads visible captions, subtitles, and meme text from representative frames.',
     whisper: 'Extracts speech from video audio for AMVs, edits, narration, and spoken context.',
     qwen: 'Uses image plus OCR/transcript context for higher-level edit and scene meaning.',
+    qwen_gguf_q4: 'Uses Qwen3-VL GGUF Q4 through llama.cpp for faster low-memory semantic tags.',
+    qwen_gguf_q8: 'Uses Qwen3-VL GGUF Q8 through llama.cpp for higher-quality semantic tags.',
   }[id] || 'Use this model in the saved default auto-tagging pipeline.'
+}
+
+function isSemanticModel(model) {
+  return model?.role === 'semantic' || ['qwen', 'qwen_gguf_q4', 'qwen_gguf_q8'].includes(model?.id)
+}
+
+function modelPipelineConfigurable(model) {
+  if (!isSemanticModel(model)) return true
+  return model.id === 'qwen'
+}
+
+function semanticBackendDescription(model) {
+  if (model.id === 'qwen') {
+    return 'Current Transformers backend. Highest integration stability, largest download and VRAM footprint.'
+  }
+  if (model.id === 'qwen_gguf_q4') {
+    return 'Qwen3-VL 8B Q4_K_M. Best speed and memory profile for local previews.'
+  }
+  if (model.id === 'qwen_gguf_q8') {
+    return 'Qwen3-VL 8B Q8_0. Better quality than Q4 with a larger download and VRAM footprint.'
+  }
+  return 'Semantic backend used whenever Qwen semantic tags are enabled.'
 }
 
 function modelInfoTitle(model) {
@@ -1533,6 +2153,11 @@ function modelInfoTitle(model) {
 }
 
 function isModelEnabled(id) {
+  const model = modelCatalog.value.find((row) => row.id === id)
+  if (isSemanticModel(model)) {
+    return Boolean(autoTagSettings.value.qwenEnabled || autoTagSettings.value.semanticPoliticalEnabled)
+      && (autoTagSettings.value.semanticModelId || 'qwen') === id
+  }
   const key = modelSettingKey(id)
   if (id === 'wd') return autoTagSettings.value[key] !== false
   return Boolean(autoTagSettings.value[key])
@@ -1556,6 +2181,62 @@ async function loadRuntimeStatus() {
       message: 'Failed to load runtime status: ' + e.message,
     }
   }
+}
+
+async function restartNekoBooru() {
+  if (restartBusy.value || !runtimeStatus.value.restart?.available) return
+  restartBusy.value = true
+  restartMessage.value = {
+    show: true,
+    success: true,
+    message: 'Restart requested. Waiting for NekoBooru to come back online...',
+  }
+  try {
+    await api.restartApp()
+    await waitForBackendAfterRestart()
+    restartMessage.value = {
+      show: true,
+      success: true,
+      message: 'NekoBooru restarted successfully.',
+    }
+    await Promise.all([loadRuntimeStatus(), refreshAutoTagStatus()])
+  } catch (e) {
+    restartMessage.value = {
+      show: true,
+      success: false,
+      message: 'Restart failed: ' + e.message,
+    }
+  } finally {
+    restartBusy.value = false
+  }
+}
+
+async function waitForBackendAfterRestart() {
+  const base = apiBaseUrl()
+  let sawOffline = false
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    await delay(750)
+    try {
+      const response = await fetch(`${base}/health`, { cache: 'no-store' })
+      if (response.ok) {
+        const body = await response.json().catch(() => ({}))
+        if (body.status === 'ok' && (sawOffline || attempt > 4)) return
+      }
+    } catch {
+      sawOffline = true
+    }
+  }
+  throw new Error('backend did not respond after restart')
+}
+
+function apiBaseUrl() {
+  const configured = import.meta.env.VITE_API_URL
+  if (configured) return configured.replace(/\/$/, '')
+  return `${window.location.protocol}//${window.location.host}/api`
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function startAiRuntimeInstall() {
@@ -1769,11 +2450,16 @@ async function loadAutoTags() {
       wdEnabled: settingsResult.wdEnabled !== false,
       torchDevice: settingsResult.torchDevice || 'auto',
       semanticPrompt: settingsResult.semanticPrompt || defaultSemanticPrompt,
+      semanticPromptEnabled: settingsResult.semanticPromptEnabled !== false,
+      semanticSearchEnabled: settingsResult.semanticSearchEnabled === true,
+      saveSemanticAnalysis: settingsResult.saveSemanticAnalysis === true,
+      semanticModelId: settingsResult.semanticModelId || 'qwen',
     }
     autoTagStatus.value = statusResult
     autoTagJob.value = currentJob
     modelCatalog.value = modelsResult.models || []
     modelDownloadJob.value = modelsResult.downloadJob
+    hydrateAiModelDefaults()
     if (autoTagJobRunning.value) startAutoTagPolling()
     if (modelDownloadRunning.value) startModelDownloadPolling()
   } catch (e) {
@@ -1785,6 +2471,10 @@ async function saveAutoTagSettings() {
   savingAutoTags.value = true
   try {
     autoTagSettings.value.semanticPrompt = (autoTagSettings.value.semanticPrompt || defaultSemanticPrompt).trim()
+    autoTagSettings.value.semanticPromptEnabled = autoTagSettings.value.semanticPromptEnabled !== false
+    autoTagSettings.value.semanticSearchEnabled = autoTagSettings.value.semanticSearchEnabled === true
+    autoTagSettings.value.saveSemanticAnalysis = autoTagSettings.value.saveSemanticAnalysis === true
+    autoTagSettings.value.semanticModelId = autoTagSettings.value.semanticModelId || 'qwen'
     autoTagSettings.value = await api.updateAutoTagSettings(autoTagSettings.value)
     autoTagStatus.value = await api.getAutoTagStatus()
   } catch (e) {
@@ -1796,6 +2486,38 @@ async function saveAutoTagSettings() {
 
 function resetSemanticPrompt() {
   autoTagSettings.value.semanticPrompt = defaultSemanticPrompt
+  semanticPromptStatus.value = {
+    show: true,
+    success: true,
+    message: 'Default prompt restored. Click Save Prompt to persist it.',
+  }
+}
+
+async function saveSemanticPrompt() {
+  savingAutoTags.value = true
+  semanticPromptStatus.value.show = false
+  try {
+    autoTagSettings.value.semanticPrompt = (autoTagSettings.value.semanticPrompt || defaultSemanticPrompt).trim()
+    autoTagSettings.value.semanticPromptEnabled = autoTagSettings.value.semanticPromptEnabled !== false
+    autoTagSettings.value.semanticSearchEnabled = autoTagSettings.value.semanticSearchEnabled === true
+    autoTagSettings.value.saveSemanticAnalysis = autoTagSettings.value.saveSemanticAnalysis === true
+    autoTagSettings.value.semanticModelId = autoTagSettings.value.semanticModelId || 'qwen'
+    autoTagSettings.value = await api.updateAutoTagSettings(autoTagSettings.value)
+    autoTagStatus.value = await api.getAutoTagStatus()
+    semanticPromptStatus.value = {
+      show: true,
+      success: true,
+      message: 'Semantic prompt saved.',
+    }
+  } catch (e) {
+    semanticPromptStatus.value = {
+      show: true,
+      success: false,
+      message: 'Failed to save semantic prompt: ' + e.message,
+    }
+  } finally {
+    savingAutoTags.value = false
+  }
 }
 
 async function refreshAutoTagStatus() {
@@ -1931,6 +2653,7 @@ async function downloadAutoTagModelById(id) {
   }
   try {
     modelDownloadJob.value = await api.downloadAutoTagModelById(id)
+    handleRuntimeInstallFromModelDownload(modelDownloadJob.value)
     await pollModelDownloadOnce()
     startModelDownloadPolling()
   } catch (e) {
@@ -1943,8 +2666,9 @@ async function downloadAutoTagModelById(id) {
 }
 
 async function downloadAllAutoTagModels() {
-  const ids = modelCatalog.value.map((model) => model.id)
-  const missing = modelCatalog.value.filter((model) => !model.downloaded)
+  const candidates = downloadAllCandidateModels()
+  const ids = candidates.map((model) => model.id)
+  const missing = candidates.filter((model) => !model.downloaded)
   if (!missing.length) {
     modelDownloadJob.value = optimisticDownloadJob(ids, { status: 'completed' })
     modelStatusMessage.value = {
@@ -1963,6 +2687,7 @@ async function downloadAllAutoTagModels() {
   }
   try {
     modelDownloadJob.value = await api.downloadAllAutoTagModels()
+    handleRuntimeInstallFromModelDownload(modelDownloadJob.value)
     await pollModelDownloadOnce()
     startModelDownloadPolling()
   } catch (e) {
@@ -1972,6 +2697,28 @@ async function downloadAllAutoTagModels() {
       message: 'Failed to start model downloads: ' + e.message,
     }
   }
+}
+
+function handleRuntimeInstallFromModelDownload(job) {
+  if (!job?.runtimeInstallJob) return
+  aiRuntimeJob.value = job.runtimeInstallJob
+  aiRuntimeBusy.value = ['queued', 'running', 'cancelling'].includes(aiRuntimeJob.value?.status)
+  aiRuntimeMessage.value = {
+    show: true,
+    success: aiRuntimeJob.value?.status !== 'failed',
+    message: aiRuntimeJob.value?.status === 'failed'
+      ? `Failed to start llama.cpp runtime install: ${aiRuntimeJob.value.error || 'unknown error'}`
+      : 'Installing llama.cpp runtime for Qwen GGUF. Model download can continue while runtime packages install.',
+  }
+  if (aiRuntimeBusy.value) startAiRuntimePolling()
+}
+
+function downloadAllCandidateModels() {
+  const selectedSemantic = autoTagSettings.value.semanticModelId || 'qwen'
+  return modelCatalog.value.filter((model) => {
+    if (isSemanticModel(model)) return model.id === selectedSemantic
+    return model.downloadAll !== false
+  })
 }
 
 async function loadAutoTagModelById(id) {
@@ -2107,7 +2854,7 @@ function optimisticDownloadJob(ids, options = {}) {
 
 async function pollModelDownloadOnce() {
   const job = await api.getAutoTagModelDownloadJob()
-  if (job) modelDownloadJob.value = job
+  modelDownloadJob.value = job || null
   if (!job || !['queued', 'running', 'cancelling'].includes(job.status)) {
     const modelsResult = await api.getAutoTagModels()
     modelCatalog.value = modelsResult.models || modelCatalog.value
@@ -2974,6 +3721,214 @@ function startYtdlpPolling() {
   font-size: 0.85rem;
 }
 
+.semantic-manager {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1rem;
+  padding: 0.95rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+}
+
+.semantic-manager-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.semantic-manager-head h4 {
+  margin: 0 0 0.2rem;
+  color: var(--text-primary);
+  font-size: 0.96rem;
+}
+
+.semantic-manager-head p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.semantic-selected-pill {
+  flex: 0 0 auto;
+  padding: 0.28rem 0.5rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.45rem;
+  background: rgba(96, 165, 250, 0.1);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.semantic-default-toggle {
+  margin-top: 0;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.semantic-backend-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.semantic-model-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.9fr) auto;
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: var(--bg-secondary);
+}
+
+.semantic-model-card.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.22);
+}
+
+.semantic-model-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.semantic-model-choice {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: flex-start;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.semantic-model-choice input {
+  margin-top: 0.2rem;
+}
+
+.semantic-model-choice strong,
+.semantic-model-choice code {
+  display: block;
+}
+
+.semantic-model-choice code {
+  margin-top: 0.15rem;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.semantic-model-card p,
+.semantic-model-card small {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.semantic-model-card > p,
+.semantic-model-card > small {
+  grid-column: 1;
+}
+
+.semantic-model-card > p {
+  grid-row: 2;
+}
+
+.semantic-model-card > small {
+  grid-row: 3;
+}
+
+.semantic-model-card .model-facts {
+  grid-column: 2;
+  grid-row: 1 / 4;
+  margin-top: 0;
+}
+
+.semantic-model-card .model-progress {
+  grid-column: 1 / -1;
+  grid-row: 4;
+}
+
+.semantic-model-card .model-actions {
+  grid-column: 3;
+  grid-row: 1 / 4;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 112px;
+  margin-top: 0;
+}
+
+.semantic-model-card .model-actions .btn {
+  width: 100%;
+}
+
+.semantic-prompt-standalone {
+  margin-top: 0.9rem;
+  background: var(--bg-primary);
+}
+
+.semantic-option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.extension-defaults-panel {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+}
+
+.profile-defaults-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.profile-default-card {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.extension-defaults-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.extension-defaults-head strong,
+.extension-defaults-head small {
+  display: block;
+}
+
+.extension-defaults-head small,
+.extension-defaults-head span {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.extension-model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+
+.extension-model-toggle {
+  background: var(--bg-primary);
+}
+
 .config-panel {
   padding: 1rem;
   margin-top: 1rem;
@@ -3496,6 +4451,14 @@ function startYtdlpPolling() {
   border-radius: 0.5rem;
 }
 
+.compact-model-list {
+  margin-bottom: 0;
+}
+
+.compact-model-row {
+  padding: 0.8rem;
+}
+
 .model-head,
 .model-meta,
 .model-actions {
@@ -3542,6 +4505,16 @@ function startYtdlpPolling() {
   border-radius: 0.45rem;
 }
 
+.model-facts.compact {
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+  gap: 0.4rem;
+}
+
+.model-facts.compact span,
+.compact-model-row .model-facts span {
+  padding: 0.45rem 0.55rem;
+}
+
 .model-facts strong {
   display: block;
   margin-bottom: 0.2rem;
@@ -3583,6 +4556,41 @@ function startYtdlpPolling() {
   line-height: 1.35;
 }
 
+.semantic-backend-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  margin-top: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.semantic-backend-toggle.active {
+  border-color: var(--accent);
+  background: rgba(99, 179, 237, 0.08);
+}
+
+.semantic-backend-toggle input {
+  margin-top: 0.2rem;
+}
+
+.semantic-backend-toggle strong {
+  display: block;
+  margin-bottom: 0.15rem;
+  font-size: 0.84rem;
+}
+
+.semantic-backend-toggle small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
 .semantic-prompt-panel {
   display: grid;
   gap: 0.6rem;
@@ -3616,13 +4624,35 @@ function startYtdlpPolling() {
   line-height: 1.35;
 }
 
+.semantic-prompt-actions {
+  display: grid;
+  gap: 0.45rem;
+  justify-items: stretch;
+  min-width: 160px;
+}
+
+.semantic-prompt-actions .btn {
+  width: 100%;
+}
+
+.compact-status {
+  margin: 0.2rem 0 0;
+  padding: 0.55rem 0.7rem;
+}
+
 .semantic-prompt-panel textarea {
   width: 100%;
-  min-height: 150px;
-  resize: vertical;
+  min-height: 320px;
+  max-height: 72vh;
+  resize: both;
   font-family: inherit;
   font-size: 0.84rem;
   line-height: 1.45;
+}
+
+.semantic-prompt-panel textarea:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
 }
 
 .btn-small {
@@ -3657,6 +4687,10 @@ function startYtdlpPolling() {
   margin-top: 0.75rem;
 }
 
+.compact-progress {
+  margin-top: 0.25rem;
+}
+
 .model-progress p {
   margin: 0.35rem 0 0;
   color: var(--text-secondary);
@@ -3665,6 +4699,15 @@ function startYtdlpPolling() {
 
 .model-actions {
   margin-top: 0.75rem;
+}
+
+.compact-actions {
+  margin-top: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.compact-actions .btn {
+  padding: 0.45rem 0.7rem;
 }
 
 .progress-bar {
@@ -3722,6 +4765,7 @@ function startYtdlpPolling() {
   }
 
   .config-panel-head,
+  .semantic-manager-head,
   .pipeline-head {
     flex-direction: column;
   }
@@ -3730,6 +4774,27 @@ function startYtdlpPolling() {
   .pipeline-models {
     max-width: none;
     text-align: left;
+  }
+
+  .semantic-model-card {
+    grid-template-columns: 1fr;
+  }
+
+  .semantic-model-card .model-facts,
+  .semantic-model-card .model-actions,
+  .semantic-model-card .model-progress,
+  .semantic-model-card > p,
+  .semantic-model-card > small,
+  .semantic-model-head {
+    grid-column: 1;
+  }
+
+  .semantic-model-card .model-actions {
+    flex-direction: row;
+  }
+
+  .semantic-model-card .model-actions .btn {
+    width: auto;
   }
 
   .model-toggle-row {
