@@ -50,3 +50,6 @@ Thumbs.db
 # purpose; regenerate when an Android build is needed:
 #   gradle wrapper --gradle-version 8.10.2
 /android/gradle/wrapper/gradle-wrapper.jar
+
+# Local debug screenshots
+screenshots/
