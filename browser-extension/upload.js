@@ -2,7 +2,7 @@
 // to the configured NekoBooru instance.
 
 const params = new URLSearchParams(location.search)
-const srcUrl = params.get('src') || ''
+const srcUrl = normalizeUploadSrcUrl(params.get('src') || '')
 const pageUrl = params.get('page') || ''
 const mediaType = params.get('type') || 'image'
 const xTweetId = params.get('xTweetId') || tweetIdFromUrl(pageUrl) || tweetIdFromUrl(srcUrl)
@@ -18,6 +18,7 @@ const AI_TAG_PROFILES = {
     label: 'Anime / Booru Image',
     settings: {
       wdEnabled: false,
+      pixaiEnabled: true,
       characterModelEnabled: true,
       ocrEnabled: true,
       whisperEnabled: false,
@@ -32,6 +33,7 @@ const AI_TAG_PROFILES = {
     label: 'Anime / Booru Video',
     settings: {
       wdEnabled: false,
+      pixaiEnabled: true,
       characterModelEnabled: true,
       ocrEnabled: true,
       whisperEnabled: true,
@@ -47,6 +49,7 @@ const AI_TAG_PROFILES = {
     label: 'Realistic Image',
     settings: {
       wdEnabled: true,
+      pixaiEnabled: false,
       characterModelEnabled: false,
       ocrEnabled: true,
       whisperEnabled: false,
@@ -61,6 +64,7 @@ const AI_TAG_PROFILES = {
     label: 'Realistic Video',
     settings: {
       wdEnabled: true,
+      pixaiEnabled: false,
       characterModelEnabled: false,
       ocrEnabled: true,
       whisperEnabled: true,
@@ -97,14 +101,17 @@ const els = {
   includeSource: document.getElementById('include-source'),
   includeTweetTag: document.getElementById('include-tweet-tag'),
   includeMediaUrl: document.getElementById('include-media-url'),
+  saveSemanticAnalysis: document.getElementById('save-semantic-analysis'),
   aiTag: document.getElementById('ai-tag'),
   aiProfileButtons: Array.from(document.querySelectorAll('[data-ai-profile]')),
   submit: document.getElementById('submit'),
   aiModelPicker: document.getElementById('ai-model-picker'),
   aiModelList: document.getElementById('ai-model-list'),
   aiPreview: document.getElementById('ai-preview'),
+  aiPreviewTiming: document.getElementById('ai-preview-timing'),
   aiPreviewSafety: document.getElementById('ai-preview-safety'),
   aiPreviewTags: document.getElementById('ai-preview-tags'),
+  aiPreviewSemantic: document.getElementById('ai-preview-semantic'),
   aiEvidenceList: document.getElementById('ai-evidence-list'),
   status: document.getElementById('status'),
 }
@@ -116,7 +123,9 @@ let autoTagSettings = {}
 let autoTagSavedSettings = {}
 let autoTagStatus = {}
 let autoTagSuggestion = null
+let autoTagSuggestionProfile = 'extension'
 let autoTagModelOverrides = {}
+let extensionUploadDefaults = {}
 let modelLoadPollTimer = null
 let bootPromise = null
 let viewportTooltip = null
@@ -136,6 +145,7 @@ class DuplicatePostError extends Error {
     this.detail = detail || {}
     this.post = this.detail.post || null
     this.postId = this.detail.postId || this.post?.id || null
+    this.deleted = this.detail.deleted === true || this.post?.deletedAt
   }
 }
 
@@ -152,6 +162,7 @@ async function init() {
     'saveTweetTag',
     'saveSourcePageUrl',
     'saveMediaUrl',
+    'saveSemanticAnalysis',
   ])
   instanceUrl = (stored.instanceUrl || '').replace(/\/+$/, '')
 
@@ -164,9 +175,7 @@ async function init() {
   els.formWrap.classList.remove('hidden')
 
   if (stored.lastSafety) els.safety.value = stored.lastSafety
-  els.includeTweetTag.checked = stored.saveTweetTag !== false
-  els.includeSource.checked = stored.saveSourcePageUrl !== false
-  els.includeMediaUrl.checked = stored.saveMediaUrl === true
+  applyExtensionUploadDefaults(stored)
 
   // AI controls stay hidden until the server reports auto-tagging is enabled.
   // loadAutoTagControls() flips this on once it fetches status.
@@ -176,7 +185,10 @@ async function init() {
   setupTagAutocomplete()
   setupViewportTooltips()
   els.startLocalApp.addEventListener('click', startLocalApp)
-  if (await checkBackendHealth()) loadAutoTagControls()
+  if (await checkBackendHealth()) {
+    await loadExtensionUploadDefaults(stored)
+    loadAutoTagControls()
+  }
 
   els.submit.addEventListener('click', doUpload)
   els.aiProfileButtons.forEach((button) => button.addEventListener('click', runAiTag))
@@ -207,9 +219,57 @@ async function startLocalApp() {
   try {
     await bootLocalApp({ button: els.startLocalApp, label: 'Starting NekoBooru...' })
     setStatus('NekoBooru is running. You can continue.', 'success')
+    await loadExtensionUploadDefaults()
     loadAutoTagControls()
   } catch (e) {
     setStatus('Could not start NekoBooru: ' + e.message, 'error')
+  }
+}
+
+function applyExtensionUploadDefaults(defaults = {}) {
+  extensionUploadDefaults = defaults || {}
+  els.includeTweetTag.checked = defaults.saveTweetTag !== false
+  els.includeSource.checked = defaults.saveSourcePageUrl !== false
+  els.includeMediaUrl.checked = defaults.saveMediaUrl === true
+  els.saveSemanticAnalysis.checked = defaults.saveSemanticAnalysis === true
+  applyExtensionModelDefaults(defaults.modelDefaults)
+}
+
+function applyExtensionModelDefaults(modelDefaults = {}) {
+  if (!modelDefaults || typeof modelDefaults !== 'object') return
+  const keys = [
+    'wdEnabled',
+    'pixaiEnabled',
+    'characterModelEnabled',
+    'qwenEnabled',
+    'semanticPoliticalEnabled',
+    'ocrEnabled',
+    'whisperEnabled',
+  ]
+  keys.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(modelDefaults, key)) return
+    const enabled = modelDefaults[key] === true
+    autoTagModelOverrides[key] = enabled
+    autoTagSettings[key] = enabled
+  })
+  if (
+    Object.prototype.hasOwnProperty.call(modelDefaults, 'qwenEnabled') &&
+    !Object.prototype.hasOwnProperty.call(modelDefaults, 'semanticPoliticalEnabled')
+  ) {
+    const enabled = modelDefaults.qwenEnabled === true
+    autoTagModelOverrides.semanticPoliticalEnabled = enabled
+    autoTagSettings.semanticPoliticalEnabled = enabled
+  }
+}
+
+async function loadExtensionUploadDefaults(fallback = {}) {
+  try {
+    const res = await fetch(`${instanceUrl}/api/settings/extension`, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const defaults = await res.json()
+    applyExtensionUploadDefaults(defaults)
+  } catch {
+    applyExtensionUploadDefaults(fallback)
   }
 }
 
@@ -361,6 +421,24 @@ function renderPreview() {
     img.alt = 'preview'
     els.preview.appendChild(img)
   }
+}
+
+function normalizeUploadSrcUrl(raw) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    if (host === 'pbs.twimg.com' && url.pathname.includes('/media/')) {
+      const inferredFormat = url.pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase()
+      if (!url.searchParams.has('format') && inferredFormat) url.searchParams.set('format', inferredFormat)
+      if (url.searchParams.has('format')) url.searchParams.set('name', 'orig')
+      url.hash = ''
+      return url.href
+    }
+  } catch {
+    // keep original
+  }
+  return raw
 }
 
 // ---------------------------------------------------------------------------
@@ -571,32 +649,55 @@ function setStatus(message, kind) {
 
 function setDuplicateStatus(post, options = {}) {
   const postId = post?.id
+  const isDeleted = options.deleted === true || post?.deleted === true || Boolean(post?.deletedAt)
   duplicatePost = post || null
   els.status.textContent = ''
-  els.status.className = 'status success'
+  els.status.className = `status ${isDeleted ? 'working' : 'success'}`
   els.status.classList.remove('hidden')
 
   const message = document.createElement('span')
-  message.textContent = options.updated ? 'Updated existing post. ' : 'Same post detected. '
+  message.textContent = options.updated
+    ? 'Restored and updated post. '
+    : isDeleted
+      ? 'Same content matches a deleted post. '
+      : 'Same post detected. '
   els.status.appendChild(message)
 
   if (postId) {
-    const link = document.createElement('a')
-    link.className = 'view-link'
-    link.href = `${instanceUrl}/post/${postId}`
-    link.target = '_blank'
-    link.rel = 'noopener noreferrer'
-    link.textContent = `Open existing post #${postId}`
-    els.status.appendChild(link)
+    if (!isDeleted) {
+      const link = document.createElement('a')
+      link.className = 'view-link'
+      link.href = `${instanceUrl}/post/${postId}`
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer'
+      link.textContent = `Open existing post #${postId}`
+      els.status.appendChild(link)
+    } else {
+      const hidden = document.createElement('span')
+      hidden.textContent = `Post #${postId} is hidden until restored.`
+      els.status.appendChild(hidden)
+    }
 
     const actions = document.createElement('div')
     actions.className = 'status-actions'
 
+    if (isDeleted) {
+      const restore = document.createElement('button')
+      restore.type = 'button'
+      restore.className = 'btn btn-secondary status-action-btn'
+      restore.textContent = 'Restore Post'
+      restore.title = 'Unhide the deleted post without changing its tags.'
+      restore.addEventListener('click', restoreDuplicatePost)
+      actions.appendChild(restore)
+    }
+
     const overwrite = document.createElement('button')
     overwrite.type = 'button'
     overwrite.className = 'btn btn-secondary status-action-btn'
-    overwrite.textContent = 'Overwrite Tags'
-    overwrite.title = 'Replace the existing post tags, rating, and source URL with the current upload form values.'
+    overwrite.textContent = isDeleted ? 'Restore & Overwrite Tags' : 'Overwrite Tags'
+    overwrite.title = isDeleted
+      ? 'Unhide this post and replace its tags, rating, and source URL with the current upload form values.'
+      : 'Replace the existing post tags, rating, and source URL with the current upload form values.'
     overwrite.addEventListener('click', overwriteDuplicateTags)
     actions.appendChild(overwrite)
     els.status.appendChild(actions)
@@ -668,7 +769,7 @@ async function doUpload() {
       label: 'Booting NekoBooru...',
     })
     setStatus('Fetching media...', 'working')
-    const post = await createPostFromPopup({})
+    const post = await createPostFromPopup({ profile: autoTagSuggestionProfile })
 
     await chrome.storage.sync.set({ lastSafety: els.safety.value })
 
@@ -680,11 +781,12 @@ async function doUpload() {
     setTimeout(() => window.close(), 300)
   } catch (e) {
     if (e instanceof DuplicatePostError) {
-      const post = e.post || { id: e.postId }
-      createdPost = post
-      setDuplicateStatus(post)
+      const post = e.post || { id: e.postId, deleted: e.deleted }
+      if (e.deleted) post.deleted = true
+      createdPost = e.deleted ? null : post
+      setDuplicateStatus(post, { deleted: e.deleted })
       notify('Same post detected', e.message)
-      if (post.id) {
+      if (post.id && !e.deleted) {
         convertUploadButtonToPostLink(post, { duplicate: true })
       } else {
         els.submit.disabled = false
@@ -710,6 +812,7 @@ async function createPostFromPopup(options = {}) {
     tags: parseTags(),
   }
   if (Object.prototype.hasOwnProperty.call(options, 'autoTag')) body.autoTag = options.autoTag
+  if (options.profile) body.autoTagProfile = options.profile
   const source = selectedSourceUrl()
   if (source) body.source = source
 
@@ -729,6 +832,7 @@ async function createPostFromPopup(options = {}) {
     throw new Error(formatBackendError(err.detail || `HTTP ${res.status}`))
   }
   createdPost = await res.json()
+  await maybeSaveSemanticAnalysis(createdPost, { profile: options.profile || 'extension' })
   return createdPost
 }
 
@@ -751,7 +855,68 @@ async function updateCreatedPost() {
     throw new Error(err.detail || `HTTP ${res.status}`)
   }
   createdPost = await res.json()
+  await maybeSaveSemanticAnalysis(createdPost, { profile: 'extension_overwrite' })
   return createdPost
+}
+
+async function maybeSaveSemanticAnalysis(post, options = {}) {
+  if (!els.saveSemanticAnalysis.checked || !post?.id || !autoTagSuggestion || !hasSemanticEvidence(autoTagSuggestion)) return
+  const res = await fetch(`${instanceUrl}/api/posts/${post.id}/ai-analysis`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      suggestion: autoTagSuggestion,
+      settings: autoTagRunSettings(),
+      profile: options.profile || 'extension',
+    }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(formatBackendError(err.detail || `HTTP ${res.status}`))
+  }
+}
+
+function hasSemanticEvidence(suggestion) {
+  return aiEvidenceModels(suggestion).some((model) => {
+    const evidence = model.evidence || {}
+    const marker = `${model.model || ''} ${evidence.kind || ''} ${evidence.modelId || ''}`.toLowerCase()
+    return marker.includes('qwen') || ['qwen', 'qwen_gguf'].includes(String(evidence.kind || '').toLowerCase())
+  })
+}
+
+async function restoreDuplicatePost() {
+  if (!duplicatePost?.id) {
+    setStatus('Cannot restore because the duplicate response did not include a post id. Restart the backend and try again.', 'error')
+    return null
+  }
+
+  els.submit.disabled = true
+  setAiProfileButtonsDisabled(true)
+  setStatus(`Restoring post #${duplicatePost.id}...`, 'working')
+
+  try {
+    const res = await fetch(`${instanceUrl}/api/posts/${duplicatePost.id}/restore`, {
+      method: 'POST',
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(formatBackendError(err.detail || `HTTP ${res.status}`))
+    }
+    const post = await res.json()
+    duplicatePost = post
+    createdPost = post
+    setDuplicateStatus(post)
+    convertUploadButtonToPostLink(post, { duplicate: true })
+    notify('NekoBooru post restored', `Post #${post.id} is visible again.`)
+    return post
+  } catch (e) {
+    const message = await friendlyBackendError(e)
+    setStatus('Restore failed: ' + message, 'error')
+    notify('NekoBooru restore failed', message)
+    els.submit.disabled = false
+    setAiProfileButtonsDisabled(false)
+    return null
+  }
 }
 
 async function overwriteDuplicateTags() {
@@ -770,6 +935,11 @@ async function overwriteDuplicateTags() {
   setStatus(`Overwriting tags on existing post #${duplicatePost.id}...`, 'working')
 
   try {
+    const wasDeleted = duplicatePost.deleted === true || Boolean(duplicatePost.deletedAt)
+    if (wasDeleted) {
+      const restored = await restoreDuplicatePost()
+      if (!restored) return
+    }
     createdPost = duplicatePost
     const post = await updateCreatedPost()
     duplicatePost = post
@@ -790,6 +960,7 @@ async function runAiTag(event) {
   const button = event?.currentTarget || els.aiTag
   const profileId = resolveAiTagProfileId(button?.dataset?.aiProfile || 'anime')
   const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
+  autoTagSuggestionProfile = profileId || 'extension'
   setAiProfileButtonsDisabled(true)
   els.submit.disabled = true
   els.aiPreview.classList.add('hidden')
@@ -809,9 +980,7 @@ async function runAiTag(event) {
     if (!autoTagStatus.enabled) {
       throw new Error('AI tagging is disabled. Enable Auto Tagging in NekoBooru Settings first.')
     }
-    const missingDeps = Object.entries(autoTagStatus.dependencies || {})
-      .filter(([, available]) => !available)
-      .map(([name]) => name)
+    const missingDeps = selectedMissingBackendPackages()
     if (missingDeps.length) {
       throw new Error(`Missing backend packages: ${missingDeps.join(', ')}`)
     }
@@ -865,6 +1034,8 @@ async function friendlyBackendError(error) {
 }
 
 function renderAiPreview(suggestion) {
+  const timing = formatDurationMs(suggestion.durationMs ?? suggestion.evidence?.durationMs)
+  els.aiPreviewTiming.textContent = timing ? `Completed in ${timing}` : ''
   els.aiPreviewSafety.textContent = suggestion.suggestedSafety || 'unchanged'
   els.aiPreviewTags.innerHTML = ''
   ;(suggestion.suggestedTags || []).slice(0, 60).forEach((tag) => {
@@ -872,6 +1043,8 @@ function renderAiPreview(suggestion) {
     pill.textContent = tag
     els.aiPreviewTags.appendChild(pill)
   })
+
+  renderSemanticPreview(suggestion)
 
   els.aiEvidenceList.innerHTML = ''
   aiEvidenceModels(suggestion).forEach((model) => {
@@ -896,6 +1069,61 @@ function renderAiPreview(suggestion) {
   els.aiPreview.classList.remove('hidden')
 }
 
+function renderSemanticPreview(suggestion) {
+  const semantic = semanticPreviewFromSuggestion(suggestion)
+  els.aiPreviewSemantic.innerHTML = ''
+  els.aiPreviewSemantic.classList.toggle('hidden', !semantic)
+  if (!semantic) return
+
+  const head = document.createElement('div')
+  head.className = 'semantic-preview-head'
+  const title = document.createElement('strong')
+  title.textContent = 'Semantic Analysis'
+  const meta = document.createElement('small')
+  meta.textContent = [semantic.model, semantic.timing].filter(Boolean).join(' · ')
+  head.append(title, meta)
+
+  const body = document.createElement('p')
+  body.textContent = semantic.rationale || semantic.summary || semantic.raw || ''
+
+  els.aiPreviewSemantic.append(head, body)
+  if (semantic.tags.length) {
+    const tags = document.createElement('div')
+    tags.className = 'semantic-preview-tags'
+    semantic.tags.slice(0, 18).forEach((tag) => {
+      const pill = document.createElement('span')
+      pill.textContent = tag
+      tags.appendChild(pill)
+    })
+    els.aiPreviewSemantic.appendChild(tags)
+  }
+}
+
+function semanticPreviewFromSuggestion(suggestion) {
+  const models = aiEvidenceModels(suggestion)
+  for (const model of models) {
+    const evidence = model.evidence || {}
+    const parsed = semanticParsedEvidence(evidence)
+    const marker = `${model.model || ''} ${evidence.kind || ''} ${evidence.modelId || ''}`.toLowerCase()
+    const isSemantic = marker.includes('qwen') || ['qwen', 'qwen_gguf'].includes(String(evidence.kind || '').toLowerCase())
+    if (!isSemantic) continue
+    const rationale = String(parsed.rationale || parsed.description || parsed.summary || '').trim()
+    const raw = String(evidence.raw || '').trim()
+    const tags = Array.isArray(parsed.tags) ? parsed.tags.map(String).filter(Boolean) : []
+    if (!rationale && !raw && !tags.length) continue
+    const timing = formatDurationMs(model.durationMs ?? evidence.durationMs)
+    return {
+      model: model.model || evidence.modelId || 'Qwen',
+      timing,
+      rationale,
+      summary: String(parsed.summary || parsed.description || '').trim(),
+      raw,
+      tags,
+    }
+  }
+  return null
+}
+
 function aiEvidenceModels(suggestion) {
   const evidence = suggestion?.evidence
   if (!evidence) return []
@@ -905,7 +1133,12 @@ function aiEvidenceModels(suggestion) {
 
 function evidenceRows(model) {
   const evidence = model.evidence || {}
+  const parsed = semanticParsedEvidence(evidence)
   const rows = []
+  const duration = Number(model.durationMs ?? evidence.durationMs)
+  if (Number.isFinite(duration) && duration > 0) {
+    rows.push({ label: 'Time', value: formatDurationMs(duration) })
+  }
   if (model.error) rows.push({ label: 'Error', value: model.error })
   if (evidence.kind) rows.push({ label: 'Source', value: evidence.kind })
   if (Array.isArray(evidence.topTags) && evidence.topTags.length) {
@@ -922,13 +1155,29 @@ function evidenceRows(model) {
   }
   if (evidence.text) rows.push({ label: 'OCR text', value: String(evidence.text).slice(0, 500) })
   if (evidence.transcript) rows.push({ label: 'Transcript', value: String(evidence.transcript).slice(0, 500) })
-  if (evidence.parsed?.tags?.length) rows.push({ label: 'Semantic', value: evidence.parsed.tags.join(', ') })
-  if (evidence.parsed?.safety) rows.push({ label: 'Safety', value: evidence.parsed.safety })
+  if (parsed.tags?.length) rows.push({ label: 'Semantic', value: parsed.tags.join(', ') })
+  if (parsed.safety) rows.push({ label: 'Safety', value: parsed.safety })
+  if (parsed.rationale) {
+    rows.push({ label: 'Semantic analysis', value: String(parsed.rationale).slice(0, 800) })
+  }
   if (evidence.raw && !rows.some((row) => row.label === 'Semantic')) {
     rows.push({ label: 'Output', value: String(evidence.raw).slice(0, 500) })
   }
   if (!rows.length) rows.push({ label: 'Details', value: 'No structured evidence returned.' })
   return rows
+}
+
+function semanticParsedEvidence(evidence) {
+  if (evidence?.parsed && typeof evidence.parsed === 'object') return evidence.parsed
+  const raw = String(evidence?.raw || '').trim()
+  if (!raw) return {}
+  try {
+    const match = raw.match(/\{[\s\S]*\}/)
+    const parsed = JSON.parse(match ? match[0] : raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
 }
 
 function formatTagScore(item) {
@@ -944,6 +1193,16 @@ function formatScoreMap(map) {
     .slice(0, 6)
     .map(([key, value]) => `${key} ${Math.round(Number(value) * 100)}%`)
     .join(', ')
+}
+
+function formatDurationMs(ms) {
+  const value = Number(ms || 0)
+  if (!Number.isFinite(value) || value <= 0) return ''
+  if (value < 1000) return `${Math.round(value)} ms`
+  if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)} s`
+  const minutes = Math.floor(value / 60_000)
+  const seconds = Math.round((value % 60_000) / 1000)
+  return `${minutes}m ${seconds}s`
 }
 
 // Show or hide every AI surface in one place. AI features are gated behind the
@@ -987,7 +1246,11 @@ async function _loadAutoTagControls() {
     if (!settingsRes.ok) throw new Error('AI tag settings unavailable')
     autoTagSavedSettings = await settingsRes.json()
     autoTagSavedSettings.wdEnabled = autoTagSavedSettings.wdEnabled !== false
+    autoTagSavedSettings.semanticPromptEnabled = autoTagSavedSettings.semanticPromptEnabled !== false
+    autoTagSavedSettings.semanticSearchEnabled = autoTagSavedSettings.semanticSearchEnabled === true
+    autoTagSavedSettings.semanticModelId = autoTagSavedSettings.semanticModelId || 'qwen'
     autoTagSettings = { ...autoTagSavedSettings, ...autoTagModelOverrides }
+    applyExtensionModelDefaults(extensionUploadDefaults.modelDefaults)
     applyAiVisibility(Boolean(autoTagSavedSettings.enabled))
     if (autoTagSavedSettings.enabled) {
       els.aiModelList.innerHTML = ''
@@ -1015,7 +1278,7 @@ async function _loadAutoTagControls() {
 
 function renderAiModelPicker() {
   els.aiModelList.innerHTML = ''
-  const models = autoTagStatus.models || []
+  const models = visibleAiModels(autoTagStatus.models || [])
   if (!models.length) {
     const note = document.createElement('div')
     note.className = 'picker-note'
@@ -1038,6 +1301,7 @@ function renderAiModelPicker() {
       const key = modelSettingKey(model.id)
       autoTagModelOverrides[key] = checkbox.checked
       autoTagSettings[key] = checkbox.checked
+      setActiveAiProfile('custom')
     })
     const enabledText = document.createElement('span')
     enabledText.textContent = 'Use'
@@ -1082,20 +1346,54 @@ function renderAiModelPicker() {
 function modelSettingKey(id) {
   return {
     wd: 'wdEnabled',
+    pixai: 'pixaiEnabled',
     camie: 'characterModelEnabled',
     ocr: 'ocrEnabled',
     whisper: 'whisperEnabled',
     qwen: 'qwenEnabled',
+    qwen_gguf_q4: 'qwenEnabled',
+    qwen_gguf_q8: 'qwenEnabled',
   }[id] || `${id}Enabled`
+}
+
+function isSemanticModel(model) {
+  return model?.role === 'semantic' || ['qwen', 'qwen_gguf_q4', 'qwen_gguf_q8'].includes(model?.id)
+}
+
+function visibleAiModels(models) {
+  const selectedSemantic = autoTagSettings.semanticModelId || autoTagSavedSettings.semanticModelId || autoTagStatus.semanticModelId || 'qwen'
+  return models.filter((model) => !isSemanticModel(model) || model.id === selectedSemantic)
+}
+
+function selectedMissingBackendPackages() {
+  const missing = new Set()
+  enabledModels().forEach((model) => {
+    dependenciesForModel(model).forEach((name) => {
+      if (autoTagStatus.dependencies?.[name] === false) missing.add(name)
+    })
+  })
+  return Array.from(missing)
+}
+
+function dependenciesForModel(model) {
+  if (!model) return []
+  if (model.id === 'wd' || model.id === 'pixai' || model.id === 'camie') return ['onnxruntime', 'numpy', 'pillow']
+  if (model.id === 'ocr' || model.id === 'whisper') return ['transformers', 'torch']
+  if (model.id === 'qwen') return ['transformers', 'torch', 'qwen_vl_utils']
+  if (model.id === 'qwen_gguf_q4' || model.id === 'qwen_gguf_q8') return ['llama_cpp']
+  return []
 }
 
 function modelPipelineDescription(id) {
   return {
     wd: 'Runs on images and sampled video frames. Best baseline for visual library tags.',
+    pixai: 'Runs fast PixAI/Danbooru anime tags on images and sampled video frames.',
     camie: 'Adds anime characters, copyright/source tags, artist tags, and rating evidence.',
     ocr: 'Reads visible captions, subtitles, and meme text from representative frames.',
     whisper: 'Extracts speech from video audio for AMVs, edits, narration, and spoken context.',
     qwen: 'Uses image plus OCR/transcript context for higher-level edit and scene meaning.',
+    qwen_gguf_q4: 'Uses Qwen3-VL GGUF Q4 through llama.cpp for faster low-memory semantic tags.',
+    qwen_gguf_q8: 'Uses Qwen3-VL GGUF Q8 through llama.cpp for higher-quality semantic tags.',
   }[id] || 'Use this model in the auto-tagging pipeline.'
 }
 
@@ -1114,24 +1412,56 @@ function modelInfoTitle(model) {
 
 function applyAiTagProfile(profileId) {
   profileId = resolveAiTagProfileId(profileId)
+  setActiveAiProfile(profileId)
   const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
   if (!profile.settings) {
     renderAiModelPicker()
     return
   }
-  const useSemanticQwen = profileId.startsWith('realistic_')
-    && Boolean(autoTagSavedSettings.qwenEnabled || autoTagSavedSettings.semanticPoliticalEnabled)
-  Object.entries(profile.settings).forEach(([key, value]) => {
+  const useSemanticQwen = Boolean(
+    autoTagSettings.qwenEnabled ||
+    autoTagModelOverrides.qwenEnabled ||
+    autoTagSavedSettings.qwenEnabled,
+  )
+  const rootProfileId = profileId.startsWith('anime_') ? 'anime' : profileId.startsWith('realistic_') ? 'realistic' : profileId
+  const settings = {
+    ...profile.settings,
+    ...profileDefaultStack(rootProfileId),
+  }
+  if (mediaType !== 'video') settings.whisperEnabled = false
+  Object.entries(settings).forEach(([key, value]) => {
     autoTagSettings[key] = value
     autoTagModelOverrides[key] = value
   })
-  if (useSemanticQwen) {
+  const qwenRequested = useSemanticQwen || settings.qwenEnabled === true || settings.semanticPoliticalEnabled === true
+  if (qwenRequested) {
     autoTagSettings.qwenEnabled = true
     autoTagSettings.semanticPoliticalEnabled = true
     autoTagModelOverrides.qwenEnabled = true
     autoTagModelOverrides.semanticPoliticalEnabled = true
+    if (profileId.startsWith('realistic_')) {
+      autoTagSettings.wdEnabled = false
+      autoTagModelOverrides.wdEnabled = false
+    }
   }
   renderAiModelPicker()
+}
+
+function profileDefaultStack(profileId) {
+  const defaults = extensionUploadDefaults?.modelDefaults?.profileDefaults
+  const stack = defaults && typeof defaults === 'object' ? defaults[profileId] : null
+  return stack && typeof stack === 'object' ? stack : {}
+}
+
+function setActiveAiProfile(profileId) {
+  const rootProfileId = profileId.startsWith('anime_')
+    ? 'anime'
+    : profileId.startsWith('realistic_')
+      ? 'realistic'
+      : profileId
+  els.aiProfileButtons.forEach((button) => {
+    button.classList.toggle('active', button.dataset.aiProfile === rootProfileId)
+  })
 }
 
 function resolveAiTagProfileId(profileId) {
@@ -1140,14 +1470,17 @@ function resolveAiTagProfileId(profileId) {
 }
 
 function autoTagRunSettings() {
+  const qwenEnabled = autoTagSettings.qwenEnabled === true
   return {
     ...autoTagSettings,
+    qwenEnabled,
+    semanticPoliticalEnabled: qwenEnabled,
     enabled: true,
   }
 }
 
 function enabledModels() {
-  return (autoTagStatus.models || []).filter((model) => Boolean(autoTagSettings[modelSettingKey(model.id)]))
+  return visibleAiModels(autoTagStatus.models || []).filter((model) => Boolean(autoTagSettings[modelSettingKey(model.id)]))
 }
 
 async function loadEnabledAutoTagModels() {
@@ -1399,7 +1732,29 @@ async function capturedXMediaCandidates() {
   }
 }
 
-async function uploadMediaUrl(url, typeHint = '') {
+async function uploadMediaUrl(url, typeHint = '', options = {}) {
+  if (!options.browserFirst) {
+    try {
+      const res = await fetch(`${instanceUrl}/api/uploads/from-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.token) return data.token
+      }
+    } catch {
+      if (!(await checkBackendHealth())) throw new BackendOfflineError()
+    }
+  }
+
+  try {
+    return await uploadMediaUrlFromBrowser(url, typeHint)
+  } catch (error) {
+    if (options.browserFirst) throw error
+  }
+
   try {
     const res = await fetch(`${instanceUrl}/api/uploads/from-url`, {
       method: 'POST',
@@ -1413,7 +1768,10 @@ async function uploadMediaUrl(url, typeHint = '') {
   } catch {
     if (!(await checkBackendHealth())) throw new BackendOfflineError()
   }
+  throw new Error('no upload token returned')
+}
 
+async function uploadMediaUrlFromBrowser(url, typeHint = '') {
   const mediaRes = await fetch(url, {
     credentials: 'include',
     cache: 'no-store',
@@ -1440,16 +1798,24 @@ async function uploadMediaUrl(url, typeHint = '') {
 async function uploadCapturedXMedia() {
   const candidates = await capturedXMediaCandidates()
   if (!candidates.length) return ''
-  const ordered = [
-    ...candidates.filter((item) => item.type === mediaType),
-    ...candidates.filter((item) => item.type !== mediaType),
-  ]
+  const previewUrl = canonicalMediaUrl(srcUrl)
+  const ordered = candidates
+    .map((item, index) => ({
+      item,
+      index,
+      score:
+        (canonicalMediaUrl(item.url) === previewUrl ? 100 : 0) +
+        (item.type === mediaType ? 10 : 0) -
+        index,
+    }))
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.item)
   let lastError = ''
   for (const candidate of ordered) {
     if (!candidate?.url) continue
     try {
       setStatus('Using captured X media...', 'working')
-      return await uploadMediaUrl(candidate.url, candidate.type === 'video' ? 'video/mp4' : 'image/jpeg')
+      return await uploadMediaUrl(candidate.url, candidate.type === 'video' ? 'video/mp4' : 'image/jpeg', { browserFirst: true })
     } catch (error) {
       lastError = error?.message || String(error)
     }
@@ -1458,10 +1824,32 @@ async function uploadCapturedXMedia() {
   return ''
 }
 
-// Get an upload token. For known video-platform pages, let the server run yt-dlp
-// on the page URL first. Otherwise prefer the server-side fetch (it sends a
-// proper Referer, which works for most boorus/CDNs). If both fail, fall back to
-// fetching the bytes here in the browser and uploading them directly.
+function canonicalMediaUrl(raw) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    url.hash = ''
+    const host = url.hostname.toLowerCase()
+    if (host === 'pbs.twimg.com' && url.pathname.includes('/media/')) {
+      const inferredFormat = url.pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase()
+      if (!url.searchParams.has('format') && inferredFormat) url.searchParams.set('format', inferredFormat)
+      if (url.searchParams.has('format')) url.searchParams.set('name', 'orig')
+      const format = url.searchParams.get('format') || ''
+      const name = url.searchParams.get('name') || ''
+      url.search = ''
+      if (format) url.searchParams.set('format', format)
+      if (name) url.searchParams.set('name', name)
+    }
+    return url.href
+  } catch {
+    return String(raw)
+  }
+}
+
+// Get an upload token. For X/Twitter CDN images, prefer fetching bytes inside
+// the extension because protected posts depend on the browser's authenticated
+// session. For other hosts, prefer backend fetch first because it sends stable
+// browser-like headers and keeps large downloads off the popup when possible.
 async function getContentToken() {
   if (contentToken) return contentToken
   await ensureBackendReady()
@@ -1509,6 +1897,11 @@ async function getContentToken() {
     }
   }
 
+  if (isTwitterMediaCdnUrl(srcUrl)) {
+    contentToken = await uploadMediaUrl(srcUrl, mediaType === 'video' ? 'video/mp4' : 'image/jpeg', { browserFirst: true })
+    return contentToken
+  }
+
   try {
     const res = await fetch(`${instanceUrl}/api/uploads/from-url`, {
       method: 'POST',
@@ -1528,7 +1921,7 @@ async function getContentToken() {
   }
 
   // Fallback: download in the extension (uses our host permissions) and upload.
-  const mediaRes = await fetch(srcUrl)
+  const mediaRes = await fetch(srcUrl, { credentials: 'include', cache: 'no-store' })
   if (!mediaRes.ok) throw new Error(`could not fetch media (HTTP ${mediaRes.status})`)
   const blob = await mediaRes.blob()
 
@@ -1547,6 +1940,15 @@ async function getContentToken() {
   if (!data.token) throw new Error('no upload token returned')
   contentToken = data.token
   return contentToken
+}
+
+function isTwitterMediaCdnUrl(raw) {
+  try {
+    const url = new URL(raw)
+    return url.hostname.toLowerCase() === 'pbs.twimg.com' && url.pathname.includes('/media/')
+  } catch {
+    return false
+  }
 }
 
 function filenameFromUrl(url, mime) {

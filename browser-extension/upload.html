@@ -53,6 +53,7 @@
         <label><input type="checkbox" id="include-tweet-tag" /> Save tweet ID as tag</label>
         <label><input type="checkbox" id="include-source" /> Save source page URL</label>
         <label><input type="checkbox" id="include-media-url" /> Save media URL when no page URL is saved</label>
+        <label><input type="checkbox" id="save-semantic-analysis" /> Save Qwen semantic analysis for search</label>
       </div>
 
       <div class="ai-profile-actions" aria-label="AI tag preview profiles">
@@ -60,12 +61,12 @@
           id="ai-tag"
           class="btn btn-secondary"
           data-ai-profile="anime"
-          data-tooltip="Best for anime, manga, illustrations, and booru-style art. Uses Camie for character/source style tags plus TrOCR for visible text. For videos it also runs Whisper to detect speech, music, AMV/edit signals, and transcript context."
+          data-tooltip="Best for anime, manga, illustrations, and booru-style art. Uses Camie plus TrOCR; videos also use Whisper. If Qwen is enabled in saved defaults, Anime adds Qwen semantic context."
         >Anime / Booru</button>
         <button
           class="btn btn-secondary"
           data-ai-profile="realistic"
-          data-tooltip="Best for realistic photos, screenshots, videos, edits, and memes. Uses WD for broad visual/media tags, TrOCR for visible text, and Whisper automatically for videos."
+          data-tooltip="Best for realistic photos, screenshots, videos, edits, and memes. Uses WD by default; if Qwen is enabled in saved defaults, Qwen replaces WD. TrOCR still runs, and videos also use Whisper."
         >Realistic</button>
         <button
           class="btn btn-secondary"
@@ -80,10 +81,14 @@
 
       <div id="ai-preview" class="ai-preview-card hidden">
         <div class="ai-preview-head">
-          <strong>AI Preview</strong>
+          <div>
+            <strong>AI Preview</strong>
+            <small id="ai-preview-timing"></small>
+          </div>
           <span id="ai-preview-safety"></span>
         </div>
         <div id="ai-preview-tags" class="ai-preview-tags"></div>
+        <div id="ai-preview-semantic" class="ai-preview-semantic hidden"></div>
         <details id="ai-preview-evidence" class="ai-preview-evidence">
           <summary>Model evidence</summary>
           <div id="ai-evidence-list"></div>

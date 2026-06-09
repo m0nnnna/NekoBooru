@@ -186,6 +186,8 @@ function normalizeCapturedMediaUrl(raw, type) {
     const url = new URL(raw, location.origin)
     const host = url.hostname.toLowerCase()
     if (host === 'pbs.twimg.com' && url.pathname.includes('/media/')) {
+      const inferredFormat = url.pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase()
+      if (!url.searchParams.has('format') && inferredFormat) url.searchParams.set('format', inferredFormat)
       if (url.searchParams.has('format')) url.searchParams.set('name', 'orig')
       url.hash = ''
       return url.href
@@ -291,6 +293,8 @@ function normalizedXImageUrl(raw) {
     const host = url.hostname.toLowerCase()
     if (host !== 'pbs.twimg.com') return ''
     if (!url.pathname.includes('/media/')) return ''
+    const inferredFormat = url.pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase()
+    if (!url.searchParams.has('format') && inferredFormat) url.searchParams.set('format', inferredFormat)
     if (url.searchParams.has('format')) url.searchParams.set('name', 'orig')
     url.hash = ''
     return url.href

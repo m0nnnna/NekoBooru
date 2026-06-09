@@ -390,6 +390,13 @@ select:focus {
   white-space: normal;
 }
 
+.ai-profile-actions .btn.active {
+  border-color: var(--accent);
+  background: rgba(96, 165, 250, 0.16);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.22);
+}
+
 .upload-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -548,6 +555,17 @@ select:focus {
   justify-content: space-between;
 }
 
+.ai-preview-head div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.ai-preview-head small {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
 .ai-preview-head span {
   padding: 0.2rem 0.5rem;
   border-radius: 999px;
@@ -573,6 +591,52 @@ select:focus {
   background: var(--accent-soft);
   color: var(--accent);
   font-size: 0.78rem;
+}
+
+.ai-preview-semantic {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(96, 165, 250, 0.38);
+  border-radius: 0.5rem;
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.semantic-preview-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.semantic-preview-head strong {
+  color: var(--text-primary);
+}
+
+.semantic-preview-head small {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+}
+
+.ai-preview-semantic p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.semantic-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.semantic-preview-tags span {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid rgba(96, 165, 250, 0.48);
+  border-radius: 0.35rem;
+  color: var(--accent);
+  font-size: 0.72rem;
 }
 
 .ai-preview-evidence {

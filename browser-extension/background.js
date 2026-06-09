@@ -72,10 +72,29 @@ function tweetIdFromUrl(raw) {
   }
 }
 
+function normalizeUploadSrcUrl(raw) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    if (host === 'pbs.twimg.com' && url.pathname.includes('/media/')) {
+      const inferredFormat = url.pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase()
+      if (!url.searchParams.has('format') && inferredFormat) url.searchParams.set('format', inferredFormat)
+      if (url.searchParams.has('format')) url.searchParams.set('name', 'orig')
+      url.hash = ''
+      return url.href
+    }
+  } catch {
+    // keep original
+  }
+  return raw
+}
+
 function normalizeMediaList(media = []) {
   const seen = new Set()
   return media
     .filter((item) => item?.url && (item.type === 'image' || item.type === 'video'))
+    .map((item) => ({ ...item, url: item.type === 'image' ? normalizeUploadSrcUrl(item.url) : item.url }))
     .sort((a, b) => (a.index || 0) - (b.index || 0))
     .filter((item) => {
       if (seen.has(item.url)) return false
@@ -107,7 +126,12 @@ function getXMedia(tweetId) {
     persistXMediaCache()
     return []
   }
-  return cached.media || []
+  const media = normalizeMediaList(cached.media || [])
+  if (JSON.stringify(media) !== JSON.stringify(cached.media || [])) {
+    xMediaCache.set(String(tweetId || ''), { ...cached, media })
+    persistXMediaCache()
+  }
+  return media
 }
 
 async function loadXMediaCache() {
@@ -116,7 +140,10 @@ async function loadXMediaCache() {
     const rows = stored[X_MEDIA_CACHE_KEY] || {}
     for (const [tweetId, value] of Object.entries(rows)) {
       if (Date.now() - (value.savedAt || 0) <= X_MEDIA_CACHE_MAX_AGE_MS) {
-        xMediaCache.set(tweetId, value)
+        xMediaCache.set(tweetId, {
+          ...value,
+          media: normalizeMediaList(value.media || []),
+        })
       }
     }
   } catch {
@@ -379,7 +406,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     return
   }
 
-  const srcUrl = info.srcUrl
+  const srcUrl = normalizeUploadSrcUrl(info.srcUrl)
   if (!srcUrl) return
   const params = new URLSearchParams({
     src: srcUrl,
