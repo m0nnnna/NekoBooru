@@ -85,6 +85,27 @@ def _migrate(conn):
             f"CREATE UNIQUE INDEX IF NOT EXISTS ix_{table}_uuid ON {table}(uuid)"
         )
 
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_post_ai_analysis_post_id ON post_ai_analysis(post_id)"
+    )
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_post_ai_analysis_profile ON post_ai_analysis(profile)"
+    )
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_post_ai_analysis_model_id ON post_ai_analysis(model_id)"
+    )
+    try:
+        conn.exec_driver_sql(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS post_ai_analysis_fts
+            USING fts5(post_id UNINDEXED, search_text, tokenize='unicode61')
+            """
+        )
+    except Exception:
+        # Some SQLite builds omit FTS5. Search falls back to the regular
+        # post_ai_analysis.search_text column, so startup should keep working.
+        pass
+
 
 async def init_db():
     """Initialize database tables."""

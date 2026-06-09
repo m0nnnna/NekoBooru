@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ..config import settings
 from ..runtime_paths import runtime_paths
+from .app_restart import restart_status
 from . import ytdlp_manager
 
 
@@ -183,4 +184,5 @@ def runtime_status() -> dict:
             **model_counts,
         },
         "nativeHost": _native_host_status(),
+        "restart": restart_status(),
     }

@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -135,6 +136,316 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(body["error"], "disabled")
         self.assertNotIn("auto_tagged", body["categories"])
 
+    def test_extension_upload_defaults_can_be_saved(self):
+        default_response = self.client.get("/api/settings/extension")
+        self.assertEqual(default_response.status_code, 200, default_response.text)
+        self.assertEqual(
+            default_response.json(),
+            {
+                "saveTweetTag": True,
+                "saveSourcePageUrl": True,
+                "saveMediaUrl": False,
+                "saveSemanticAnalysis": False,
+                "modelDefaults": {},
+            },
+        )
+
+        updated = self.client.put(
+            "/api/settings/extension",
+            json={
+                "saveTweetTag": False,
+                "saveSourcePageUrl": False,
+                "saveMediaUrl": True,
+                "saveSemanticAnalysis": True,
+                "modelDefaults": {
+                    "wdEnabled": False,
+                    "pixaiEnabled": True,
+                    "characterModelEnabled": True,
+                    "qwenEnabled": True,
+                    "ocrEnabled": True,
+                    "whisperEnabled": False,
+                },
+            },
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(
+            updated.json(),
+            {
+                "saveTweetTag": False,
+                "saveSourcePageUrl": False,
+                "saveMediaUrl": True,
+                "saveSemanticAnalysis": True,
+                "modelDefaults": {
+                    "wdEnabled": False,
+                    "pixaiEnabled": True,
+                    "characterModelEnabled": True,
+                    "qwenEnabled": True,
+                    "semanticPoliticalEnabled": True,
+                    "ocrEnabled": True,
+                    "whisperEnabled": False,
+                },
+            },
+        )
+
+        loaded = self.client.get("/api/settings/extension")
+        self.assertEqual(loaded.status_code, 200, loaded.text)
+        self.assertEqual(loaded.json(), updated.json())
+
+    def test_ai_model_defaults_are_shared_with_extension_compatibility(self):
+        updated = self.client.put(
+            "/api/settings/ai-model-defaults",
+            json={
+                "modelDefaults": {
+                    "wdEnabled": True,
+                    "pixaiEnabled": False,
+                    "characterModelEnabled": True,
+                    "qwenEnabled": False,
+                    "ocrEnabled": True,
+                    "whisperEnabled": True,
+                }
+            },
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(
+            updated.json()["modelDefaults"],
+            {
+                "wdEnabled": True,
+                "pixaiEnabled": False,
+                "characterModelEnabled": True,
+                "qwenEnabled": False,
+                "semanticPoliticalEnabled": False,
+                "ocrEnabled": True,
+                "whisperEnabled": True,
+            },
+        )
+
+        loaded = self.client.get("/api/settings/ai-model-defaults")
+        self.assertEqual(loaded.status_code, 200, loaded.text)
+        self.assertEqual(loaded.json(), updated.json())
+
+        extension = self.client.get("/api/settings/extension")
+        self.assertEqual(extension.status_code, 200, extension.text)
+        self.assertEqual(extension.json()["modelDefaults"], updated.json()["modelDefaults"])
+
+    def test_ai_model_defaults_include_profile_specific_stacks(self):
+        updated = self.client.put(
+            "/api/settings/ai-model-defaults",
+            json={
+                "modelDefaults": {
+                    "wdEnabled": True,
+                    "pixaiEnabled": False,
+                    "characterModelEnabled": False,
+                    "qwenEnabled": False,
+                    "profileDefaults": {
+                        "anime": {
+                            "wdEnabled": False,
+                            "pixaiEnabled": True,
+                            "characterModelEnabled": True,
+                            "ocrEnabled": True,
+                        },
+                        "realistic": {
+                            "wdEnabled": False,
+                            "qwenEnabled": True,
+                            "ocrEnabled": True,
+                            "whisperEnabled": True,
+                        },
+                    },
+                }
+            },
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        defaults = updated.json()["modelDefaults"]
+        self.assertTrue(defaults["profileDefaults"]["anime"]["pixaiEnabled"])
+        self.assertTrue(defaults["profileDefaults"]["anime"]["characterModelEnabled"])
+        self.assertTrue(defaults["profileDefaults"]["realistic"]["qwenEnabled"])
+        self.assertTrue(defaults["profileDefaults"]["realistic"]["semanticPoliticalEnabled"])
+
+        extension = self.client.get("/api/settings/extension")
+        self.assertEqual(extension.status_code, 200, extension.text)
+        self.assertEqual(extension.json()["modelDefaults"], defaults)
+
+    def test_saved_qwen_analysis_powers_semantic_search(self):
+        post = self._upload_image_post(tags=["ordinary_tag"], safety="safe")
+        settings = self.client.get("/api/auto-tags/settings").json()
+        settings["semanticSearchEnabled"] = True
+        settings["semanticPrompt"] = "Return JSON semantic tags."
+
+        suggestion = {
+            "suggestedTags": ["ordinary_tag"],
+            "suggestedSafety": "safe",
+            "model": "qwen3-vl-8b",
+            "durationMs": 42,
+            "evidence": {
+                "models": [
+                    {
+                        "model": "Qwen3-VL 8B GGUF Q4",
+                        "durationMs": 42,
+                        "evidence": {
+                            "kind": "qwen_gguf",
+                            "modelId": "qwen_gguf_q4",
+                            "parsed": {
+                                "tags": ["political_edit", "red_banner"],
+                                "safety": "safe",
+                                "rationale": "A political edit with a red banner in the background.",
+                            },
+                            "raw": '{"tags":["political_edit","red_banner"],"rationale":"red banner"}',
+                        },
+                    }
+                ]
+            },
+        }
+
+        saved = self.client.post(
+            f"/api/posts/{post['id']}/ai-analysis",
+            json={"suggestion": suggestion, "settings": settings, "profile": "test"},
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json()["saved"], 1)
+
+        loaded = self.client.get(f"/api/posts/{post['id']}/ai-analysis")
+        self.assertEqual(loaded.status_code, 200, loaded.text)
+        self.assertEqual(loaded.json()["results"][0]["semanticTags"], ["political_edit", "red_banner"])
+
+        self.client.put("/api/auto-tags/settings", json={"settings": settings})
+        search = self.client.get("/api/posts", params={"q": "red banner"})
+        self.assertEqual(search.status_code, 200, search.text)
+        self.assertEqual(search.json()["total"], 1)
+        self.assertEqual(search.json()["results"][0]["id"], post["id"])
+
+    def test_semantic_search_does_not_match_inside_compound_words(self):
+        cowboy_post = self._upload_image_post(tags=["cowboy_shot"], safety="safe")
+        cow_post = self._upload_image_post(tags=["cow_horns"], safety="safe")
+        settings = self.client.get("/api/auto-tags/settings").json()
+        settings["semanticSearchEnabled"] = True
+
+        cowboy_suggestion = {
+            "model": "qwen3-vl-8b",
+            "durationMs": 42,
+            "evidence": {
+                "models": [
+                    {
+                        "model": "Qwen3-VL 8B GGUF Q4",
+                        "durationMs": 42,
+                        "evidence": {
+                            "kind": "qwen_gguf",
+                            "modelId": "qwen_gguf_q4",
+                            "parsed": {
+                                "tags": ["cowboy_shot"],
+                                "safety": "safe",
+                                "rationale": "The image has a cowboy shot framing.",
+                            },
+                            "raw": '{"tags":["cowboy_shot"],"rationale":"cowboy shot framing"}',
+                        },
+                    }
+                ]
+            },
+        }
+        cow_suggestion = {
+            "model": "qwen3-vl-8b",
+            "durationMs": 42,
+            "evidence": {
+                "models": [
+                    {
+                        "model": "Qwen3-VL 8B GGUF Q4",
+                        "durationMs": 42,
+                        "evidence": {
+                            "kind": "qwen_gguf",
+                            "modelId": "qwen_gguf_q4",
+                            "parsed": {
+                                "tags": ["cow_horns"],
+                                "safety": "safe",
+                                "rationale": "The image shows visible cow horns.",
+                            },
+                            "raw": '{"tags":["cow_horns"],"rationale":"visible cow horns"}',
+                        },
+                    }
+                ]
+            },
+        }
+
+        saved = self.client.post(
+            f"/api/posts/{cowboy_post['id']}/ai-analysis",
+            json={"suggestion": cowboy_suggestion, "settings": settings, "profile": "test"},
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        saved = self.client.post(
+            f"/api/posts/{cow_post['id']}/ai-analysis",
+            json={"suggestion": cow_suggestion, "settings": settings, "profile": "test"},
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+
+        self.client.put("/api/auto-tags/settings", json={"settings": settings})
+        search = self.client.get("/api/posts", params={"q": "cow"})
+
+        self.assertEqual(search.status_code, 200, search.text)
+        self.assertEqual(search.json()["total"], 1)
+        self.assertEqual(search.json()["results"][0]["id"], cow_post["id"])
+
+    def test_saved_qwen_analysis_description_can_be_edited(self):
+        post = self._upload_image_post(tags=["ordinary_tag"], safety="safe")
+        settings = self.client.get("/api/auto-tags/settings").json()
+        settings["semanticSearchEnabled"] = True
+
+        suggestion = {
+            "model": "qwen3-vl-8b",
+            "durationMs": 42,
+            "evidence": {
+                "models": [
+                    {
+                        "model": "Qwen3-VL 8B GGUF Q4",
+                        "durationMs": 42,
+                        "evidence": {
+                            "kind": "qwen_gguf",
+                            "modelId": "qwen_gguf_q4",
+                            "parsed": {
+                                "tags": ["blue_room"],
+                                "safety": "safe",
+                                "rationale": "Original generated description.",
+                            },
+                            "raw": '{"tags":["blue_room"],"rationale":"Original generated description."}',
+                        },
+                    }
+                ]
+            },
+        }
+
+        saved = self.client.post(
+            f"/api/posts/{post['id']}/ai-analysis",
+            json={"suggestion": suggestion, "settings": settings, "profile": "test"},
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        analysis_id = saved.json()["results"][0]["id"]
+
+        updated = self.client.put(
+            f"/api/posts/{post['id']}/ai-analysis/{analysis_id}",
+            json={"description": "Edited violet lantern semantic description."},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["summary"], "Edited violet lantern semantic description.")
+        self.assertEqual(updated.json()["rationale"], "Edited violet lantern semantic description.")
+
+        self.client.put("/api/auto-tags/settings", json={"settings": settings})
+        search = self.client.get("/api/posts", params={"q": "violet lantern"})
+        self.assertEqual(search.status_code, 200, search.text)
+        self.assertEqual(search.json()["total"], 1)
+        self.assertEqual(search.json()["results"][0]["id"], post["id"])
+
+    def test_autocomplete_prefers_word_boundary_prefix_over_compound_prefix(self):
+        prefix = f"cowrank_{time.time_ns()}"
+        boundary_tag = f"{prefix}_horns"
+        compound_tag = f"{prefix}boy_shot"
+
+        for _ in range(3):
+            self._upload_image_post(tags=[compound_tag])
+        self._upload_image_post(tags=[boundary_tag])
+
+        response = self.client.get("/api/tags/autocomplete", params={"q": prefix, "limit": 10})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        names = [tag["name"] for tag in response.json()]
+        self.assertGreaterEqual(names.index(compound_tag), 1)
+        self.assertEqual(names[0], boundary_tag)
+
     def test_duplicate_post_response_includes_existing_post_link_data(self):
         from PIL import Image
 
@@ -163,6 +474,45 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(detail["postId"], post["id"])
         self.assertEqual(detail["postUrl"], f"/post/{post['id']}")
         self.assertEqual(detail["post"]["id"], post["id"])
+
+    def test_duplicate_soft_deleted_post_does_not_leak_integrity_error(self):
+        from PIL import Image
+
+        stamp = time.time_ns()
+        image_path = Path(self.tmp.name) / f"deleted-duplicate-{stamp}.png"
+        color = (stamp % 255, (stamp // 255) % 255, (stamp // 65025) % 255)
+        Image.new("RGB", (32, 32), color).save(image_path)
+
+        first_token = self._upload_specific_image_token(image_path)
+        created = self.client.post(
+            "/api/posts",
+            json={"contentToken": first_token, "tags": [], "safety": "safe", "autoTag": False},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        post = created.json()
+
+        deleted = self.client.delete(f"/api/posts/{post['id']}")
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+
+        second_token = self._upload_specific_image_token(image_path)
+        duplicate = self.client.post(
+            "/api/posts",
+            json={"contentToken": second_token, "tags": [], "safety": "safe", "autoTag": False},
+        )
+
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        detail = duplicate.json()["detail"]
+        self.assertEqual(detail["code"], "duplicate_post")
+        self.assertEqual(detail["postId"], post["id"])
+        self.assertTrue(detail["deleted"])
+        self.assertNotIn("sqlite", duplicate.text.lower())
+
+        restored = self.client.post(f"/api/posts/{post['id']}/restore")
+        self.assertEqual(restored.status_code, 200, restored.text)
+        self.assertIsNone(restored.json()["deletedAt"])
+
+        visible = self.client.get(f"/api/posts/{post['id']}")
+        self.assertEqual(visible.status_code, 200, visible.text)
 
     def test_bulk_update_can_clear_tags_and_set_safety(self):
         first = self._upload_image_post(tags=["old_tag", "shared"], safety="safe")
@@ -346,14 +696,26 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         ids = {model["id"] for model in response.json()["models"]}
         self.assertIn("wd", ids)
+        self.assertIn("pixai", ids)
         self.assertIn("camie", ids)
         self.assertIn("qwen", ids)
+        self.assertIn("qwen_gguf_q4", ids)
+        self.assertIn("qwen_gguf_q8", ids)
         self.assertIn("ocr", ids)
         self.assertIn("whisper", ids)
         by_id = {model["id"]: model for model in response.json()["models"]}
         self.assertIn("downloadSize", by_id["qwen"])
         self.assertIn("vramRequirement", by_id["qwen"])
         self.assertIn("loaded", by_id["wd"])
+        self.assertEqual(by_id["qwen_gguf_q4"]["backend"], "gguf")
+        self.assertEqual(by_id["qwen_gguf_q8"]["quantization"], "Q8_0")
+
+    def test_semantic_model_setting_validates_to_known_backend(self):
+        from app.services.auto_tagger import validate_options
+
+        self.assertEqual(validate_options({"semanticModelId": "qwen_gguf_q4"}).semanticModelId, "qwen_gguf_q4")
+        self.assertEqual(validate_options({"semanticModelId": "qwen_gguf_q8"}).semanticModelId, "qwen_gguf_q8")
+        self.assertEqual(validate_options({"semanticModelId": "bogus"}).semanticModelId, "qwen")
 
     def test_model_download_routes_start_background_jobs(self):
         fake_job = {
@@ -374,6 +736,32 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(start.call_count, 1)
         self.assertIn("wd", start.call_args.args[0])
         self.assertIn("camie", start.call_args.args[0])
+        self.assertIn("pixai", start.call_args.args[0])
+
+    def test_download_all_uses_selected_semantic_backend_only(self):
+        fake_job = {
+            "id": "job-gguf",
+            "status": "queued",
+            "modelIds": ["qwen_gguf_q4"],
+            "models": {},
+        }
+        settings = self.client.get("/api/auto-tags/settings").json()
+        settings["semanticModelId"] = "qwen_gguf_q4"
+        response = self.client.put("/api/auto-tags/settings", json={"settings": settings})
+        self.assertEqual(response.status_code, 200, response.text)
+
+        try:
+            with patch("app.routers.auto_tags.start_model_download", return_value=fake_job) as start:
+                response = self.client.post("/api/auto-tags/models/download-all")
+
+            self.assertEqual(response.status_code, 200, response.text)
+            model_ids = start.call_args.args[0]
+            self.assertIn("qwen_gguf_q4", model_ids)
+            self.assertNotIn("qwen", model_ids)
+            self.assertNotIn("qwen_gguf_q8", model_ids)
+        finally:
+            settings["semanticModelId"] = "qwen"
+            self.client.put("/api/auto-tags/settings", json={"settings": settings})
 
     def test_model_download_cancel_route_cancels_active_job(self):
         fake_job = {
@@ -474,6 +862,29 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertFalse(response.json()["loaded"])
         unload.assert_called_once_with("wd")
 
+    def test_runtime_restart_route_reports_unavailable_without_handler(self):
+        from app.services.app_restart import clear_restart_handler
+
+        clear_restart_handler()
+        status = self.client.get("/api/runtime/status")
+        self.assertEqual(status.status_code, 200, status.text)
+        self.assertFalse(status.json()["restart"]["available"])
+
+        response = self.client.post("/api/runtime/restart")
+        self.assertEqual(response.status_code, 409)
+
+    def test_runtime_restart_route_invokes_registered_handler(self):
+        from app.services.app_restart import clear_restart_handler, register_restart_handler
+
+        try:
+            register_restart_handler(lambda: {"status": "restarting", "message": "ok"})
+            response = self.client.post("/api/runtime/restart")
+
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["status"], "restarting")
+        finally:
+            clear_restart_handler()
+
     def test_delete_model_cache_removes_snapshot_models(self):
         from app.services import auto_tagger
         from app.services.auto_tagger import delete_model_cache, model_cache_status
@@ -554,6 +965,53 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertIn("gif", gif.tags)
         self.assertEqual(video.categories["video"], "meta")
 
+    def test_qwen_analysis_image_downscales_large_inputs(self):
+        from PIL import Image
+        from app.services import auto_tagger
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "large.png"
+            Image.new("RGB", (1621, 2432), (120, 60, 30)).save(source)
+
+            analysis = auto_tagger._qwen_analysis_image(source, max_side=900)
+
+            self.assertNotEqual(analysis, source)
+            try:
+                with Image.open(analysis) as img:
+                    self.assertEqual(max(img.size), 900)
+                    self.assertEqual(img.size, (600, 900))
+            finally:
+                shutil.rmtree(analysis.parent, ignore_errors=True)
+
+    def test_qwen_analysis_image_keeps_small_inputs(self):
+        from PIL import Image
+        from app.services import auto_tagger
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "small.png"
+            Image.new("RGB", (600, 900), (120, 60, 30)).save(source)
+
+            self.assertEqual(auto_tagger._qwen_analysis_image(source, max_side=900), source)
+
+    def test_twitter_media_url_normalizes_to_original_variant(self):
+        from app.routers.uploads import _normalize_fetch_url
+
+        url = "https://pbs.twimg.com/media/HKSUfpEa0AALL8x?format=jpg&name=900x900"
+
+        self.assertEqual(
+            _normalize_fetch_url(url),
+            "https://pbs.twimg.com/media/HKSUfpEa0AALL8x?format=jpg&name=orig",
+        )
+        self.assertEqual(
+            _normalize_fetch_url("https://pbs.twimg.com/media/HKSUfpEa0AALL8x.jpg"),
+            "https://pbs.twimg.com/media/HKSUfpEa0AALL8x.jpg?format=jpg&name=orig",
+        )
+        self.assertEqual(
+            _normalize_fetch_url("https://example.com/media/HKSUfpEa0AALL8x?format=jpg&name=900x900"),
+            "https://example.com/media/HKSUfpEa0AALL8x?format=jpg&name=900x900",
+        )
+
     def test_post_process_filters_default_noisy_tags(self):
         from app.services.auto_tagger import AutoTagOptions, AutoTagResult, _post_process
 
@@ -580,6 +1038,19 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertEqual(safety_from_rating({"sensitive": 0.60}, opts), "safe")
         self.assertEqual(safety_from_rating({"explicit": 0.71}, opts), "unsafe")
         self.assertEqual(safety_from_rating({"questionable": 0.78}, opts), "sketchy")
+
+    def test_semantic_safety_aliases_promote_safety(self):
+        from app.services.auto_tagger import AutoTagOptions, normalize_safety_label, promote_safety
+
+        opts = AutoTagOptions(applySafety=True)
+
+        self.assertEqual(normalize_safety_label("explicit"), "unsafe")
+        self.assertEqual(normalize_safety_label("nsfw"), "unsafe")
+        self.assertEqual(normalize_safety_label("nude"), "unsafe")
+        self.assertEqual(normalize_safety_label("nudity"), "unsafe")
+        self.assertEqual(normalize_safety_label("suggestive"), "sketchy")
+        self.assertEqual(promote_safety("safe", "explicit", opts), "unsafe")
+        self.assertEqual(promote_safety("safe", "partial_nudity", opts), "sketchy")
 
     def test_meaningful_ocr_text_filters_blank_or_junk_text(self):
         from app.services.auto_tagger import _meaningful_ocr_text
@@ -623,6 +1094,53 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertEqual(result.error, "Camie Tagger v2: model_not_downloaded")
         self.assertEqual(result.evidence["models"][0]["evidence"]["action"], "download_model")
 
+    def test_missing_pixai_model_returns_structured_error_without_loading(self):
+        from app.services.auto_tagger import AutoTagOptions, _tag_image
+
+        with patch("app.services.auto_tagger.runtime_available", return_value=True), \
+             patch("app.services.auto_tagger.model_cache_status", return_value={"downloaded": False, "files": {}}), \
+             patch("app.services.auto_tagger._pixai_tagger.tag_image") as pixai_tag:
+            result = _tag_image(Path("sample.png"), AutoTagOptions(wdEnabled=False, pixaiEnabled=True))
+
+        pixai_tag.assert_not_called()
+        self.assertEqual(result.error, "PixAI Tagger v0.9: model_not_downloaded")
+        self.assertEqual(result.evidence["models"][0]["evidence"]["action"], "download_model")
+
+    def test_pixai_keeps_character_threshold_conservative(self):
+        import tempfile
+        from PIL import Image
+        import numpy as np
+        from app.services.auto_tagger import AutoTagOptions, PixAiTagger
+
+        class FakeInput:
+            name = "input"
+            shape = [1, 448, 448, 3]
+
+        class FakeSession:
+            def get_inputs(self):
+                return [FakeInput()]
+
+            def run(self, *_args, **_kwargs):
+                return [np.asarray([[0.90, 0.60, 0.86]], dtype=np.float32)]
+
+        tagger = PixAiTagger()
+        tagger._loaded = True
+        tagger._session = FakeSession()
+        tagger._tag_rows = [
+            ("blue_eyes", "general"),
+            ("false_character", "character"),
+            ("likely_character", "character"),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sample.png"
+            Image.new("RGB", (32, 32), "white").save(path)
+            result = tagger.tag_image(path, AutoTagOptions(generalThreshold=0.35, characterThreshold=0.45))
+
+        self.assertIn("blue_eyes", result.tags)
+        self.assertNotIn("false_character", result.character_tags)
+        self.assertIn("likely_character", result.character_tags)
+
     def test_snapshot_model_status_uses_local_snapshot_without_snapshot_download(self):
         import tempfile
         from app.services import auto_tagger
@@ -664,9 +1182,107 @@ class AutoTagUnitTests(unittest.TestCase):
 
         fallback = validate_options({"semanticPrompt": "  "})
         self.assertEqual(fallback.semanticPrompt, DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("Tags in priority order:", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("Semantic description:", DEFAULT_SEMANTIC_PROMPT)
+        self.assertLess(
+            DEFAULT_SEMANTIC_PROMPT.index("Semantic description:"),
+            DEFAULT_SEMANTIC_PROMPT.index("Tags in priority order:"),
+        )
+        self.assertNotIn("Political symbol rules:", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("6-28", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("cow_print_outfit", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("bikini", DEFAULT_SEMANTIC_PROMPT)
 
         capped = validate_options({"semanticPrompt": "x" * 5000})
         self.assertEqual(len(capped.semanticPrompt), 4000)
+
+        legacy_default = (
+            "Return compact JSON only with keys tags, safety, rationale. "
+            "Use snake_case tags. Look for higher-level context such as political_edit, meme_edit, amv, music_video, "
+            "captioned, protest, politician, propaganda, and contextual edit signals only when visually or transcript supported. "
+            "Use national_socialism only for clear Nazi/far-right symbols such as a swastika, sonnenrad, or black_sun. "
+            "Use communism only for clear communist symbols such as a hammer_and_sickle or communist red star. "
+            "If transcript or audio evidence suggests a song or music-driven edit, include music and edit."
+        )
+        migrated = validate_options({"semanticPrompt": legacy_default})
+        self.assertEqual(migrated.semanticPrompt, DEFAULT_SEMANTIC_PROMPT)
+
+    def test_semantic_prompt_and_search_flags_validate(self):
+        from app.services.auto_tagger import validate_options
+
+        defaults = validate_options({})
+        self.assertTrue(defaults.semanticPromptEnabled)
+        self.assertFalse(defaults.semanticSearchEnabled)
+
+        opts = validate_options({"semanticPromptEnabled": False, "semanticSearchEnabled": True})
+        self.assertFalse(opts.semanticPromptEnabled)
+        self.assertTrue(opts.semanticSearchEnabled)
+
+    def test_semantic_json_empty_tags_falls_back_to_rationale_tags(self):
+        from app.services.auto_tagger import _parse_semantic_json
+
+        parsed = _parse_semantic_json(
+            '{"tags":[],"safety":"safe","rationale":"The image depicts a person in a pink bikini '
+            'with strawberry patterns, taken indoors with natural lighting. There are no visible '
+            'political, extremist, or contextual edit signals."}'
+        )
+
+        self.assertIn("person", parsed["tags"])
+        self.assertIn("bikini", parsed["tags"])
+        self.assertIn("indoors", parsed["tags"])
+        self.assertIn("patterned_clothing", parsed["tags"])
+        self.assertNotIn("political_edit", parsed["tags"])
+
+    def test_semantic_text_does_not_match_man_inside_female(self):
+        from app.services.auto_tagger import _parse_semantic_json
+
+        parsed = _parse_semantic_json(
+            '{"tags":[],"safety":"unsafe","rationale":"The image is a close-up selfie '
+            'of a female with blond hair wearing a pink strawberry-print bikini indoors."}'
+        )
+
+        self.assertIn("woman", parsed["tags"])
+        self.assertIn("bikini", parsed["tags"])
+        self.assertNotIn("man", parsed["tags"])
+
+    def test_semantic_malformed_json_recovers_declared_tag_list(self):
+        from app.services.auto_tagger import _parse_semantic_json
+
+        parsed = _parse_semantic_json(
+            '{"tags": ["anime", "female", "one_subject", "bikini", "red_bikini", '
+            '"swastika", "blond_hair", "closed_eyes", "sunlight", "sky_background", '
+            '"high_angle", "meme_edit", "has_text"], "safety": "explicit", '
+            '"rationale": "The bikini has swastikas visible on both pieces."'
+        )
+
+        for tag in ["anime", "female", "one_subject", "red_bikini", "swastika", "high_angle", "meme_edit", "has_text"]:
+            self.assertIn(tag, parsed["tags"])
+        self.assertIn("national_socialism", parsed["tags"])
+        self.assertEqual(parsed["safety"], "unsafe")
+
+    def test_semantic_json_supplements_symbol_tags_from_rationale(self):
+        from app.services.auto_tagger import _parse_semantic_json
+
+        parsed = _parse_semantic_json(
+            '{"tags":["woman","bikini","swimwear"],"safety":"sketchy",'
+            '"rationale":"The red bikini has swastikas clearly visible on both pieces."}'
+        )
+
+        self.assertIn("woman", parsed["tags"])
+        self.assertIn("swastika", parsed["tags"])
+        self.assertIn("national_socialism", parsed["tags"])
+
+    def test_semantic_json_does_not_add_negated_symbol_tags(self):
+        from app.services.auto_tagger import _parse_semantic_json
+
+        parsed = _parse_semantic_json(
+            '{"tags":["woman","bikini"],"safety":"safe",'
+            '"rationale":"There is no visible swastika, sonnenrad, or other extremist symbol."}'
+        )
+
+        self.assertNotIn("swastika", parsed["tags"])
+        self.assertNotIn("sonnenrad", parsed["tags"])
+        self.assertNotIn("national_socialism", parsed["tags"])
 
     def test_remote_infer_requires_token_when_bound_to_network(self):
         from fastapi import HTTPException

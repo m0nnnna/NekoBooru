@@ -22,11 +22,13 @@ from app.config import settings
 from app.main import app
 from app.runtime_paths import runtime_paths
 from app.system_tray import start_windows_tray
+from app.services.app_restart import register_restart_handler
 
 _INSTANCE_LOCK_FILE = None
 _AI_WORKER_PROCESS = None
 _WINDOWS_SHUTDOWN_EVENT = None
 _WINDOWS_SHUTDOWN_EVENT_NAME = r"Local\NekoBooruShutdown"
+_RESTART_WAITER_ARG = "--nekobooru-restart-waiter"
 
 
 def configure_packaged_logging() -> Path:
@@ -333,6 +335,40 @@ def _health_ok(port: int) -> bool:
         return False
 
 
+def _restart_waiter(argv: list[str]) -> int:
+    """Wait for the current app to exit, then relaunch it."""
+    try:
+        port = int(argv[1]) if len(argv) > 1 else int(settings.port)
+    except (TypeError, ValueError):
+        port = int(settings.port)
+    executable = argv[2] if len(argv) > 2 else sys.executable
+
+    for _ in range(80):
+        if not _health_ok(port):
+            break
+        time.sleep(0.25)
+    time.sleep(0.35)
+    kwargs = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+    subprocess.Popen([executable], cwd=str(runtime_paths.app_dir), **kwargs)
+    return 0
+
+
+def _spawn_restart_waiter() -> None:
+    kwargs = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+    subprocess.Popen(
+        [sys.executable, _RESTART_WAITER_ARG, str(settings.port), sys.executable],
+        cwd=str(runtime_paths.app_dir),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        **kwargs,
+    )
+
+
 def _tray_icon_path() -> Path | None:
     candidates = [
         runtime_paths.bundle_dir / "frontend" / "favicon.ico",
@@ -346,6 +382,9 @@ def _tray_icon_path() -> Path | None:
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == _RESTART_WAITER_ARG:
+        return _restart_waiter(sys.argv[1:])
+
     if existing_instance_is_running():
         print(
             f"{settings.app_name} is already running at "
@@ -389,6 +428,22 @@ def main():
         icon_path=_tray_icon_path(),
         shutdown=lambda: setattr(server, "should_exit", True),
     )
+    restart_requested = False
+
+    def restart_app():
+        nonlocal restart_requested
+        if restart_requested:
+            return {"status": "restarting", "message": "Restart is already in progress."}
+        restart_requested = True
+        _spawn_restart_waiter()
+        server.should_exit = True
+        return {
+            "status": "restarting",
+            "message": "NekoBooru is restarting. This page will reconnect shortly.",
+            "url": f"http://localhost:{settings.port}",
+        }
+
+    register_restart_handler(restart_app)
     start_windows_shutdown_event_listener(lambda: setattr(server, "should_exit", True))
     try:
         server.run()

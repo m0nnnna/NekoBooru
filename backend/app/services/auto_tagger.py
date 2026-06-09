@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import csv
+import base64
+import ctypes
+import importlib
 import os
 import json
 import logging
@@ -26,12 +29,23 @@ from .media import check_ffmpeg_available
 from .settings import SettingsManager
 
 logger = logging.getLogger(__name__)
+_LLAMA_DLL_DIRECTORY_HANDLES: list[Any] = []
+_LLAMA_PRELOAD_HANDLES: list[Any] = []
 
 SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 SUPPORTED_VIDEO_EXTS = {".webm", ".mp4"}
 WD_MODEL_ID = "SmilingWolf/wd-eva02-large-tagger-v3"
 WHISPER_MAX_AUDIO_SECONDS = 30
 QWEN_MIN_FREE_VRAM_GB = 18.0
+QWEN_ANALYSIS_MAX_SIDE = 900
+QWEN_GGUF_REPO_ID = "Qwen/Qwen3-VL-8B-Instruct-GGUF"
+QWEN_GGUF_MMPROJ_FILE = "mmproj-Qwen3VL-8B-Instruct-F16.gguf"
+QWEN_GGUF_FILE_SIZES = {
+    "Qwen3VL-8B-Instruct-Q4_K_M.gguf": 5_027_784_800,
+    "Qwen3VL-8B-Instruct-Q8_0.gguf": 8_709_519_456,
+    "mmproj-Qwen3VL-8B-Instruct-F16.gguf": 1_159_029_824,
+}
+QWEN_SEMANTIC_MODEL_IDS = {"qwen", "qwen_gguf_q4", "qwen_gguf_q8"}
 MEDIA_TYPE_TAGS = {
     ".jpg": "image",
     ".jpeg": "image",
@@ -75,6 +89,19 @@ MODEL_REGISTRY = {
         "status": "tagging_ready",
         "allowPatterns": ["model.onnx", "selected_tags.csv"],
     },
+    "pixai": {
+        "id": "pixai",
+        "name": "PixAI Tagger v0.9",
+        "repoId": "deepghs/pixai-tagger-v0.9-onnx",
+        "purpose": "Fast Danbooru-style anime/illustration tags from PixAI Tagger v0.9",
+        "downloadSize": "~1.3 GB",
+        "vramRequirement": "~0.5-1.5 GB",
+        "status": "tagging_ready",
+        "allowPatterns": None,
+        "requiredFileKinds": ["onnx", "tags"],
+        "expectedTotalBytes": 1_272_005_678,
+        "characterThreshold": 0.85,
+    },
     "camie": {
         "id": "camie",
         "name": "Camie Tagger v2",
@@ -94,8 +121,45 @@ MODEL_REGISTRY = {
         "downloadSize": "~15-17 GB",
         "vramRequirement": "~14-18 GB fp16, 24 GB comfortable",
         "status": "tagging_ready",
+        "role": "semantic",
+        "backend": "transformers",
+        "downloadAll": True,
         "allowPatterns": None,
         "requiredFiles": ["config.json"],
+    },
+    "qwen_gguf_q4": {
+        "id": "qwen_gguf_q4",
+        "name": "Qwen3-VL 8B GGUF Q4",
+        "repoId": QWEN_GGUF_REPO_ID,
+        "purpose": "Fast local semantic image/video-frame understanding through llama.cpp GGUF",
+        "downloadSize": "~6.4 GB",
+        "vramRequirement": "~6-8 GB, 8-12 GB comfortable",
+        "status": "tagging_ready",
+        "role": "semantic",
+        "backend": "gguf",
+        "quantization": "Q4_K_M",
+        "downloadAll": False,
+        "storage": "local_files",
+        "allowPatterns": ["Qwen3VL-8B-Instruct-Q4_K_M.gguf", QWEN_GGUF_MMPROJ_FILE],
+        "requiredFiles": ["Qwen3VL-8B-Instruct-Q4_K_M.gguf", QWEN_GGUF_MMPROJ_FILE],
+        "fileSizes": QWEN_GGUF_FILE_SIZES,
+    },
+    "qwen_gguf_q8": {
+        "id": "qwen_gguf_q8",
+        "name": "Qwen3-VL 8B GGUF Q8",
+        "repoId": QWEN_GGUF_REPO_ID,
+        "purpose": "Higher-quality local semantic image/video-frame understanding through llama.cpp GGUF",
+        "downloadSize": "~10.0 GB",
+        "vramRequirement": "~10-12 GB, 12-16 GB comfortable",
+        "status": "tagging_ready",
+        "role": "semantic",
+        "backend": "gguf",
+        "quantization": "Q8_0",
+        "downloadAll": False,
+        "storage": "local_files",
+        "allowPatterns": ["Qwen3VL-8B-Instruct-Q8_0.gguf", QWEN_GGUF_MMPROJ_FILE],
+        "requiredFiles": ["Qwen3VL-8B-Instruct-Q8_0.gguf", QWEN_GGUF_MMPROJ_FILE],
+        "fileSizes": QWEN_GGUF_FILE_SIZES,
     },
     "ocr": {
         "id": "ocr",
@@ -133,13 +197,30 @@ class DownloadCancelled(RuntimeError):
     pass
 
 DEFAULT_SEMANTIC_PROMPT = (
-    "Return compact JSON only with keys tags, safety, rationale. "
-    "Use snake_case tags. Look for higher-level context such as political_edit, meme_edit, amv, music_video, "
-    "captioned, protest, politician, propaganda, and contextual edit signals only when visually or transcript supported. "
-    "Use national_socialism only for clear Nazi/far-right symbols such as a swastika, sonnenrad, or black_sun. "
-    "Use communism only for clear communist symbols such as a hammer_and_sickle or communist red star. "
-    "If transcript or audio evidence suggests a song or music-driven edit, include music and edit."
+    "Return compact JSON only with keys: tags, safety, rationale.\n"
+    "Use snake_case tags only.\n\n"
+    "Semantic description:\n"
+    "- The rationale should describe the visible image or frame collection in detail, including clothing garments, describe the pose, setting, text, audio/transcript evidence, and why semantic/context tags were included.\n\n"
+    "Tags in priority order:\n"
+    "- Return 6-28 useful searchable tags supported by the image, frame, OCR, transcript, or source page.\n"
+    "- Start with directly visible tags: media type, pose, subject count, male/female/girl/boy, setting, objects, actions, expression, hair color, eye color, framing, text/audio presence, and meme/edit format.\n"
+    "- Decompose clothing into specific garments and attributes. Name the garment type separately from pattern or theme. Example cow_print_outfit, bikini, swimsuit, would all be included.\n"
+    "- Do not confuse animal ears or horns for clothing, or horns for ears. Tag what is visibly present, such as animal_ears, cow_horns, white_horns, tail, or cow_tail.\n"
+    "- Add frequent or matching primary colors for the scene or clothing, hair color, eye color, standout accessories, exact pose, and anything visually distinctive.\n"
+    "- Include screenshot, photo, video, image, or gif when they fit.\n"
+    "- Add semantic/context tags only when supported: political_edit, meme_edit, amv, music_video, captioned, protest, politician, propaganda, music, edit, has_text, text_overlay, has_speech, swastika, sonnenrad, black_sun, national_socialism, hammer_and_sickle, communism."
 )
+LEGACY_SEMANTIC_PROMPTS = {
+    (
+        "Return compact JSON only with keys tags, safety, rationale. "
+        "Use snake_case tags. Look for higher-level context such as political_edit, meme_edit, amv, music_video, "
+        "captioned, protest, politician, propaganda, and contextual edit signals only when visually or transcript supported. "
+        "Use national_socialism only for clear Nazi/far-right symbols such as a swastika, sonnenrad, or black_sun. "
+        "Use communism only for clear communist symbols such as a hammer_and_sickle or communist red star. "
+        "If transcript or audio evidence suggests a song or music-driven edit, include music and edit."
+    ),
+    "Return JSON semantic tags.",
+}
 
 
 @dataclass
@@ -150,6 +231,7 @@ class AutoTagOptions:
     tagImages: bool = True
     tagVideos: bool = True
     wdEnabled: bool = True
+    pixaiEnabled: bool = False
     generalThreshold: float = 0.35
     characterThreshold: float = 0.45
     maxTags: int = 40
@@ -171,6 +253,10 @@ class AutoTagOptions:
     ocrEnabled: bool = False
     whisperEnabled: bool = False
     qwenEnabled: bool = False
+    semanticModelId: str = "qwen"
+    semanticPromptEnabled: bool = True
+    semanticSearchEnabled: bool = False
+    saveSemanticAnalysis: bool = False
     characterModelEnabled: bool = False
     torchDevice: str = "auto"
     # Offload inference to a remote GPU worker (another NekoBooru instance with
@@ -195,6 +281,7 @@ class AutoTagResult:
     model: str = ""
     enabled: bool = False
     error: str | None = None
+    duration_ms: int = 0
 
     @property
     def all_tags(self) -> list[str]:
@@ -313,6 +400,128 @@ class WdTagger:
                 "kind": "image",
                 "topTags": [{"tag": n, "confidence": c} for n, c in general[:10]],
                 "topCharacters": [{"tag": n, "confidence": c} for n, c in characters[:10]],
+                "rating": rating,
+            },
+            model=self.name,
+            enabled=True,
+        )
+
+
+class PixAiTagger:
+    name = "pixai-tagger-v0.9"
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._loaded = False
+        self._session = None
+        self._tag_rows: list[tuple[str, str]] = []
+        self._image_size = 448
+        self._providers: list[str] = []
+
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    def unload(self) -> bool:
+        with self._lock:
+            was_loaded = self._loaded
+            self._session = None
+            self._tag_rows = []
+            self._providers = []
+            self._loaded = False
+            gc.collect()
+            return was_loaded
+
+    def ensure_loaded(self, progress=None) -> bool:
+        with self._lock:
+            if self._loaded:
+                if progress:
+                    progress("ready", 100, "Model weights already loaded")
+                return True
+            self._load(progress=progress)
+            self._loaded = True
+            if progress:
+                progress("ready", 100, "Model weights loaded")
+            return True
+
+    def _load(self, progress=None) -> None:
+        import onnxruntime as ort  # type: ignore
+
+        cache = model_cache_status("pixai")
+        files = cache.get("files") or {}
+        model_path = _cached_file_by_suffix(files, ".onnx")
+        tags_path = _cached_tag_metadata_file(files)
+        if not model_path or not tags_path:
+            raise RuntimeError("PixAI model files are not downloaded")
+
+        if progress:
+            progress("load_weights", 35, "Loading PixAI ONNX weights into memory")
+        self._session = _create_onnx_session(ort, model_path)
+        self._providers = list(self._session.get_providers())
+        self._image_size = _onnx_input_image_size(self._session, default=448)
+        if progress:
+            progress("read_tags", 85, "Reading PixAI tag metadata")
+        self._tag_rows = _read_pixai_tag_rows(Path(tags_path))
+        if not self._tag_rows:
+            raise RuntimeError("PixAI tag metadata did not contain any tags")
+
+    def tag_image(self, path: Path, opts: AutoTagOptions) -> AutoTagResult:
+        self.ensure_loaded()
+        import numpy as np  # type: ignore
+
+        input_meta = self._session.get_inputs()[0]
+        arr = _generic_onnx_image_tensor(path, self._image_size, input_meta.shape)
+        outputs = self._session.run(None, {input_meta.name: arr})
+        scores = _flatten_onnx_scores(outputs, np)
+
+        by_category: dict[str, list[tuple[str, float]]] = {
+            "general": [],
+            "character": [],
+            "copyright": [],
+            "artist": [],
+            "rating": [],
+        }
+        for (name, category), score in zip(self._tag_rows, scores):
+            confidence = float(score)
+            tag = normalize_tag(name)
+            if not tag:
+                continue
+            if category == "character":
+                threshold = max(float(opts.characterThreshold), float(MODEL_REGISTRY["pixai"].get("characterThreshold") or 0.85))
+            elif category in {"copyright", "artist"}:
+                threshold = opts.characterThreshold
+            else:
+                threshold = opts.generalThreshold
+            if category == "rating":
+                if confidence >= 0.01:
+                    by_category["rating"].append((tag, confidence))
+            elif confidence >= threshold:
+                by_category.setdefault(category, by_category["general"]).append((tag, confidence))
+
+        for category in by_category:
+            by_category[category].sort(key=lambda item: item[1], reverse=True)
+
+        max_tags = max(1, int(opts.maxTags))
+        rating = {tag.replace("rating_", ""): score for tag, score in by_category.get("rating", [])[:8]}
+        tags = [tag for tag, _ in by_category.get("general", [])[:max_tags]]
+        character_tags = [tag for tag, _ in by_category.get("character", [])[:max_tags]]
+        copyright_tags = [tag for tag, _ in by_category.get("copyright", [])[:max_tags]]
+        categories = {tag: "general" for tag in tags}
+        categories.update({tag: "character" for tag in character_tags})
+        categories.update({tag: "copyright" for tag in copyright_tags})
+        categories.update({tag: "artist" for tag, _ in by_category.get("artist", [])[:max_tags]})
+
+        return AutoTagResult(
+            tags=tags,
+            character_tags=character_tags,
+            copyright_tags=copyright_tags,
+            rating=rating,
+            safety=safety_from_rating(rating, opts) if rating else None,
+            categories=categories,
+            evidence={
+                "kind": "pixai",
+                "topTags": [{"tag": n, "confidence": c} for n, c in by_category.get("general", [])[:10]],
+                "topCharacters": [{"tag": n, "confidence": c} for n, c in by_category.get("character", [])[:10]],
+                "topCopyrights": [{"tag": n, "confidence": c} for n, c in by_category.get("copyright", [])[:10]],
                 "rating": rating,
             },
             model=self.name,
@@ -650,12 +859,12 @@ class QwenSemanticTagger:
         output = self._processor.batch_decode(trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         parsed = _parse_semantic_json(output)
         tags = [normalize_tag(tag) for tag in parsed.get("tags", []) if normalize_tag(tag)]
-        safety = parsed.get("safety") if parsed.get("safety") in {"safe", "sketchy", "unsafe"} else None
+        safety = normalize_safety_label(parsed.get("safety"))
         return AutoTagResult(
             tags=tags[:20],
             safety=safety,
             categories={tag: "general" for tag in tags[:20]},
-            evidence={"kind": "qwen", "raw": output, "parsed": parsed},
+            evidence={"kind": "qwen", "raw": output, "parsed": parsed, **_analysis_image_evidence(path)},
             model=self.name,
             enabled=True,
         )
@@ -682,10 +891,122 @@ class QwenSemanticTagger:
         return info
 
 
+class QwenGgufSemanticTagger:
+    def __init__(self, model_id: str) -> None:
+        self.model_id = model_id
+        self.name = str(MODEL_REGISTRY[model_id]["name"])
+        self._lock = threading.Lock()
+        self._loaded = False
+        self._llm = None
+        self._device_preference = None
+
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    def unload(self) -> bool:
+        with self._lock:
+            was_loaded = self._loaded
+            self._llm = None
+            self._loaded = False
+            self._device_preference = None
+            _clear_torch_cache()
+            return was_loaded
+
+    def ensure_loaded(self, device_preference: str = "auto") -> bool:
+        with self._lock:
+            device_preference = _normalize_torch_device(device_preference)
+            if self._loaded and self._device_preference == device_preference:
+                return True
+            if self._loaded:
+                self._llm = None
+                self._loaded = False
+                self._device_preference = None
+                _clear_torch_cache()
+
+            _prepare_llama_cpp_runtime()
+            from llama_cpp import Llama  # type: ignore
+
+            model_path, mmproj_path = _qwen_gguf_paths(self.model_id)
+            n_gpu_layers = -1 if _qwen_gguf_use_gpu(device_preference) else 0
+            kwargs = {
+                "model_path": str(model_path),
+                "n_ctx": 4096,
+                "n_gpu_layers": n_gpu_layers,
+                "verbose": False,
+            }
+            try:
+                import inspect
+
+                params = inspect.signature(Llama.__init__).parameters
+                if "mmproj" in params:
+                    kwargs["mmproj"] = str(mmproj_path)
+                elif "clip_model_path" in params:
+                    kwargs["clip_model_path"] = str(mmproj_path)
+                elif "chat_handler" in params:
+                    from llama_cpp import llama_chat_format  # type: ignore
+
+                    handler_cls = (
+                        getattr(llama_chat_format, "Qwen3VLChatHandler", None)
+                        or getattr(llama_chat_format, "Qwen25VLChatHandler", None)
+                    )
+                    if handler_cls:
+                        kwargs["chat_handler"] = handler_cls(clip_model_path=str(mmproj_path))
+            except Exception:
+                pass
+            self._llm = Llama(**kwargs)
+            self._loaded = True
+            self._device_preference = device_preference
+            return True
+
+    def analyze_image(self, path: Path, context: dict | None = None, opts: AutoTagOptions | None = None) -> AutoTagResult:
+        opts = opts or load_options()
+        self.ensure_loaded(opts.torchDevice)
+        prompt = _semantic_prompt(opts)
+        if context:
+            prompt += f" Context: {json.dumps(context)[:1000]}"
+        image_url = _image_data_url(path)
+        output = self._llm.create_chat_completion(
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ],
+            }],
+            max_tokens=180,
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        )
+        text = _chat_completion_text(output)
+        parsed = _parse_semantic_json(text)
+        tags = [normalize_tag(tag) for tag in parsed.get("tags", []) if normalize_tag(tag)]
+        safety = normalize_safety_label(parsed.get("safety"))
+        return AutoTagResult(
+            tags=tags[:20],
+            safety=safety,
+            categories={tag: "general" for tag in tags[:20]},
+            evidence={"kind": "qwen_gguf", "raw": text, "parsed": parsed, "modelId": self.model_id, **_analysis_image_evidence(path)},
+            model=self.name,
+            enabled=True,
+        )
+
+    def device_info(self) -> dict:
+        return {
+            "preference": self._device_preference,
+            "loaded": self._loaded,
+            "device": "llama.cpp",
+            "deviceMap": None,
+            "modelId": self.model_id,
+        }
+
+
 _camie_tagger = CamieTagger()
+_pixai_tagger = PixAiTagger()
 _ocr_tagger = OcrTagger()
 _whisper_tagger = WhisperTagger()
 _qwen_tagger = QwenSemanticTagger()
+_qwen_gguf_q4_tagger = QwenGgufSemanticTagger("qwen_gguf_q4")
+_qwen_gguf_q8_tagger = QwenGgufSemanticTagger("qwen_gguf_q8")
 _wd_tagger = WdTagger()
 
 
@@ -747,6 +1068,7 @@ def _onnx_runtime_info() -> dict:
         "availableProviders": [],
         "preferredProviders": [],
         "wdProviders": list(_wd_tagger._providers),
+        "pixaiProviders": list(_pixai_tagger._providers),
         "camieProviders": list(_camie_tagger._providers),
     }
     if not info["available"]:
@@ -824,6 +1146,159 @@ def _qwen_gpu_memory_info() -> dict:
         return {"available": False, "freeGb": 0.0, "totalGb": 0.0, "error": str(exc)}
 
 
+def _qwen_gguf_use_gpu(device_preference: str) -> bool:
+    device_preference = _normalize_torch_device(device_preference)
+    if device_preference == "cpu":
+        return False
+    if device_preference == "gpu":
+        _ensure_qwen_gpu_headroom()
+        return True
+    return bool(_qwen_gpu_memory_info().get("available"))
+
+
+def _qwen_gguf_dir(model_id: str) -> Path:
+    return settings.models_dir / "gguf" / model_id
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return int(path.stat().st_size)
+    except OSError:
+        return 0
+
+
+def _expected_download_total(model_id: str) -> int:
+    meta = MODEL_REGISTRY.get(model_id) or {}
+    expected = int(meta.get("expectedTotalBytes") or 0)
+    if expected:
+        return expected
+    file_sizes = meta.get("fileSizes") or {}
+    required = [str(name) for name in meta.get("requiredFiles") or []]
+    return sum(int(file_sizes.get(filename) or 0) for filename in required)
+
+
+def _local_file_download_progress(model_id: str) -> tuple[int, int]:
+    meta = MODEL_REGISTRY.get(model_id) or {}
+    if meta.get("storage") != "local_files":
+        return 0, 0
+
+    root = _qwen_gguf_dir(model_id)
+    required = [str(name) for name in meta.get("requiredFiles") or []]
+    file_sizes = meta.get("fileSizes") or {}
+    total = _expected_download_total(model_id)
+    downloaded = 0
+    missing_expected = 0
+
+    for filename in required:
+        expected = int(file_sizes.get(filename) or 0)
+        path = root / filename
+        if path.exists():
+            size = _file_size(path)
+            downloaded += min(size, expected) if expected else size
+        else:
+            missing_expected += expected
+
+    cache_download_dir = root / ".cache" / "huggingface" / "download"
+    if missing_expected and cache_download_dir.exists():
+        partial = 0
+        try:
+            for path in cache_download_dir.glob("*.incomplete"):
+                partial += _file_size(path)
+        except OSError:
+            partial = 0
+        downloaded += min(partial, missing_expected)
+
+    return downloaded, total
+
+
+def _qwen_gguf_paths(model_id: str) -> tuple[Path, Path]:
+    meta = MODEL_REGISTRY[model_id]
+    root = _qwen_gguf_dir(model_id)
+    files = [str(name) for name in meta.get("requiredFiles") or []]
+    model_file = next((name for name in files if not name.startswith("mmproj-")), "")
+    if not model_file:
+        raise RuntimeError(f"{meta['name']} is missing a configured GGUF model file")
+    model_path = root / model_file
+    mmproj_path = root / QWEN_GGUF_MMPROJ_FILE
+    missing = [str(path) for path in (model_path, mmproj_path) if not path.exists()]
+    if missing:
+        raise RuntimeError(f"{meta['name']} is not downloaded: {', '.join(missing)}")
+    return model_path, mmproj_path
+
+
+def _image_data_url(path: Path) -> str:
+    suffix = path.suffix.lower()
+    mime = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(suffix, "image/png")
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def _analyze_qwen_image(tagger, path: Path, context: dict | None = None, opts: AutoTagOptions | None = None) -> AutoTagResult:
+    analysis_path = _qwen_analysis_image(path)
+    try:
+        result = tagger.analyze_image(analysis_path, context=context, opts=opts)
+        if analysis_path != path and isinstance(result.evidence, dict):
+            result.evidence["sourceImage"] = str(path)
+        return result
+    finally:
+        if analysis_path != path:
+            shutil.rmtree(analysis_path.parent, ignore_errors=True)
+
+
+def _qwen_analysis_image(path: Path, max_side: int = QWEN_ANALYSIS_MAX_SIDE) -> Path:
+    try:
+        with Image.open(path) as img:
+            width, height = img.size
+            if max(width, height) <= max_side:
+                return path
+            scale = max_side / max(width, height)
+            size = (max(1, round(width * scale)), max(1, round(height * scale)))
+            cache_root = settings.cache_dir / "auto-tags"
+            cache_root.mkdir(parents=True, exist_ok=True)
+            tmpdir = Path(tempfile.mkdtemp(prefix="qwen-analysis-", dir=cache_root))
+            dest = tmpdir / "image.jpg"
+            resized = img.convert("RGB").resize(size, Image.Resampling.LANCZOS)
+            resized.save(dest, "JPEG", quality=92, optimize=True)
+            return dest
+    except Exception:
+        return path
+
+
+def _analysis_image_evidence(path: Path) -> dict:
+    try:
+        with Image.open(path) as img:
+            return {
+                "analysisImage": {
+                    "width": img.width,
+                    "height": img.height,
+                    "maxSide": max(img.width, img.height),
+                },
+            }
+    except Exception:
+        return {}
+
+
+def _chat_completion_text(output: Any) -> str:
+    if isinstance(output, dict):
+        choices = output.get("choices") or []
+        if choices:
+            choice = choices[0] or {}
+            message = choice.get("message") or {}
+            content = message.get("content")
+            if isinstance(content, str):
+                return content
+            text = choice.get("text")
+            if isinstance(text, str):
+                return text
+    return str(output or "")
+
+
 def default_options() -> AutoTagOptions:
     return AutoTagOptions(enabled=bool(settings.auto_tagger_enabled))
 
@@ -891,10 +1366,14 @@ def _clean_semantic_prompt(value: Any) -> str:
     prompt = str(value or "").strip()
     if not prompt:
         return DEFAULT_SEMANTIC_PROMPT
+    if prompt in LEGACY_SEMANTIC_PROMPTS:
+        return DEFAULT_SEMANTIC_PROMPT
     return prompt[:4000]
 
 
 def _semantic_prompt(opts: AutoTagOptions) -> str:
+    if not opts.semanticPromptEnabled:
+        return DEFAULT_SEMANTIC_PROMPT
     return _clean_semantic_prompt(opts.semanticPrompt)
 
 
@@ -916,6 +1395,9 @@ def validate_options(raw: dict) -> AutoTagOptions:
     data["remoteUrl"] = str(data.get("remoteUrl") or "").strip().rstrip("/")
     data["remoteTimeoutSeconds"] = min(1800, max(5, int(data.get("remoteTimeoutSeconds") or 120)))
     data["semanticPrompt"] = _clean_semantic_prompt(data.get("semanticPrompt"))
+    data["semanticModelId"] = str(data.get("semanticModelId") or "qwen").strip()
+    if data["semanticModelId"] not in QWEN_SEMANTIC_MODEL_IDS:
+        data["semanticModelId"] = "qwen"
     if not isinstance(data["excludedTags"], list):
         data["excludedTags"] = []
     if not isinstance(data["keywordRules"], list):
@@ -980,7 +1462,8 @@ def status() -> dict:
         "torch": _torch_runtime_info(),
         "onnx": _onnx_runtime_info(),
         "torchDevice": opts.torchDevice,
-        "qwenDevice": _qwen_tagger.device_info(),
+        "qwenDevice": _semantic_tagger_for_options(opts).device_info(),
+        "semanticModelId": opts.semanticModelId,
         "remote": _remote_worker_status(opts),
         "huggingFaceTokenConfigured": bool(huggingface_token()),
         "dependencies": {
@@ -991,6 +1474,7 @@ def status() -> dict:
             "transformers": find_spec("transformers") is not None,
             "torch": find_spec("torch") is not None,
             "qwen_vl_utils": find_spec("qwen_vl_utils") is not None,
+            "llama_cpp": _llama_cpp_importable(),
         },
         "ffmpeg": check_ffmpeg_available(),
         "supportedImages": sorted(SUPPORTED_IMAGE_EXTS),
@@ -1011,6 +1495,8 @@ def current_model_load_job() -> dict | None:
 def _tagger_for_model(model_id: str):
     if model_id == "wd":
         return _wd_tagger
+    if model_id == "pixai":
+        return _pixai_tagger
     if model_id == "camie":
         return _camie_tagger
     if model_id == "ocr":
@@ -1019,7 +1505,20 @@ def _tagger_for_model(model_id: str):
         return _whisper_tagger
     if model_id == "qwen":
         return _qwen_tagger
+    if model_id == "qwen_gguf_q4":
+        return _qwen_gguf_q4_tagger
+    if model_id == "qwen_gguf_q8":
+        return _qwen_gguf_q8_tagger
     raise ValueError(f"Unknown model: {model_id}")
+
+
+def _semantic_model_id(opts: AutoTagOptions) -> str:
+    model_id = str(opts.semanticModelId or "qwen")
+    return model_id if model_id in QWEN_SEMANTIC_MODEL_IDS else "qwen"
+
+
+def _semantic_tagger_for_options(opts: AutoTagOptions):
+    return _tagger_for_model(_semantic_model_id(opts))
 
 
 def start_model_load(model_id: str = "wd") -> dict:
@@ -1063,6 +1562,22 @@ def delete_model_cache(model_id: str) -> dict:
     tagger = _tagger_for_model(model_id)
     was_loaded = bool(tagger.unload())
     meta = MODEL_REGISTRY[model_id]
+    if meta.get("storage") == "local_files":
+        cache_path = _qwen_gguf_dir(model_id)
+        deleted_paths = []
+        if cache_path.exists():
+            shutil.rmtree(cache_path)
+            deleted_paths.append(str(cache_path))
+        return {
+            "modelId": model_id,
+            "model": meta["name"],
+            "deleted": bool(deleted_paths),
+            "unloaded": was_loaded,
+            "cachePath": str(cache_path),
+            "deletedPaths": deleted_paths,
+            "models": model_statuses(),
+        }
+
     repo_id = str(meta["repoId"])
     cache_paths = _model_cache_paths(repo_id)
 
@@ -1160,10 +1675,13 @@ def _new_load_job(model_id: str, *, status: str, progress: int, message: str) ->
     now = time.time()
     estimates = {
         "wd": 20,
+        "pixai": 15,
         "camie": 30,
         "ocr": 25,
         "whisper": 25,
         "qwen": 90,
+        "qwen_gguf_q4": 45,
+        "qwen_gguf_q8": 60,
     }
     return {
         "id": str(uuid.uuid4()),
@@ -1200,8 +1718,8 @@ def _run_model_load_job(job_id: str, model_id: str) -> None:
             _wd_tagger.ensure_loaded(progress=progress)
         else:
             progress("load_weights", 15, f"Loading {MODEL_REGISTRY[model_id]['name']} weights into memory")
-            if model_id == "qwen":
-                _qwen_tagger.ensure_loaded(load_options().torchDevice)
+            if model_id in QWEN_SEMANTIC_MODEL_IDS:
+                _tagger_for_model(model_id).ensure_loaded(load_options().torchDevice)
             else:
                 _tagger_for_model(model_id).ensure_loaded()
             progress("ready", 100, "Model weights loaded")
@@ -1230,6 +1748,17 @@ def model_cache_status(model_id: str = "wd") -> dict:
     if not meta:
         raise ValueError(f"Unknown model: {model_id}")
 
+    if meta.get("storage") == "local_files":
+        root = _qwen_gguf_dir(model_id)
+        files = {}
+        for filename in [str(name) for name in meta.get("requiredFiles") or []]:
+            path = root / filename
+            files[filename] = {"downloaded": path.exists(), "path": str(path) if path.exists() else None}
+        return {
+            "downloaded": bool(files) and all(row["downloaded"] for row in files.values()),
+            "files": files,
+        }
+
     files = {}
     if find_spec("huggingface_hub") is None:
         return {
@@ -1242,6 +1771,7 @@ def model_cache_status(model_id: str = "wd") -> dict:
     repo_id = str(meta["repoId"])
     patterns = meta.get("allowPatterns")
     required_files = [str(name) for name in meta.get("requiredFiles") or []]
+    required_kinds = [str(name) for name in meta.get("requiredFileKinds") or []]
     snapshot_root = None
     if patterns:
         filenames = list(patterns)
@@ -1273,6 +1803,8 @@ def model_cache_status(model_id: str = "wd") -> dict:
             files[filename] = {"downloaded": False, "path": None}
     if required_files:
         downloaded = all(files.get(required, {}).get("downloaded") for required in required_files)
+    elif required_kinds:
+        downloaded = _files_satisfy_required_kinds(files, required_kinds)
     else:
         downloaded = bool(files) and all(meta["downloaded"] for meta in files.values())
     return {
@@ -1284,6 +1816,23 @@ def model_cache_status(model_id: str = "wd") -> dict:
 def _cache_name_matches(filename: str, required: str) -> bool:
     normalized = filename.replace("\\", "/")
     return normalized == required or normalized.endswith(f"/{required}")
+
+
+def _files_satisfy_required_kinds(files: dict, required_kinds: list[str]) -> bool:
+    downloaded_names = [
+        str(name).lower()
+        for name, meta in files.items()
+        if isinstance(meta, dict) and meta.get("downloaded")
+    ]
+    for kind in required_kinds:
+        if kind == "onnx" and not any(name.endswith(".onnx") for name in downloaded_names):
+            return False
+        if kind == "tags" and not any(
+            name.endswith((".csv", ".json", ".txt")) and any(token in name for token in ("tag", "label", "class"))
+            for name in downloaded_names
+        ):
+            return False
+    return bool(downloaded_names)
 
 
 def _snapshot_file_names(snapshot_root: Path) -> list[str]:
@@ -1334,13 +1883,17 @@ def model_statuses() -> list[dict]:
 def _model_runtime_providers(model_id: str) -> list[str]:
     if model_id == "wd":
         return list(_wd_tagger._providers)
+    if model_id == "pixai":
+        return list(_pixai_tagger._providers)
     if model_id == "camie":
         return list(_camie_tagger._providers)
+    if model_id in {"qwen_gguf_q4", "qwen_gguf_q8"} and _llama_cpp_importable():
+        return ["llama.cpp"]
     return []
 
 
 def runtime_available(model_id: str) -> bool:
-    if model_id in {"wd", "camie"}:
+    if model_id in {"wd", "pixai", "camie"}:
         return bool(_onnx_runtime_info().get("available")) and find_spec("numpy") is not None
     if model_id in {"ocr", "whisper"}:
         return find_spec("transformers") is not None and find_spec("torch") is not None
@@ -1350,7 +1903,66 @@ def runtime_available(model_id: str) -> bool:
             and find_spec("torch") is not None
             and find_spec("qwen_vl_utils") is not None
         )
+    if model_id in {"qwen_gguf_q4", "qwen_gguf_q8"}:
+        return _llama_cpp_importable()
     return False
+
+
+def _prepare_llama_cpp_runtime() -> None:
+    if os.name != "nt":
+        return
+    candidates: list[Path] = []
+    llama_spec = find_spec("llama_cpp")
+    if llama_spec and llama_spec.origin:
+        site_packages = Path(llama_spec.origin).resolve().parents[1]
+        candidates.extend([site_packages / "llama_cpp" / "lib", site_packages / "torch" / "lib"])
+        nvidia_root = site_packages / "nvidia"
+        if nvidia_root.exists():
+            candidates.extend(path for path in nvidia_root.rglob("bin") if path.is_dir())
+    torch_spec = find_spec("torch")
+    if torch_spec and torch_spec.origin:
+        candidates.append(Path(torch_spec.origin).resolve().parent / "lib")
+
+    existing_path = os.environ.get("PATH", "")
+    existing_parts = [part for part in existing_path.split(os.pathsep) if part]
+    prepend: list[str] = []
+    for path in candidates:
+        if not path.exists():
+            continue
+        text = str(path)
+        if text not in existing_parts and text not in prepend:
+            prepend.append(text)
+        if hasattr(os, "add_dll_directory"):
+            try:
+                _LLAMA_DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(text))
+            except OSError:
+                pass
+    if prepend:
+        os.environ["PATH"] = os.pathsep.join([*prepend, *existing_parts])
+
+    llama_lib = next((path for path in candidates if path.name == "lib" and path.parent.name == "llama_cpp"), None)
+    if not llama_lib:
+        return
+    for name in ("ggml-base.dll", "ggml-cpu.dll", "ggml-cuda.dll", "ggml.dll", "llama.dll", "mtmd.dll"):
+        path = llama_lib / name
+        if not path.exists():
+            continue
+        try:
+            _LLAMA_PRELOAD_HANDLES.append(ctypes.CDLL(str(path)))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Unable to preload llama.cpp DLL %s: %s", path, exc)
+
+
+def _llama_cpp_importable() -> bool:
+    if find_spec("llama_cpp") is None:
+        return False
+    try:
+        _prepare_llama_cpp_runtime()
+        importlib.import_module("llama_cpp")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("llama_cpp is installed but not importable yet: %s", exc)
+        return False
 
 
 class _ProgressTqdm:
@@ -1460,8 +2072,10 @@ def cancel_model_download() -> dict:
     with _download_lock:
         if not _download_job or _download_job.get("status") not in _DOWNLOAD_ACTIVE_STATUSES:
             raise RuntimeError("No active model download is running")
+        _refresh_download_row_progress_locked()
         _download_job["status"] = "cancelling"
         _download_job["cancelRequested"] = True
+        _download_job["cancelRequestedAt"] = time.time()
         _download_job["updatedAt"] = time.time()
         has_active_download = False
         for row in _download_job.get("models", {}).values():
@@ -1479,9 +2093,30 @@ def cancel_model_download() -> dict:
         return json.loads(json.dumps(_download_job))
 
 
+def _refresh_download_row_progress_locked() -> None:
+    if not _download_job:
+        return
+    for model_id in list(_download_job.get("modelIds") or []):
+        row = _download_job.get("models", {}).get(model_id)
+        if not row or row.get("status") in _DOWNLOAD_TERMINAL_STATUSES:
+            continue
+        downloaded, total = _local_file_download_progress(model_id)
+        if total:
+            previous = int(row.get("bytesDownloaded") or 0)
+            row["bytesTotal"] = max(int(row.get("bytesTotal") or 0), total)
+            row["bytesDownloaded"] = max(previous, downloaded)
+            if downloaded > previous:
+                row["updatedAt"] = time.time()
+                _download_job["updatedAt"] = time.time()
+            if row.get("status") == "running":
+                row["current"] = "Downloading local model files"
+
+
 def _reconcile_download_job_locked() -> None:
     if not _download_job or _download_job.get("status") not in _DOWNLOAD_ACTIVE_STATUSES:
         return
+
+    _refresh_download_row_progress_locked()
 
     if _download_job.get("cancelRequested"):
         has_active_download = False
@@ -1533,6 +2168,7 @@ def start_model_download(model_ids: list[str]) -> dict:
     unknown = [model_id for model_id in model_ids if model_id not in MODEL_REGISTRY]
     if unknown:
         raise ValueError(f"Unknown model: {', '.join(unknown)}")
+    runtime_job = _ensure_download_runtime(model_ids)
 
     global _download_job
     with _download_lock:
@@ -1558,7 +2194,7 @@ def start_model_download(model_ids: list[str]) -> dict:
                     "repoId": MODEL_REGISTRY[model_id]["repoId"],
                     "status": "queued",
                     "bytesDownloaded": 0,
-                    "bytesTotal": 0,
+                    "bytesTotal": _expected_download_total(model_id),
                     "current": "",
                     "error": None,
                     "updatedAt": time.time(),
@@ -1567,10 +2203,40 @@ def start_model_download(model_ids: list[str]) -> dict:
             },
         }
         snapshot = json.loads(json.dumps(_download_job))
+    if runtime_job:
+        snapshot["runtimeInstallJob"] = runtime_job
 
     thread = threading.Thread(target=_run_model_download_job, args=(job_id, model_ids), daemon=True)
     thread.start()
     return snapshot
+
+
+def _ensure_download_runtime(model_ids: list[str]) -> dict | None:
+    if not any(model_id in {"qwen_gguf_q4", "qwen_gguf_q8"} for model_id in model_ids):
+        return None
+    if _llama_cpp_importable():
+        return None
+    try:
+        from . import ai_runtime_installer
+
+        return ai_runtime_installer.start_llama_cpp_install()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Unable to start llama.cpp runtime install for GGUF download: %s", exc)
+        return {"status": "failed", "error": str(exc), "message": "Unable to start llama.cpp runtime install"}
+
+
+def download_all_model_ids() -> list[str]:
+    opts = load_options()
+    selected_semantic = _semantic_model_id(opts)
+    ids: list[str] = []
+    for model_id, meta in MODEL_REGISTRY.items():
+        if meta.get("role") == "semantic":
+            if model_id == selected_semantic:
+                ids.append(model_id)
+            continue
+        if meta.get("downloadAll", True):
+            ids.append(model_id)
+    return ids
 
 
 def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
@@ -1602,13 +2268,29 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
             row["updatedAt"] = time.time()
             _download_job["updatedAt"] = time.time()
         try:
-            snapshot_download(
-                str(meta["repoId"]),
-                token=huggingface_token(),
-                allow_patterns=meta.get("allowPatterns"),
-                cache_dir=_hf_cache_dir(),
-                tqdm_class=_ProgressTqdm,
-            )
+            kwargs = {
+                "repo_id": str(meta["repoId"]),
+                "token": huggingface_token(),
+                "allow_patterns": meta.get("allowPatterns"),
+                "tqdm_class": _ProgressTqdm,
+            }
+            if meta.get("storage") == "local_files":
+                local_dir = _qwen_gguf_dir(model_id)
+                local_dir.mkdir(parents=True, exist_ok=True)
+                kwargs["local_dir"] = str(local_dir)
+                kwargs["max_workers"] = 1
+            else:
+                kwargs["cache_dir"] = _hf_cache_dir()
+            with _download_lock:
+                if _download_job and _download_job.get("id") == job_id:
+                    row = _download_job["models"][model_id]
+                    downloaded, total = _local_file_download_progress(model_id)
+                    row["bytesDownloaded"] = max(int(row.get("bytesDownloaded") or 0), downloaded)
+                    row["bytesTotal"] = max(int(row.get("bytesTotal") or 0), total)
+                    if total:
+                        row["current"] = "Fetching local model files"
+                    row["updatedAt"] = time.time()
+            snapshot_download(**kwargs)
             cache = model_cache_status(model_id)
             with _download_lock:
                 if not _download_job or _download_job.get("id") != job_id:
@@ -1771,7 +2453,7 @@ def _tag_image(path: Path, opts: AutoTagOptions) -> AutoTagResult:
     results: list[AutoTagResult] = []
     if opts.wdEnabled:
         unavailable = _unavailable_model_result("wd")
-        results.append(unavailable or _wd_tagger.tag_image(path, opts))
+        results.append(unavailable or _time_result("wd", lambda: _wd_tagger.tag_image(path, opts)))
     results.extend(_optional_image_results(path, opts))
     if not results:
         return AutoTagResult(enabled=True, error="no_models_enabled")
@@ -1780,6 +2462,8 @@ def _tag_image(path: Path, opts: AutoTagOptions) -> AutoTagResult:
 
 def _optional_image_results(path: Path, opts: AutoTagOptions, context: dict | None = None) -> list[AutoTagResult]:
     results: list[AutoTagResult] = []
+    if opts.pixaiEnabled:
+        results.append(_unavailable_model_result("pixai") or _run_optional("pixai", lambda: _pixai_tagger.tag_image(path, opts)))
     if opts.characterModelEnabled:
         results.append(_unavailable_model_result("camie") or _run_optional("camie", lambda: _camie_tagger.tag_image(path, opts)))
     if opts.ocrEnabled:
@@ -1788,12 +2472,17 @@ def _optional_image_results(path: Path, opts: AutoTagOptions, context: dict | No
         if context is not None and ocr.evidence.get("text"):
             context["ocrText"] = ocr.evidence.get("text")
     if opts.qwenEnabled or opts.semanticPoliticalEnabled:
-        results.append(_unavailable_model_result("qwen") or _run_optional("qwen", lambda: _qwen_tagger.analyze_image(path, context=context, opts=opts)))
+        model_id = _semantic_model_id(opts)
+        tagger = _tagger_for_model(model_id)
+        results.append(
+            _unavailable_model_result(model_id)
+            or _run_optional(model_id, lambda: _analyze_qwen_image(tagger, path, context=context, opts=opts))
+        )
     return results
 
 
 def _tag_video_with_enrichers(path: Path, opts: AutoTagOptions) -> AutoTagResult:
-    base = _tag_video(path, opts)
+    base = _time_result("wd", lambda: _tag_video(path, opts)) if opts.wdEnabled else _tag_video(path, opts)
     results = [base]
     context: dict = {}
     if opts.whisperEnabled:
@@ -1801,7 +2490,7 @@ def _tag_video_with_enrichers(path: Path, opts: AutoTagOptions) -> AutoTagResult
         results.append(whisper)
         if whisper.evidence.get("transcript"):
             context["transcript"] = whisper.evidence.get("transcript")
-    if opts.characterModelEnabled or opts.ocrEnabled or opts.qwenEnabled or opts.semanticPoliticalEnabled:
+    if opts.pixaiEnabled or opts.characterModelEnabled or opts.ocrEnabled or opts.qwenEnabled or opts.semanticPoliticalEnabled:
         frame = _representative_frame(path, opts)
         if frame:
             try:
@@ -1812,14 +2501,16 @@ def _tag_video_with_enrichers(path: Path, opts: AutoTagOptions) -> AutoTagResult
 
 
 def _run_optional(model_id: str, fn) -> AutoTagResult:
+    started = time.perf_counter()
     try:
-        return fn()
+        return _set_result_duration(fn(), started)
     except ImportError as exc:
         return AutoTagResult(
             enabled=True,
             model=str(MODEL_REGISTRY[model_id]["name"]),
             error=f"missing_runtime_dependency: {exc}",
             evidence={"kind": model_id, "error": f"missing_runtime_dependency: {exc}"},
+            duration_ms=_elapsed_ms(started),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("%s pipeline failed: %s", model_id, exc)
@@ -1828,7 +2519,27 @@ def _run_optional(model_id: str, fn) -> AutoTagResult:
             model=str(MODEL_REGISTRY[model_id]["name"]),
             error=str(exc),
             evidence={"kind": model_id, "error": str(exc)},
+            duration_ms=_elapsed_ms(started),
         )
+
+
+def _time_result(model_id: str, fn) -> AutoTagResult:
+    started = time.perf_counter()
+    try:
+        return _set_result_duration(fn(), started)
+    except Exception:
+        raise
+
+
+def _set_result_duration(result: AutoTagResult, started: float) -> AutoTagResult:
+    result.duration_ms = _elapsed_ms(started)
+    if isinstance(result.evidence, dict):
+        result.evidence.setdefault("durationMs", result.duration_ms)
+    return result
+
+
+def _elapsed_ms(started: float) -> int:
+    return max(0, int(round((time.perf_counter() - started) * 1000)))
 
 
 def _unavailable_model_result(model_id: str) -> AutoTagResult | None:
@@ -1869,6 +2580,7 @@ def _combine_results(results: list[AutoTagResult]) -> AutoTagResult:
         evidence_models.append({
             "model": result.model,
             "error": result.error,
+            "durationMs": result.duration_ms,
             "evidence": result.evidence,
         })
         if result.error:
@@ -1877,7 +2589,8 @@ def _combine_results(results: list[AutoTagResult]) -> AutoTagResult:
     combined.character_tags = _dedupe_tags(combined.character_tags)
     combined.copyright_tags = _dedupe_tags(combined.copyright_tags)
     combined.model = "+".join([result.model for result in results if result and result.model])
-    combined.evidence = {"models": evidence_models}
+    combined.duration_ms = sum(int(result.duration_ms or 0) for result in results if result)
+    combined.evidence = {"models": evidence_models, "durationMs": combined.duration_ms}
     combined.error = "; ".join(errors) if errors and not combined.all_tags else None
     return combined
 
@@ -1903,12 +2616,45 @@ def merge_with_existing(existing: list[str], result: AutoTagResult, opts: AutoTa
 
 
 def promote_safety(current: str, suggested: str | None, opts: AutoTagOptions) -> str:
+    suggested = normalize_safety_label(suggested)
     if not opts.applySafety or not suggested:
         return current
     rank = {"safe": 0, "sketchy": 1, "unsafe": 2}
     if opts.neverDowngradeSafety and rank.get(suggested, 0) < rank.get(current, 0):
         return current
     return suggested if rank.get(suggested, 0) > rank.get(current, 0) else current
+
+
+def normalize_safety_label(value: Any) -> str | None:
+    label = normalize_tag(str(value or ""))
+    if not label:
+        return None
+    if label in {"safe", "general", "sfw"}:
+        return "safe"
+    if label in {
+        "sketchy",
+        "questionable",
+        "sensitive",
+        "suggestive",
+        "partial_nudity",
+        "partial_nude",
+        "revealing",
+    }:
+        return "sketchy"
+    if label in {
+        "unsafe",
+        "explicit",
+        "nsfw",
+        "nude",
+        "nudity",
+        "naked",
+        "sexual",
+        "porn",
+        "pornographic",
+        "adult",
+    }:
+        return "unsafe"
+    return None
 
 
 def normalize_tag(raw: str) -> str:
@@ -1975,6 +2721,143 @@ def _cached_file(files: dict, filename: str) -> str | None:
         if name.endswith(filename) and meta.get("downloaded"):
             return meta.get("path")
     return None
+
+
+def _cached_file_by_suffix(files: dict, suffix: str) -> str | None:
+    suffix = suffix.lower()
+    for name, meta in sorted(files.items()):
+        path = meta.get("path") if isinstance(meta, dict) else None
+        if meta.get("downloaded") and str(name).lower().endswith(suffix) and path:
+            return str(path)
+    return None
+
+
+def _cached_tag_metadata_file(files: dict) -> str | None:
+    preferred = (
+        "selected_tags.csv",
+        "tags.csv",
+        "tag_names.csv",
+        "classes.csv",
+        "labels.csv",
+        "tags.json",
+        "labels.json",
+        "tags.txt",
+        "labels.txt",
+    )
+    for filename in preferred:
+        path = _cached_file(files, filename)
+        if path:
+            return path
+    for name, meta in sorted(files.items()):
+        if not isinstance(meta, dict) or not meta.get("downloaded"):
+            continue
+        path = meta.get("path")
+        lower = str(name).lower()
+        if path and lower.endswith((".csv", ".json", ".txt")) and any(token in lower for token in ("tag", "label", "class")):
+            return str(path)
+    return None
+
+
+def _onnx_input_image_size(session, default: int = 448) -> int:
+    try:
+        shape = list(session.get_inputs()[0].shape or [])
+    except Exception:
+        return default
+    ints = [int(value) for value in shape if isinstance(value, int) and value > 8]
+    if not ints:
+        return default
+    return int(max(ints))
+
+
+def _generic_onnx_image_tensor(path: Path, image_size: int, shape):
+    import numpy as np  # type: ignore
+
+    with Image.open(path) as image:
+        image = image.convert("RGB")
+        image = _letterbox(image, image_size)
+        arr = np.asarray(image, dtype=np.float32)
+
+    shape_list = list(shape or [])
+    if len(shape_list) >= 4 and shape_list[1] == 3:
+        arr = np.transpose(arr, (2, 0, 1))[None, ...]
+    else:
+        arr = arr[None, ...]
+    return arr.astype(np.float32)
+
+
+def _flatten_onnx_scores(outputs, np):
+    arrays = [np.asarray(output) for output in outputs]
+    arrays = [array for array in arrays if array.size]
+    if not arrays:
+        return np.asarray([], dtype=np.float32)
+    array = max(arrays, key=lambda item: item.size)
+    return np.asarray(array).reshape(-1)
+
+
+def _read_pixai_tag_rows(path: Path) -> list[tuple[str, str]]:
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        with open(path, encoding="utf-8-sig", newline="") as fh:
+            return _read_tag_rows_from_csv(fh)
+    if suffix == ".json":
+        with open(path, encoding="utf-8-sig") as fh:
+            data = json.load(fh)
+        return _read_tag_rows_from_json(data)
+    with open(path, encoding="utf-8-sig") as fh:
+        return [(line.strip(), "general") for line in fh if normalize_tag(line)]
+
+
+def _read_tag_rows_from_csv(fh) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    reader = csv.DictReader(fh)
+    if not reader.fieldnames:
+        return rows
+    lower_fields = {field.lower(): field for field in reader.fieldnames}
+    name_key = next((lower_fields[key] for key in ("name", "tag", "label", "class", "tag_name") if key in lower_fields), reader.fieldnames[0])
+    category_key = next((lower_fields[key] for key in ("category", "type", "kind") if key in lower_fields), None)
+    for row in reader:
+        name = str(row.get(name_key) or "").strip()
+        if not normalize_tag(name):
+            continue
+        rows.append((name, _normalize_tagger_category(row.get(category_key) if category_key else None)))
+    return rows
+
+
+def _read_tag_rows_from_json(data) -> list[tuple[str, str]]:
+    if isinstance(data, dict):
+        for key in ("tags", "labels", "classes", "selected_tags"):
+            if isinstance(data.get(key), list):
+                data = data[key]
+                break
+        else:
+            if all(isinstance(key, str) for key in data.keys()):
+                return [(str(value), "general") for _, value in sorted(data.items()) if normalize_tag(str(value))]
+    if not isinstance(data, list):
+        return []
+    rows = []
+    for item in data:
+        if isinstance(item, str):
+            rows.append((item, "general"))
+        elif isinstance(item, dict):
+            name = item.get("name") or item.get("tag") or item.get("label") or item.get("class")
+            if normalize_tag(str(name or "")):
+                rows.append((str(name), _normalize_tagger_category(item.get("category") or item.get("type") or item.get("kind"))))
+    return rows
+
+
+def _normalize_tagger_category(value) -> str:
+    text = normalize_tag(str(value or "general"))
+    if text in {"0", "general", "tag"}:
+        return "general"
+    if text in {"1", "artist"}:
+        return "artist"
+    if text in {"3", "copyright", "source"}:
+        return "copyright"
+    if text in {"4", "character"}:
+        return "character"
+    if text in {"9", "rating", "safety"}:
+        return "rating"
+    return text or "general"
 
 
 def _imagenet_tensor(path: Path, image_size: int):
@@ -2054,14 +2937,153 @@ def _parse_semantic_json(raw: str) -> dict:
     try:
         data = json.loads(text)
     except Exception:
-        return {"tags": [], "raw": raw}
+        return _semantic_fallback_payload(raw)
     if not isinstance(data, dict):
-        return {"tags": [], "raw": raw}
-    tags = data.get("tags") or []
+        return _semantic_fallback_payload(raw)
+    tags = data.get("tags") or data.get("keywords") or data.get("search_tags") or []
     if isinstance(tags, str):
         tags = [tags]
-    data["tags"] = tags if isinstance(tags, list) else []
+    tags = tags if isinstance(tags, list) else []
+    semantic_text = " ".join(
+        str(value or "")
+        for value in (
+            raw,
+            data.get("rationale"),
+            data.get("description"),
+            data.get("caption"),
+            data.get("summary"),
+            data.get("scene"),
+            data.get("raw"),
+        )
+    )
+    if not tags:
+        tags = _semantic_tags_from_text(semantic_text)
+    tags = _dedupe_tags([*tags, *_semantic_symbol_tags_from_text(semantic_text)])
+    data["tags"] = tags
     return data
+
+
+def _semantic_fallback_payload(raw: str) -> dict:
+    tags = _dedupe_tags([
+        *_semantic_tag_list_from_text(raw),
+        *_semantic_tags_from_text(raw),
+        *_semantic_symbol_tags_from_text(raw),
+    ])
+    payload = {"tags": tags, "raw": raw}
+    safety = _semantic_safety_from_text(raw)
+    if safety:
+        payload["safety"] = safety
+    return payload
+
+
+def _semantic_tag_list_from_text(text: str) -> list[str]:
+    match = re.search(r'"(?:tags|keywords|search_tags)"\s*:\s*\[([\s\S]*?)(?:\]|\n\s*"(?:safety|rationale|description|summary)"\s*:|$)', str(text or ""), flags=re.IGNORECASE)
+    if not match:
+        return []
+    return [value for value in re.findall(r'"((?:\\.|[^"\\])*)"', match.group(1)) if value.strip()]
+
+
+def _semantic_safety_from_text(text: str) -> str | None:
+    match = re.search(r'"safety"\s*:\s*"([^"]+)"', str(text or ""), flags=re.IGNORECASE)
+    return normalize_safety_label(match.group(1)) if match else None
+
+
+def _semantic_symbol_tags_from_text(text: str) -> list[str]:
+    haystack = str(text or "").lower()
+
+    def present(pattern: str) -> bool:
+        return re.search(pattern, haystack) is not None
+
+    def negated(pattern: str) -> bool:
+        return re.search(
+            rf"\b(no|not|without|absent|none|no visible|not visible)\b[^.:\n]{{0,80}}{pattern}",
+            haystack,
+        ) is not None
+
+    tags = []
+    if present(r"\bswastikas?\b") and not negated(r"\bswastikas?\b"):
+        tags.extend(["swastika", "national_socialism"])
+    if present(r"\bsonnenrads?\b") and not negated(r"\bsonnenrads?\b"):
+        tags.extend(["sonnenrad", "national_socialism"])
+    if present(r"\bblack[_\s-]?suns?\b") and not negated(r"\bblack[_\s-]?suns?\b"):
+        tags.extend(["black_sun", "national_socialism"])
+    if present(r"\bhammer[_\s-]?and[_\s-]?sickles?\b") and not negated(r"\bhammer[_\s-]?and[_\s-]?sickles?\b"):
+        tags.extend(["hammer_and_sickle", "communism"])
+    if (
+        present(r"\bcommunist\s+red\s+stars?\b")
+        or (present(r"\bred\s+stars?\b") and present(r"\bcommunis[mt]\b"))
+    ) and not negated(r"\b(red\s+stars?|communist\s+red\s+stars?)\b"):
+        tags.extend(["communist_red_star", "communism"])
+    return _dedupe_tags(tags)
+
+
+def _semantic_tags_from_text(text: str) -> list[str]:
+    haystack = str(text or "").lower()
+    negated_political = any(
+        phrase in haystack
+        for phrase in (
+            "no visible political",
+            "no political",
+            "no protest",
+            "no propaganda",
+            "no extremist",
+            "without political",
+            "without protest",
+            "without propaganda",
+        )
+    )
+    negative_context = any(
+        phrase in haystack
+        for phrase in (
+            "no stronger context",
+            "no indications of being",
+            "no visible",
+            "without any indications",
+        )
+    )
+    candidates = {
+        "person": ["person", "people", "man", "woman"],
+        "woman": ["woman", "female"],
+        "man": ["man", "male"],
+        "photo": ["photo", "photograph", "realistic", "natural lighting"],
+        "realistic": ["realistic", "photograph", "natural lighting"],
+        "natural_lighting": ["natural lighting"],
+        "indoors": ["indoors", "inside", "room"],
+        "outdoors": ["outdoors", "outside", "street"],
+        "bikini": ["bikini", "swimsuit"],
+        "swimwear": ["bikini", "swimsuit", "swimwear"],
+        "pink": ["pink"],
+        "pink_clothing": ["pink bikini", "pink dress", "pink shirt", "pink clothing"],
+        "patterned_clothing": ["patterned", "print", "strawberry patterns", "strawberry print"],
+        "strawberry_print": ["strawberry patterns", "strawberry print"],
+        "meme": ["meme"],
+        "screenshot": ["screenshot"],
+        "captioned": ["caption", "captioned", "subtitle", "text overlay"],
+        "political_edit": ["political edit"],
+        "meme_edit": ["meme edit"],
+        "amv": ["amv"],
+        "music_video": ["music video"],
+        "propaganda": ["propaganda"],
+        "protest": ["protest"],
+    }
+    tags = []
+    for tag, needles in candidates.items():
+        if negated_political and tag in {"political_edit", "propaganda", "protest"}:
+            continue
+        if negative_context and tag in {"meme_edit", "amv", "music_video"}:
+            continue
+        if any(_semantic_phrase_present(haystack, needle) for needle in needles):
+            tags.append(tag)
+    return tags[:10]
+
+
+def _semantic_phrase_present(haystack: str, phrase: str) -> bool:
+    words = [re.escape(part) for part in re.findall(r"[a-z0-9]+", str(phrase or "").lower())]
+    if not words:
+        return False
+    separator = r"[\s_-]+"
+    pattern = separator.join(words)
+    return re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", haystack) is not None
 
 
 def _extract_audio(source: Path, dest: Path, max_seconds: int) -> bool:
@@ -2278,6 +3300,7 @@ def result_to_json(result: AutoTagResult) -> str:
         "model": result.model,
         "enabled": result.enabled,
         "error": result.error,
+        "durationMs": result.duration_ms,
     })
 
 

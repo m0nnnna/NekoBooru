@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select, delete, insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,12 +29,23 @@ class CreatePostRequest(BaseModel):
     tags: list[str] = []
     source: Optional[str] = None
     autoTag: Optional[bool] = None
+    autoTagProfile: Optional[str] = None
 
 
 class UpdatePostRequest(BaseModel):
     safety: Optional[str] = None
     tags: Optional[list[str]] = None
     source: Optional[str] = None
+
+
+class SaveAiAnalysisRequest(BaseModel):
+    suggestion: dict = {}
+    settings: dict = {}
+    profile: Optional[str] = None
+
+
+class UpdateAiAnalysisRequest(BaseModel):
+    description: str = ""
 
 
 class BulkDeleteRequest(BaseModel):
@@ -45,6 +57,47 @@ class BulkUpdateRequest(BaseModel):
     tagMode: Optional[str] = None
     tags: list[str] = []
     safety: Optional[str] = None
+
+
+async def _post_by_sha256(db: AsyncSession, sha256: str) -> Post | None:
+    result = await db.execute(
+        select(Post)
+        .options(selectinload(Post.tags), selectinload(Post.favorite))
+        .where(Post.sha256 == sha256)
+    )
+    return result.scalars().first()
+
+
+def _duplicate_post_exception(post: Post | None, sha256: str) -> HTTPException:
+    if post:
+        message = (
+            "Same post detected. This content matches a deleted NekoBooru post."
+            if post.deleted_at is not None
+            else "Same post detected. This content already exists in NekoBooru."
+        )
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "duplicate_post",
+                "message": message,
+                "post": post.to_dict(),
+                "postId": post.id,
+                "postUrl": f"/post/{post.id}",
+                "sha256": sha256,
+                "deleted": post.deleted_at is not None,
+            },
+        )
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "duplicate_post",
+            "message": "Same post detected, but the existing post could not be loaded. Refresh and try again.",
+            "post": None,
+            "postId": None,
+            "postUrl": None,
+            "sha256": sha256,
+        },
+    )
 
 
 @router.post("/posts")
@@ -63,27 +116,12 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
         sha256 = calculate_sha256(temp_path)
 
         # Check for duplicate
-        existing = await db.execute(
-            select(Post)
-            .options(selectinload(Post.tags), selectinload(Post.favorite))
-            .where(Post.sha256 == sha256, Post.deleted_at.is_(None))
-        )
-        existing_post = existing.scalars().first()
+        existing_post = await _post_by_sha256(db, sha256)
         if existing_post:
             # Clean up temp file
             temp_path.unlink(missing_ok=True)
             remove_upload_token(request.contentToken)
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "duplicate_post",
-                    "message": "Same post detected. This content already exists in NekoBooru.",
-                    "post": existing_post.to_dict(),
-                    "postId": existing_post.id,
-                    "postUrl": f"/post/{existing_post.id}",
-                    "sha256": sha256,
-                },
-            )
+            raise _duplicate_post_exception(existing_post, sha256)
 
         # Get file info
         extension = temp_path.suffix.lower()
@@ -143,10 +181,28 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
             phash=phash,
         )
         db.add(post)
-        await db.flush()  # Get post ID
+        try:
+            await db.flush()  # Get post ID
+        except IntegrityError as exc:
+            await db.rollback()
+            if "posts.sha256" not in str(exc):
+                raise
+            existing_post = await _post_by_sha256(db, sha256)
+            remove_upload_token(request.contentToken)
+            raise _duplicate_post_exception(existing_post, sha256)
 
         # Process tags using direct inserts (avoids lazy loading issues)
         await apply_tags_for_post(db, post.id, final_tags, categories=auto_categories)
+        if should_auto_tag and getattr(opts, "saveSemanticAnalysis", False):
+            from ..services.ai_analysis import save_analysis_from_result
+
+            await save_analysis_from_result(
+                db,
+                post.id,
+                auto_result,
+                opts=opts,
+                profile=request.autoTagProfile or "upload",
+            )
 
         await db.commit()
 
@@ -190,7 +246,9 @@ async def list_posts(
     db: AsyncSession = Depends(get_db),
 ):
     """List posts with search and pagination."""
-    posts, total = await search_posts(db, q, page, limit, sort, order)
+    from ..services.auto_tagger import load_options
+
+    posts, total = await search_posts(db, q, page, limit, sort, order, semantic_search=load_options().semanticSearchEnabled)
 
     return {
         "results": [p.to_dict() for p in posts],
@@ -275,7 +333,9 @@ async def post_neighbors(
     """
     from ..services.search import get_post_neighbors
 
-    return await get_post_neighbors(db, post_id, q, sort, order)
+    from ..services.auto_tagger import load_options
+
+    return await get_post_neighbors(db, post_id, q, sort, order, semantic_search=load_options().semanticSearchEnabled)
 
 
 @router.get("/posts/{post_id}")
@@ -292,6 +352,79 @@ async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Post not found")
 
     return post.to_dict()
+
+
+@router.get("/posts/{post_id}/ai-analysis")
+async def get_post_ai_analysis(post_id: int, db: AsyncSession = Depends(get_db)):
+    """Return saved semantic/Qwen analysis for a post."""
+    result = await db.execute(select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None)))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Post not found")
+    from ..services.ai_analysis import list_post_analysis
+
+    return {"postId": post_id, "results": await list_post_analysis(db, post_id)}
+
+
+@router.post("/posts/{post_id}/ai-analysis")
+async def save_post_ai_analysis(
+    post_id: int,
+    request: SaveAiAnalysisRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Persist Qwen semantic evidence from an AI preview for later search."""
+    result = await db.execute(select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None)))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    from ..services.ai_analysis import list_post_analysis, save_analysis_from_result
+    from ..services.auto_tagger import load_options, validate_options
+
+    opts = validate_options({**load_options().__dict__, **(request.settings or {})})
+    saved = await save_analysis_from_result(
+        db,
+        post_id,
+        request.suggestion or {},
+        opts=opts,
+        profile=request.profile or "post",
+    )
+    if saved:
+        await db.commit()
+    return {"postId": post_id, "saved": len(saved), "results": await list_post_analysis(db, post_id)}
+
+
+@router.put("/posts/{post_id}/ai-analysis/{analysis_id}")
+async def update_saved_post_ai_analysis(
+    post_id: int,
+    analysis_id: int,
+    request: UpdateAiAnalysisRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Edit the saved semantic description for a post analysis."""
+    result = await db.execute(select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None)))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    from ..services.ai_analysis import update_post_analysis_description
+
+    analysis = await update_post_analysis_description(db, post_id, analysis_id, request.description)
+    if not analysis:
+        raise HTTPException(status_code=404, detail="AI analysis not found")
+    await db.commit()
+    await db.refresh(analysis)
+    return analysis.to_dict()
+
+
+@router.delete("/posts/{post_id}/ai-analysis")
+async def delete_saved_post_ai_analysis(post_id: int, db: AsyncSession = Depends(get_db)):
+    """Remove saved semantic analysis for a post."""
+    result = await db.execute(select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None)))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Post not found")
+    from ..services.ai_analysis import delete_post_analysis
+
+    deleted = await delete_post_analysis(db, post_id)
+    await db.commit()
+    return {"postId": post_id, "deleted": deleted}
 
 
 @router.put("/posts/{post_id}")
@@ -331,6 +464,33 @@ async def update_post(post_id: int, request: UpdatePostRequest, db: AsyncSession
     return post.to_dict()
 
 
+@router.post("/posts/{post_id}/restore")
+async def restore_post(post_id: int, db: AsyncSession = Depends(get_db)):
+    """Restore a soft-deleted post so duplicate uploads can recover it."""
+    result = await db.execute(
+        select(Post)
+        .options(selectinload(Post.tags), selectinload(Post.favorite))
+        .where(Post.id == post_id)
+    )
+    post = result.scalars().first()
+
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    from datetime import datetime
+    post.deleted_at = None
+    post.updated_at = datetime.utcnow()
+    await db.commit()
+
+    result = await db.execute(
+        select(Post)
+        .options(selectinload(Post.tags), selectinload(Post.favorite))
+        .where(Post.id == post_id)
+    )
+    post = result.scalars().first()
+    return post.to_dict()
+
+
 @router.post("/posts/{post_id}/auto-tags/preview")
 async def preview_auto_tags(post_id: int, body: dict | None = None):
     """Preview AI tag suggestions for a single post without applying."""
@@ -354,6 +514,9 @@ async def apply_auto_tags(post_id: int, body: dict | None = None):
             safety=body.get("safety"),
             categories=body.get("categories") or {},
             overrides=body.get("settings") or {},
+            suggestion=body.get("suggestion") or {},
+            save_analysis=body.get("saveAnalysis") is True,
+            profile=body.get("profile") or "post",
         )
     except ValueError:
         raise HTTPException(status_code=404, detail="Post not found")

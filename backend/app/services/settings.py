@@ -90,6 +90,28 @@ class SettingsManager:
         settings["server"] = server
         self.save_settings(settings)
 
+    def get_extension_settings(self) -> dict:
+        """Get persisted browser-extension defaults."""
+        settings = self.load_settings()
+        return dict(settings.get("extension") or {})
+
+    def set_extension_settings(self, extension: dict) -> None:
+        """Persist browser-extension defaults without disturbing other settings."""
+        settings = self.load_settings()
+        settings["extension"] = extension
+        self.save_settings(settings)
+
+    def get_ai_model_defaults(self) -> dict:
+        """Get persisted default model choices shared by app and extension AI previews."""
+        settings = self.load_settings()
+        return dict(settings.get("aiModelDefaults") or {})
+
+    def set_ai_model_defaults(self, defaults: dict) -> None:
+        """Persist shared default model choices without disturbing other settings."""
+        settings = self.load_settings()
+        settings["aiModelDefaults"] = defaults
+        self.save_settings(settings)
+
     def get_huggingface_token(self) -> Optional[str]:
         """Get the locally stored Hugging Face token, if configured."""
         settings = self.load_settings()

@@ -7,7 +7,7 @@ import aiofiles
 import httpx
 import html as html_module
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from pydantic import BaseModel
 
@@ -143,6 +143,7 @@ async def _compute_auto_tag_preview(temp_path: Path, request: UploadAutoTagPrevi
         "evidence": result.evidence,
         "model": result.model,
         "error": result.error,
+        "durationMs": result.duration_ms,
     }
 
 
@@ -240,7 +241,7 @@ async def upload_from_url(request: UrlFetchRequest):
     Fetch a file from a URL and get a token for creating a post.
     Useful for pasting images from other websites.
     """
-    url = request.url.strip()
+    url = _normalize_fetch_url(request.url.strip())
 
     # Basic URL validation
     try:
@@ -304,6 +305,7 @@ async def upload_from_url(request: UrlFetchRequest):
                 "token": token,
                 "filename": filename,
                 "size": len(response.content),
+                "url": url,
             }
 
     except httpx.HTTPStatusError as e:
@@ -320,6 +322,24 @@ async def upload_from_url(request: UrlFetchRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process URL: {str(e)}")
+
+
+def _normalize_fetch_url(url: str) -> str:
+    """Prefer original CDN media variants when a site exposes size parameters."""
+    try:
+        parsed = urlparse(url)
+        host = parsed.netloc.lower()
+        if host == "pbs.twimg.com" and "/media/" in parsed.path:
+            query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            inferred_format = parsed.path.rsplit(".", 1)[-1].lower() if "." in parsed.path.rsplit("/", 1)[-1] else ""
+            if "format" not in query and inferred_format:
+                query["format"] = inferred_format
+            if "format" in query:
+                query["name"] = "orig"
+                return urlunparse(parsed._replace(query=urlencode(query), fragment=""))
+    except Exception:
+        pass
+    return url
 
 
 @router.post("/from-ytdlp")

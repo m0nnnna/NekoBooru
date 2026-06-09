@@ -41,6 +41,7 @@ class Post(Base):
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
     pools = relationship("PoolPost", back_populates="post", cascade="all, delete-orphan")
     favorite = relationship("Favorite", back_populates="post", uselist=False, cascade="all, delete-orphan")
+    ai_analyses = relationship("PostAiAnalysis", back_populates="post", cascade="all, delete-orphan")
 
     @property
     def content_path(self):

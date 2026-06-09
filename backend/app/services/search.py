@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..models import Post, Tag, PostTag, Favorite, PoolPost
+from .ai_analysis import semantic_analysis_condition
 
 
 class TokenType(Enum):
@@ -162,12 +163,87 @@ def build_conditions(query: str) -> list:
     return and_conditions + or_groups
 
 
+def _semantic_search_tokens(query: str) -> list[str]:
+    tokens = tokenize(query) if query else []
+    words = []
+    for token in tokens:
+        if token.type == TokenType.TAG:
+            value = token.value.strip().lower()
+            if value and not _is_filter_key(value.split(":", 1)[0]):
+                words.append(value)
+            continue
+        if token.type in {TokenType.FILTER, TokenType.NEGATED_FILTER} and token.filter_key == "safety":
+            continue
+        return []
+    if not words:
+        return []
+    return [word for word in words if len(word) >= 2]
+
+
+def _escape_like(value: str) -> str:
+    return (
+        str(value or "")
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
+def _semantic_tag_name_condition(normalized: str):
+    escaped = _escape_like(normalized)
+    name = func.lower(Tag.name)
+    return or_(
+        name == normalized,
+        name.like(f"{escaped}\\_%", escape="\\"),
+        name.like(f"%\\_{escaped}", escape="\\"),
+        name.like(f"%\\_{escaped}\\_%", escape="\\"),
+    )
+
+
+async def _semantic_expansion_conditions(session: AsyncSession, query: str) -> list:
+    """Expand plain-language search words into known tags and saved AI analysis.
+
+    This never runs a model at search time. Each user word becomes an OR group
+    of matching tag names and persisted Qwen analysis text; groups are ANDed
+    together so "pink bikini" favors posts containing both concepts.
+    """
+    words = _semantic_search_tokens(query)
+    if not words:
+        return []
+
+    groups = []
+    for word in words[:6]:
+        normalized = re.sub(r"[^\w:.-]+", "_", word).strip("_")
+        if not normalized:
+            continue
+        rows = (
+            await session.execute(
+                select(Tag.name)
+                .where(_semantic_tag_name_condition(normalized))
+                .order_by(Tag.usage_count.desc(), Tag.name.asc())
+                .limit(24)
+            )
+        ).scalars().all()
+        tag_names = [name for name in rows if name]
+        conditions = []
+        if tag_names:
+            subq = select(PostTag.c.post_id).join(Tag).where(Tag.name.in_(tag_names))
+            conditions.append(Post.id.in_(subq))
+        analysis_condition = semantic_analysis_condition(normalized)
+        if analysis_condition is not None:
+            conditions.append(analysis_condition)
+        if conditions:
+            groups.append(or_(*conditions))
+    return groups
+
+
 async def get_post_neighbors(
     session: AsyncSession,
     post_id: int,
     query: str = "",
     sort: str = "date",
     sort_order: str = "desc",
+    semantic_search: bool = False,
 ) -> dict:
     """Return the prev/next post ids around ``post_id`` within a filtered view.
 
@@ -189,6 +265,10 @@ async def get_post_neighbors(
 
     cur_id, cur_val = current[0], current[1]
     conditions = build_conditions(query)
+    if semantic_search:
+        semantic_conditions = await _semantic_expansion_conditions(session, query)
+        if semantic_conditions:
+            conditions = [Post.deleted_at.is_(None), *semantic_conditions]
     descending = sort_order != "asc"
 
     # Strictly-before / strictly-after in value, breaking ties by id.
@@ -216,6 +296,7 @@ async def search_posts(
     per_page: int = 42,
     sort: str = "date",
     sort_order: str = "desc",
+    semantic_search: bool = False,
 ) -> tuple[list[Post], int]:
     """Search posts with tag-based query syntax."""
     # Base query with eager loading
@@ -225,6 +306,10 @@ async def search_posts(
     )
 
     all_conditions = build_conditions(query)
+    if semantic_search:
+        semantic_conditions = await _semantic_expansion_conditions(session, query)
+        if semantic_conditions:
+            all_conditions = [Post.deleted_at.is_(None), *semantic_conditions]
     if all_conditions:
         stmt = stmt.where(and_(*all_conditions))
 

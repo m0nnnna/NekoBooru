@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..services import ai_runtime_installer
+from ..services.app_restart import request_restart
 from ..services.runtime_diagnostics import runtime_status
 
 
@@ -44,3 +45,11 @@ async def get_ai_runtime_install_job():
 @router.post("/ai/cancel-install")
 async def cancel_ai_runtime_install():
     return ai_runtime_installer.cancel_install()
+
+
+@router.post("/restart")
+async def restart_app():
+    try:
+        return request_restart()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))

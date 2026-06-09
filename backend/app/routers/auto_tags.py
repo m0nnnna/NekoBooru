@@ -18,6 +18,7 @@ from ..services.auto_tagger import (
     delete_model_cache,
     delete_huggingface_token,
     delete_tagger_worker_token,
+    download_all_model_ids,
     download_model,
     load_options,
     current_download_job,
@@ -137,7 +138,7 @@ async def download_one_auto_tag_model(model_id: str):
 @router.post("/models/download-all")
 async def download_all_auto_tag_models():
     try:
-        ids = [model["id"] for model in model_statuses()]
+        ids = download_all_model_ids()
         return start_model_download(ids)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))

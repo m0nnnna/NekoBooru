@@ -11,6 +11,16 @@ from ..models import Tag, TagCategory, TagImplication, TagAlias
 router = APIRouter(prefix="/api", tags=["tags"])
 
 
+def _escape_like(value: str) -> str:
+    """Escape user text for SQL LIKE patterns that use backslash escaping."""
+    return (
+        str(value or "")
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
 class CreateTagRequest(BaseModel):
     name: str
     category: str = "general"
@@ -90,21 +100,24 @@ async def autocomplete_tags(
 ):
     """Get tag suggestions for autocomplete."""
     needle = q.lower()
+    pattern = _escape_like(q)
+    needle_pattern = _escape_like(needle)
     name = func.lower(Tag.name)
     if name_parts:
-        match_condition = Tag.name.ilike(f"%{q}%")
+        match_condition = Tag.name.ilike(f"%{pattern}%", escape="\\")
         rank = case(
-            (name.like(f"%_{needle}"), 0),
-            (name.like(f"%_{needle}_%"), 1),
-            (name.like(f"{needle}_%"), 2),
+            (name.like(f"%\\_{needle_pattern}", escape="\\"), 0),
+            (name.like(f"%\\_{needle_pattern}\\_%", escape="\\"), 1),
+            (name.like(f"{needle_pattern}\\_%", escape="\\"), 2),
             (name == needle, 3),
             else_=4,
         )
     else:
-        match_condition = Tag.name.ilike(f"{q}%")
+        match_condition = Tag.name.ilike(f"{pattern}%", escape="\\")
         rank = case(
             (name == needle, 0),
-            else_=1,
+            (name.like(f"{needle_pattern}\\_%", escape="\\"), 1),
+            else_=2,
         )
 
     stmt = (
