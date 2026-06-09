@@ -674,7 +674,10 @@ async function doUpload() {
 
     setStatus('Uploaded to NekoBooru.', 'success')
     notify('Uploaded to NekoBooru', 'Your post was added successfully.')
-    convertUploadButtonToPostLink(post)
+    // Upload succeeded: close the popup so it doesn't linger. It only stays
+    // open on failure (or a duplicate needing a decision, handled below). The
+    // short delay lets the success notification register before closing.
+    setTimeout(() => window.close(), 300)
   } catch (e) {
     if (e instanceof DuplicatePostError) {
       const post = e.post || { id: e.postId }
