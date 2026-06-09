@@ -11,6 +11,7 @@
           <router-link to="/tags">Tags</router-link>
           <router-link to="/pools">Pools</router-link>
           <router-link to="/upload">Upload</router-link>
+          <router-link to="/stats">Stats</router-link>
           <router-link to="/settings">Settings</router-link>
         </nav>
       </div>
@@ -34,6 +35,7 @@
         <router-link to="/tags" @click="closeMobileMenu">Tags</router-link>
         <router-link to="/pools" @click="closeMobileMenu">Pools</router-link>
         <router-link to="/upload" @click="closeMobileMenu">Upload</router-link>
+        <router-link to="/stats" @click="closeMobileMenu">Stats</router-link>
         <router-link to="/settings" @click="closeMobileMenu">Settings</router-link>
         <button class="mobile-theme-toggle" @click="toggleDarkMode">
           {{ isDarkMode ? '&#9788; Light Mode' : '&#9789; Dark Mode' }}

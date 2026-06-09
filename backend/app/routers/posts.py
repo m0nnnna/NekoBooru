@@ -103,6 +103,11 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
             logger = logging.getLogger(__name__)
             logger.warning(f"Failed to create thumbnail for {final_path} (extension: {extension})")
 
+        # Perceptual hash for near-duplicate / "find similar" search. Best-effort:
+        # hashes the original for images, the just-made thumbnail for videos.
+        from ..services.similarity import phash_for_media
+        phash = phash_for_media(final_path, thumb_path, extension)
+
         # Optional auto-tagging runs after the file is in permanent storage so
         # library imports, URL fetches, and direct uploads all share one path.
         final_tags = list(request.tags or [])
@@ -135,6 +140,7 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
             duration=media_info.get("duration"),
             safety=final_safety,
             source=request.source,
+            phash=phash,
         )
         db.add(post)
         await db.flush()  # Get post ID
@@ -193,6 +199,65 @@ async def list_posts(
         "limit": limit,
         "pages": (total + limit - 1) // limit if limit > 0 else 0,
     }
+
+
+@router.get("/posts/similarity/backfill")
+async def get_similarity_backfill(db: AsyncSession = Depends(get_db)):
+    """Status of the perceptual-hash backfill plus how many posts still need one."""
+    from ..services.similarity import backfill_status, count_missing
+
+    return {"job": backfill_status(), "missing": await count_missing(db)}
+
+
+@router.post("/posts/similarity/backfill")
+async def start_similarity_backfill():
+    """Compute perceptual hashes for any posts missing one (older uploads)."""
+    from ..services.similarity import start_backfill
+
+    return start_backfill()
+
+
+@router.get("/posts/duplicates")
+async def list_duplicate_groups(db: AsyncSession = Depends(get_db)):
+    """Groups of posts that share an identical perceptual hash (likely dupes)."""
+    from sqlalchemy import func
+
+    dup_hashes = (
+        await db.execute(
+            select(Post.phash)
+            .where(Post.phash.is_not(None), Post.phash != "", Post.deleted_at.is_(None))
+            .group_by(Post.phash)
+            .having(func.count(Post.id) > 1)
+        )
+    ).scalars().all()
+    if not dup_hashes:
+        return {"groups": []}
+
+    rows = (
+        await db.execute(
+            select(Post)
+            .options(selectinload(Post.tags), selectinload(Post.favorite))
+            .where(Post.phash.in_(dup_hashes), Post.deleted_at.is_(None))
+            .order_by(Post.phash, Post.id)
+        )
+    ).scalars().all()
+    groups: dict[str, list] = {}
+    for post in rows:
+        groups.setdefault(post.phash, []).append(post.to_dict())
+    return {"groups": [{"phash": h, "posts": p} for h, p in groups.items() if len(p) > 1]}
+
+
+@router.get("/posts/{post_id}/similar")
+async def similar_posts(
+    post_id: int,
+    limit: int = Query(24, ge=1, le=100),
+    max_distance: int = Query(12, ge=0, le=64),
+    db: AsyncSession = Depends(get_db),
+):
+    """Posts visually similar to this one (perceptual-hash nearest neighbours)."""
+    from ..services.similarity import find_similar
+
+    return {"results": await find_similar(db, post_id, limit=limit, max_distance=max_distance)}
 
 
 @router.get("/posts/{post_id}/neighbors")

@@ -50,6 +50,23 @@ export const api = {
     return request(`/posts/${id}/neighbors${query ? `?${query}` : ''}`)
   },
 
+  async getSimilarPosts(id, params = {}) {
+    const query = new URLSearchParams(params).toString()
+    return request(`/posts/${id}/similar${query ? `?${query}` : ''}`)
+  },
+
+  async getDuplicateGroups() {
+    return request('/posts/duplicates')
+  },
+
+  async getSimilarityBackfill() {
+    return request('/posts/similarity/backfill')
+  },
+
+  async startSimilarityBackfill() {
+    return request('/posts/similarity/backfill', { method: 'POST' })
+  },
+
   async updatePost(id, data) {
     return request(`/posts/${id}`, {
       method: 'PUT',
@@ -408,6 +425,10 @@ export const api = {
   // Stats
   async getStats() {
     return request('/settings/stats')
+  },
+
+  async getDashboard() {
+    return request('/settings/dashboard')
   },
 
   // Health check

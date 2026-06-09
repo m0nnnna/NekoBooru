@@ -1091,8 +1091,40 @@ def _repo_cache_path(repo_id: str) -> Path:
     return _hf_cache_dir() / f"models--{repo_id.replace('/', '--')}"
 
 
+def _has_neko_models(hub_dir: Path) -> bool:
+    """True if any NekoBooru tagger model is cached under this HF hub dir."""
+    try:
+        if not hub_dir.exists():
+            return False
+        for meta in MODEL_REGISTRY.values():
+            repo = str(meta.get("repoId", ""))
+            if repo and (hub_dir / f"models--{repo.replace('/', '--')}").exists():
+                return True
+    except OSError:
+        return False
+    return False
+
+
 def _hf_cache_dir() -> Path:
-    return settings.models_dir / "huggingface" / "hub"
+    """Hugging Face hub cache NekoBooru reads, writes, and detects models in.
+
+    Defaults to the app's models dir. Older NekoBooru versions downloaded to
+    the default Hugging Face cache, so after an upgrade the app would otherwise
+    look in a fresh empty location and report existing models as missing. To
+    avoid orphaning them, fall back to the legacy default cache when the app dir
+    has no NekoBooru models and the legacy one does.
+    """
+    primary = settings.models_dir / "huggingface" / "hub"
+    if os.environ.get("NEKO_MODELS_DIR"):
+        return primary
+    legacy = Path.home() / ".cache" / "huggingface" / "hub"
+    try:
+        different = legacy.resolve() != primary.resolve()
+    except OSError:
+        different = True
+    if different and not _has_neko_models(primary) and _has_neko_models(legacy):
+        return legacy
+    return primary
 
 
 def _model_cache_paths(repo_id: str) -> list[Path]:

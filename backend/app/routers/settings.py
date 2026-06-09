@@ -307,6 +307,123 @@ async def update_ytdlp(request: YtdlpUpdateRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.get("/dashboard")
+async def get_dashboard(db: AsyncSession = Depends(get_db)):
+    """Rich library statistics for the dashboard view."""
+    from ..models import Tag, TagCategory, Pool, Favorite, Comment, Note
+    from ..models.post import PostTag
+
+    image_exts = ['.jpg', '.jpeg', '.png', '.webp']
+    gif_exts = ['.gif']
+    video_exts = ['.webm', '.mp4']
+
+    live = Post.deleted_at.is_(None)
+
+    async def scalar(stmt):
+        return (await db.execute(stmt)).scalar() or 0
+
+    total_posts = await scalar(select(func.count(Post.id)).where(live))
+    images = await scalar(select(func.count(Post.id)).where(live, Post.extension.in_(image_exts)))
+    gifs = await scalar(select(func.count(Post.id)).where(live, Post.extension.in_(gif_exts)))
+    videos = await scalar(select(func.count(Post.id)).where(live, Post.extension.in_(video_exts)))
+
+    safe = await scalar(select(func.count(Post.id)).where(live, Post.safety == "safe"))
+    sketchy = await scalar(select(func.count(Post.id)).where(live, Post.safety == "sketchy"))
+    unsafe = await scalar(select(func.count(Post.id)).where(live, Post.safety == "unsafe"))
+
+    total_size = await scalar(select(func.sum(Post.file_size)).where(live))
+    oldest = (await db.execute(select(func.min(Post.created_at)).where(live))).scalar()
+    newest = (await db.execute(select(func.max(Post.created_at)).where(live))).scalar()
+
+    tagged_subq = select(PostTag.c.post_id).distinct().subquery()
+    untagged = await scalar(
+        select(func.count(Post.id)).where(live, Post.id.not_in(select(tagged_subq.c.post_id)))
+    )
+
+    total_tags = await scalar(select(func.count(Tag.id)))
+    total_pools = await scalar(select(func.count(Pool.id)))
+    total_favorites = await scalar(select(func.count(Favorite.id)))
+    total_comments = await scalar(select(func.count(Comment.id)))
+    total_notes = await scalar(select(func.count(Note.id)))
+
+    # Uploads per month (ISO YYYY-MM), oldest first.
+    month = func.strftime("%Y-%m", Post.created_at)
+    uploads_rows = (
+        await db.execute(
+            select(month.label("m"), func.count(Post.id)).where(live).group_by("m").order_by("m")
+        )
+    ).all()
+    uploads_by_month = [{"month": m, "count": c} for m, c in uploads_rows if m]
+
+    # Top tags by live usage (accurate, excludes deleted posts).
+    top_rows = (
+        await db.execute(
+            select(Tag.name, TagCategory.color, func.count(PostTag.c.post_id).label("n"))
+            .join(PostTag, PostTag.c.tag_id == Tag.id)
+            .join(Post, Post.id == PostTag.c.post_id)
+            .outerjoin(TagCategory, TagCategory.id == Tag.category_id)
+            .where(live)
+            .group_by(Tag.id)
+            .order_by(func.count(PostTag.c.post_id).desc())
+            .limit(25)
+        )
+    ).all()
+    top_tags = [{"name": n, "color": c or "#808080", "count": cnt} for n, c, cnt in top_rows]
+
+    # Tag counts per category.
+    cat_rows = (
+        await db.execute(
+            select(TagCategory.name, TagCategory.color, func.count(Tag.id))
+            .outerjoin(Tag, Tag.category_id == TagCategory.id)
+            .group_by(TagCategory.id)
+            .order_by(TagCategory.order)
+        )
+    ).all()
+    tags_by_category = [{"name": n, "color": c, "count": cnt} for n, c, cnt in cat_rows]
+
+    # Near-duplicate groups (identical perceptual hash) and unhashed backlog.
+    dup_groups = await scalar(
+        select(func.count())
+        .select_from(
+            select(Post.phash)
+            .where(live, Post.phash.is_not(None), Post.phash != "")
+            .group_by(Post.phash)
+            .having(func.count(Post.id) > 1)
+            .subquery()
+        )
+    )
+    phash_missing = await scalar(select(func.count(Post.id)).where(live, Post.phash.is_(None)))
+
+    db_size = os.path.getsize(settings.database_path) if settings.database_path.exists() else 0
+
+    return {
+        "totals": {
+            "posts": total_posts,
+            "tags": total_tags,
+            "pools": total_pools,
+            "favorites": total_favorites,
+            "comments": total_comments,
+            "notes": total_notes,
+        },
+        "types": {"images": images, "gifs": gifs, "videos": videos},
+        "safety": {"safe": safe, "sketchy": sketchy, "unsafe": unsafe},
+        "untagged": untagged,
+        "totalSize": total_size,
+        "totalSizeFormatted": format_size(total_size),
+        "avgSize": total_size // total_posts if total_posts else 0,
+        "avgSizeFormatted": format_size(total_size // total_posts) if total_posts else "0 B",
+        "oldestPost": oldest.isoformat() if oldest else None,
+        "newestPost": newest.isoformat() if newest else None,
+        "databaseSize": db_size,
+        "databaseSizeFormatted": format_size(db_size),
+        "uploadsByMonth": uploads_by_month,
+        "topTags": top_tags,
+        "tagsByCategory": tags_by_category,
+        "duplicateGroups": dup_groups,
+        "phashMissing": phash_missing,
+    }
+
+
 @router.get("/stats")
 async def get_stats(db: AsyncSession = Depends(get_db)):
     """Get server statistics."""

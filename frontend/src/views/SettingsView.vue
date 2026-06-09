@@ -454,46 +454,6 @@
     </div>
 
     <div class="settings-section">
-      <h2>Server Statistics</h2>
-      <div v-if="statsLoading" class="stats-loading">Loading statistics...</div>
-      <div v-else-if="statsError" class="stats-error">{{ statsError }}</div>
-      <div v-else class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-value">{{ stats.total_files }}</div>
-          <div class="stat-label">Total Files</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">{{ stats.images }}</div>
-          <div class="stat-label">Images</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">{{ stats.gifs }}</div>
-          <div class="stat-label">GIFs</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">{{ stats.videos }}</div>
-          <div class="stat-label">Videos</div>
-        </div>
-        <div class="stat-card wide">
-          <div class="stat-value">{{ stats.total_size_formatted }}</div>
-          <div class="stat-label">Total Media Size</div>
-        </div>
-        <div class="stat-card wide">
-          <div class="stat-value">{{ stats.database_size_formatted }}</div>
-          <div class="stat-label">Database Size</div>
-        </div>
-        <div class="stat-card wide" v-if="stats.oldest_post">
-          <div class="stat-value">{{ formatDate(stats.oldest_post) }}</div>
-          <div class="stat-label">Oldest Post</div>
-        </div>
-        <div class="stat-card wide" v-if="stats.newest_post">
-          <div class="stat-value">{{ formatDate(stats.newest_post) }}</div>
-          <div class="stat-label">Newest Post</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="settings-section">
       <h2>Auto Tagging</h2>
       <p class="section-description">
         Optional local AI tagging for imports, individual posts, and your existing library.
@@ -1174,9 +1134,6 @@ const aiRuntimeMessage = ref({
   message: '',
 })
 
-const stats = ref({})
-const statsLoading = ref(true)
-const statsError = ref(null)
 const autoTagSettings = ref({})
 const autoTagStatus = ref({})
 const autoTagMode = ref('lightly_tagged')
@@ -1255,7 +1212,7 @@ const migrationStatus = ref({
 
 onMounted(async () => {
   loadSearchPredictionSetting()
-  await Promise.all([loadSettings(), loadStats(), loadAutoTags(), refreshYtdlpStatus(), loadRuntimeStatus(), loadUpdateStatus(true)])
+  await Promise.all([loadSettings(), loadAutoTags(), refreshYtdlpStatus(), loadRuntimeStatus(), loadUpdateStatus(true)])
 })
 
 function loadSearchPredictionSetting() {
@@ -1581,18 +1538,6 @@ function isModelEnabled(id) {
   return Boolean(autoTagSettings.value[key])
 }
 
-async function loadStats() {
-  statsLoading.value = true
-  statsError.value = null
-  try {
-    stats.value = await api.getStats()
-  } catch (e) {
-    statsError.value = 'Failed to load statistics: ' + e.message
-  } finally {
-    statsLoading.value = false
-  }
-}
-
 async function loadRuntimeStatus() {
   try {
     const [status, profiles] = await Promise.all([
@@ -1690,18 +1635,6 @@ function startAiRuntimePolling() {
       }
     }
   }, 1500)
-}
-
-function formatDate(isoString) {
-  if (!isoString) return 'N/A'
-  const date = new Date(isoString)
-  return date.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
 }
 
 function applyUpdateStatus(result) {
