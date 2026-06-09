@@ -13,7 +13,24 @@ class AutoTagApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
-        os.environ["NEKO_BASE_DIR"] = cls.tmp.name
+        cls._env_keys = [
+            "NEKO_CONFIG_DIR",
+            "NEKO_CONFIG_FILE",
+            "NEKO_DATA_DIR",
+            "NEKO_LOGS_DIR",
+            "NEKO_MODELS_DIR",
+            "NEKO_RUNTIMES_DIR",
+            "NEKO_CACHE_DIR",
+        ]
+        cls._previous_env = {key: os.environ.get(key) for key in cls._env_keys}
+        tmp_root = Path(cls.tmp.name)
+        os.environ["NEKO_CONFIG_DIR"] = str(tmp_root / "config")
+        os.environ["NEKO_CONFIG_FILE"] = str(tmp_root / "config" / "settings.json")
+        os.environ["NEKO_DATA_DIR"] = str(tmp_root / "data")
+        os.environ["NEKO_LOGS_DIR"] = str(tmp_root / "logs")
+        os.environ["NEKO_MODELS_DIR"] = str(tmp_root / "models")
+        os.environ["NEKO_RUNTIMES_DIR"] = str(tmp_root / "runtimes")
+        os.environ["NEKO_CACHE_DIR"] = str(tmp_root / "cache")
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
         from fastapi.testclient import TestClient
@@ -28,7 +45,11 @@ class AutoTagApiTests(unittest.TestCase):
         from app.database import engine
 
         asyncio.run(engine.dispose())
-        os.environ.pop("NEKO_BASE_DIR", None)
+        for key, value in cls._previous_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         cls.tmp.cleanup()
 
     def _upload_image_post(self, tags=None, safety="safe"):
@@ -375,6 +396,54 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["status"], "cancelling")
         cancel.assert_called_once_with()
+
+    def test_model_download_cancel_marks_queued_models_cancelled(self):
+        from app.services import auto_tagger
+        from app.services.auto_tagger import cancel_model_download, current_download_job
+
+        now = time.time()
+        with auto_tagger._download_lock:
+            previous_job = auto_tagger._download_job
+            auto_tagger._download_job = {
+                "id": "job-cancel",
+                "status": "running",
+                "cancelRequested": False,
+                "modelIds": ["ocr", "whisper"],
+                "total": 2,
+                "completed": 0,
+                "failed": 0,
+                "error": None,
+                "createdAt": now,
+                "updatedAt": now,
+                "models": {
+                    "ocr": {
+                        "id": "ocr",
+                        "name": "TrOCR Printed",
+                        "repoId": "microsoft/trocr-base-printed",
+                        "status": "queued",
+                        "current": "",
+                        "updatedAt": now,
+                    },
+                    "whisper": {
+                        "id": "whisper",
+                        "name": "Whisper Small",
+                        "repoId": "openai/whisper-small",
+                        "status": "queued",
+                        "current": "",
+                        "updatedAt": now,
+                    },
+                },
+            }
+
+        try:
+            cancelled = cancel_model_download()
+            self.assertEqual(cancelled["status"], "cancelled")
+            self.assertEqual(cancelled["models"]["ocr"]["status"], "cancelled")
+            self.assertEqual(cancelled["models"]["whisper"]["status"], "cancelled")
+            self.assertEqual(current_download_job()["status"], "cancelled")
+        finally:
+            with auto_tagger._download_lock:
+                auto_tagger._download_job = previous_job
 
     def test_model_load_route_starts_prewarm_job(self):
         fake_job = {

@@ -125,6 +125,8 @@ _download_lock = threading.Lock()
 _download_job: dict[str, Any] | None = None
 _load_lock = threading.Lock()
 _load_job: dict[str, Any] | None = None
+_DOWNLOAD_ACTIVE_STATUSES = {"queued", "running", "cancelling"}
+_DOWNLOAD_TERMINAL_STATUSES = {"completed", "failed", "cancelled", "skipped"}
 
 
 class DownloadCancelled(RuntimeError):
@@ -1424,27 +1426,49 @@ def current_download_job() -> dict | None:
 
 def cancel_model_download() -> dict:
     with _download_lock:
-        if not _download_job or _download_job.get("status") not in {"queued", "running", "cancelling"}:
+        if not _download_job or _download_job.get("status") not in _DOWNLOAD_ACTIVE_STATUSES:
             raise RuntimeError("No active model download is running")
         _download_job["status"] = "cancelling"
         _download_job["cancelRequested"] = True
         _download_job["updatedAt"] = time.time()
+        has_active_download = False
         for row in _download_job.get("models", {}).values():
-            if row.get("status") in {"queued", "running"}:
+            if row.get("status") == "running":
                 row["status"] = "cancelling"
                 row["current"] = "Cancelling download"
                 row["updatedAt"] = time.time()
+                has_active_download = True
+            elif row.get("status") in {"queued", "cancelling"}:
+                row["status"] = "cancelled"
+                row["current"] = "Cancelled before download started"
+                row["updatedAt"] = time.time()
+        if not has_active_download:
+            _mark_download_job_cancelled_locked()
         return json.loads(json.dumps(_download_job))
 
 
 def _reconcile_download_job_locked() -> None:
-    if not _download_job or _download_job.get("status") not in {"queued", "running"}:
+    if not _download_job or _download_job.get("status") not in _DOWNLOAD_ACTIVE_STATUSES:
+        return
+
+    if _download_job.get("cancelRequested"):
+        has_active_download = False
+        for row in _download_job.get("models", {}).values():
+            status = row.get("status")
+            if status == "queued":
+                row["status"] = "cancelled"
+                row["current"] = "Cancelled before download started"
+                row["updatedAt"] = time.time()
+            elif status in {"running", "cancelling"}:
+                has_active_download = True
+        if not has_active_download:
+            _mark_download_job_cancelled_locked()
         return
 
     changed = False
     for model_id in list(_download_job.get("modelIds") or []):
         row = _download_job["models"].get(model_id)
-        if not row or row.get("status") == "completed":
+        if not row or row.get("status") in _DOWNLOAD_TERMINAL_STATUSES:
             continue
         try:
             cache = model_cache_status(model_id)
@@ -1480,7 +1504,8 @@ def start_model_download(model_ids: list[str]) -> dict:
 
     global _download_job
     with _download_lock:
-        if _download_job and _download_job.get("status") in {"queued", "running"}:
+        _reconcile_download_job_locked()
+        if _download_job and _download_job.get("status") in _DOWNLOAD_ACTIVE_STATUSES:
             raise RuntimeError("A model download is already running")
         job_id = str(uuid.uuid4())
         _download_job = {
@@ -1557,6 +1582,13 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
                 if not _download_job or _download_job.get("id") != job_id:
                     return
                 row = _download_job["models"][model_id]
+                if _download_job.get("cancelRequested"):
+                    row["status"] = "cancelled"
+                    row["current"] = "Cancelled"
+                    row["error"] = None
+                    row["updatedAt"] = time.time()
+                    _mark_download_job_cancelled_locked()
+                    return
                 row["status"] = "completed"
                 row["downloaded"] = cache["downloaded"]
                 row["files"] = cache["files"]
@@ -1586,6 +1618,9 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
                 row["updatedAt"] = time.time()
                 _download_job["failed"] += 1
                 _download_job["updatedAt"] = time.time()
+        finally:
+            _download_context.job_id = None
+            _download_context.model_id = None
 
     with _download_lock:
         if _download_job and _download_job.get("id") == job_id:
