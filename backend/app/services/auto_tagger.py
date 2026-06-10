@@ -203,7 +203,9 @@ DEFAULT_SEMANTIC_PROMPT = (
     "- The rationale should describe the visible image or frame collection in detail, including clothing garments, describe the pose, setting, text, audio/transcript evidence, and why semantic/context tags were included.\n\n"
     "Tags in priority order:\n"
     "- Return 6-28 useful searchable tags supported by the image, frame, OCR, transcript, or source page.\n"
-    "- Start with directly visible tags: media type, pose, subject count, male/female/girl/boy, setting, objects, actions, expression, hair color, eye color, framing, text/audio presence, and meme/edit format.\n"
+    "- When model tag hints are provided, use them as visual grounding. Prefer specific animal type, ear, horn, tail, clothing, and character/source hints from booru taggers unless the image clearly contradicts them.\n"
+    "- Start with directly visible tags: media type, exact pose/action, subject count, male/female/girl/boy, setting, objects, expression, hair color, eye color, framing, text/audio presence, and meme/edit format.\n"
+    "- Always include the main visible pose or action as a searchable tag when clear, such as lying, sitting, standing, kneeling, crouching, squatting, walking, running, jumping, dancing, sleeping, stretching, arms_up, looking_at_viewer, or selfie.\n"
     "- Decompose clothing into specific garments and attributes. Name the garment type separately from pattern or theme. Example cow_print_outfit, bikini, swimsuit, would all be included.\n"
     "- Do not confuse animal ears or horns for clothing, or horns for ears. Tag what is visibly present, such as animal_ears, cow_horns, white_horns, tail, or cow_tail.\n"
     "- Add frequent or matching primary colors for the scene or clothing, hair color, eye color, standout accessories, exact pose, and anything visually distinctive.\n"
@@ -840,9 +842,7 @@ class QwenSemanticTagger:
         self.ensure_loaded(opts.torchDevice)
         from qwen_vl_utils import process_vision_info  # type: ignore
 
-        prompt = _semantic_prompt(opts)
-        if context:
-            prompt += f" Context: {json.dumps(context)[:1000]}"
+        prompt = _semantic_prompt_with_context(opts, context)
         messages = [{
             "role": "user",
             "content": [
@@ -961,9 +961,7 @@ class QwenGgufSemanticTagger:
     def analyze_image(self, path: Path, context: dict | None = None, opts: AutoTagOptions | None = None) -> AutoTagResult:
         opts = opts or load_options()
         self.ensure_loaded(opts.torchDevice)
-        prompt = _semantic_prompt(opts)
-        if context:
-            prompt += f" Context: {json.dumps(context)[:1000]}"
+        prompt = _semantic_prompt_with_context(opts, context)
         image_url = _image_data_url(path)
         output = self._llm.create_chat_completion(
             messages=[{
@@ -1375,6 +1373,72 @@ def _semantic_prompt(opts: AutoTagOptions) -> str:
     if not opts.semanticPromptEnabled:
         return DEFAULT_SEMANTIC_PROMPT
     return _clean_semantic_prompt(opts.semanticPrompt)
+
+
+def _semantic_prompt_with_context(opts: AutoTagOptions, context: dict | None = None) -> str:
+    prompt = _semantic_prompt(opts)
+    compact = _compact_semantic_context(context)
+    if compact:
+        prompt += (
+            "\n\nModel tag hints:\n"
+            "Use these prior tagger results as visual grounding. They may contain noise, but if a specific animal type, "
+            "ear, horn, tail, garment, character, or source tag agrees with the image, prefer it over a generic guess.\n"
+            f"{json.dumps(compact, ensure_ascii=False)}"
+        )
+    return prompt
+
+
+def _compact_semantic_context(context: dict | None) -> dict:
+    if not isinstance(context, dict):
+        return {}
+    compact: dict[str, Any] = {}
+    hints = context.get("visualTagHints")
+    if isinstance(hints, dict):
+        visual = {
+            "tags": _dedupe_tags(hints.get("tags") or [])[:40],
+            "characterTags": _dedupe_tags(hints.get("characterTags") or [])[:20],
+            "copyrightTags": _dedupe_tags(hints.get("copyrightTags") or [])[:20],
+            "models": _dedupe_plain_strings(hints.get("models") or [])[:8],
+        }
+        visual = {key: value for key, value in visual.items() if value}
+        if visual:
+            compact["visualTagHints"] = visual
+    if context.get("ocrText"):
+        compact["ocrText"] = str(context.get("ocrText"))[:500]
+    if context.get("transcript"):
+        compact["transcript"] = str(context.get("transcript"))[:800]
+    return compact
+
+
+def _add_visual_tag_hints(context: dict | None, results: list[AutoTagResult]) -> None:
+    if context is None:
+        return
+    hints = context.setdefault("visualTagHints", {"tags": [], "characterTags": [], "copyrightTags": [], "models": []})
+    if not isinstance(hints, dict):
+        return
+    for result in results:
+        if not result or result.error:
+            continue
+        hints.setdefault("tags", []).extend(result.tags)
+        hints.setdefault("characterTags", []).extend(result.character_tags)
+        hints.setdefault("copyrightTags", []).extend(result.copyright_tags)
+        if result.model:
+            hints.setdefault("models", []).append(result.model)
+    hints["tags"] = _dedupe_tags(hints.get("tags") or [])[:60]
+    hints["characterTags"] = _dedupe_tags(hints.get("characterTags") or [])[:30]
+    hints["copyrightTags"] = _dedupe_tags(hints.get("copyrightTags") or [])[:30]
+    hints["models"] = _dedupe_plain_strings(hints.get("models") or [])[:10]
+
+
+def _dedupe_plain_strings(values: list[Any]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if item and item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
 
 
 def validate_options(raw: dict) -> AutoTagOptions:
@@ -2451,10 +2515,13 @@ def _tag_media_remote(path: Path, opts: AutoTagOptions) -> AutoTagResult:
 
 def _tag_image(path: Path, opts: AutoTagOptions) -> AutoTagResult:
     results: list[AutoTagResult] = []
+    context: dict = {}
     if opts.wdEnabled:
         unavailable = _unavailable_model_result("wd")
-        results.append(unavailable or _time_result("wd", lambda: _wd_tagger.tag_image(path, opts)))
-    results.extend(_optional_image_results(path, opts))
+        wd = unavailable or _time_result("wd", lambda: _wd_tagger.tag_image(path, opts))
+        results.append(wd)
+        _add_visual_tag_hints(context, [wd])
+    results.extend(_optional_image_results(path, opts, context=context))
     if not results:
         return AutoTagResult(enabled=True, error="no_models_enabled")
     return _combine_results(results)
@@ -2463,9 +2530,13 @@ def _tag_image(path: Path, opts: AutoTagOptions) -> AutoTagResult:
 def _optional_image_results(path: Path, opts: AutoTagOptions, context: dict | None = None) -> list[AutoTagResult]:
     results: list[AutoTagResult] = []
     if opts.pixaiEnabled:
-        results.append(_unavailable_model_result("pixai") or _run_optional("pixai", lambda: _pixai_tagger.tag_image(path, opts)))
+        pixai = _unavailable_model_result("pixai") or _run_optional("pixai", lambda: _pixai_tagger.tag_image(path, opts))
+        results.append(pixai)
+        _add_visual_tag_hints(context, [pixai])
     if opts.characterModelEnabled:
-        results.append(_unavailable_model_result("camie") or _run_optional("camie", lambda: _camie_tagger.tag_image(path, opts)))
+        camie = _unavailable_model_result("camie") or _run_optional("camie", lambda: _camie_tagger.tag_image(path, opts))
+        results.append(camie)
+        _add_visual_tag_hints(context, [camie])
     if opts.ocrEnabled:
         ocr = _unavailable_model_result("ocr") or _run_optional("ocr", lambda: _ocr_tagger.read_image(path))
         results.append(ocr)
@@ -2485,6 +2556,7 @@ def _tag_video_with_enrichers(path: Path, opts: AutoTagOptions) -> AutoTagResult
     base = _time_result("wd", lambda: _tag_video(path, opts)) if opts.wdEnabled else _tag_video(path, opts)
     results = [base]
     context: dict = {}
+    _add_visual_tag_hints(context, [base])
     if opts.whisperEnabled:
         whisper = _unavailable_model_result("whisper") or _run_optional("whisper", lambda: _whisper_tagger.transcribe_video(path, opts))
         results.append(whisper)
@@ -2958,7 +3030,11 @@ def _parse_semantic_json(raw: str) -> dict:
     )
     if not tags:
         tags = _semantic_tags_from_text(semantic_text)
-    tags = _dedupe_tags([*tags, *_semantic_symbol_tags_from_text(semantic_text)])
+    tags = _dedupe_tags([
+        *tags,
+        *_semantic_pose_action_tags_from_text(semantic_text),
+        *_semantic_symbol_tags_from_text(semantic_text),
+    ])
     data["tags"] = tags
     return data
 
@@ -3014,6 +3090,37 @@ def _semantic_symbol_tags_from_text(text: str) -> list[str]:
         or (present(r"\bred\s+stars?\b") and present(r"\bcommunis[mt]\b"))
     ) and not negated(r"\b(red\s+stars?|communist\s+red\s+stars?)\b"):
         tags.extend(["communist_red_star", "communism"])
+    return _dedupe_tags(tags)
+
+
+def _semantic_pose_action_tags_from_text(text: str) -> list[str]:
+    haystack = str(text or "").lower()
+    candidates = {
+        "lying": [
+            r"\blying\b",
+            r"\blying\s+(?:down|on|in)\b",
+            r"\blaying\s+(?:down|on|in)\b",
+            r"\breclining\b",
+        ],
+        "sitting": [r"\bsitting\b", r"\bseated\b"],
+        "standing": [r"\bstanding\b"],
+        "kneeling": [r"\bkneeling\b"],
+        "crouching": [r"\bcrouching\b"],
+        "squatting": [r"\bsquatting\b"],
+        "walking": [r"\bwalking\b"],
+        "running": [r"\brunning\b"],
+        "jumping": [r"\bjumping\b"],
+        "dancing": [r"\bdancing\b"],
+        "sleeping": [r"\bsleeping\b", r"\basleep\b"],
+        "stretching": [r"\bstretching\b"],
+        "arms_up": [r"\barms?\s+(?:raised|up|overhead)\b", r"\braised\s+arms?\b"],
+        "looking_at_viewer": [r"\blooking\s+at\s+(?:the\s+)?viewer\b"],
+        "selfie": [r"\bselfie\b"],
+    }
+    tags = []
+    for tag, patterns in candidates.items():
+        if any(re.search(pattern, haystack) for pattern in patterns):
+            tags.append(tag)
     return _dedupe_tags(tags)
 
 

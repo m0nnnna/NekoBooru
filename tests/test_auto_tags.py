@@ -1192,6 +1192,8 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertIn("6-28", DEFAULT_SEMANTIC_PROMPT)
         self.assertIn("cow_print_outfit", DEFAULT_SEMANTIC_PROMPT)
         self.assertIn("bikini", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("exact pose/action", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("lying", DEFAULT_SEMANTIC_PROMPT)
 
         capped = validate_options({"semanticPrompt": "x" * 5000})
         self.assertEqual(len(capped.semanticPrompt), 4000)
@@ -1217,6 +1219,49 @@ class AutoTagUnitTests(unittest.TestCase):
         opts = validate_options({"semanticPromptEnabled": False, "semanticSearchEnabled": True})
         self.assertFalse(opts.semanticPromptEnabled)
         self.assertTrue(opts.semanticSearchEnabled)
+
+    def test_semantic_prompt_includes_visual_tag_hints(self):
+        from app.services.auto_tagger import AutoTagOptions, _semantic_prompt_with_context
+
+        prompt = _semantic_prompt_with_context(
+            AutoTagOptions(),
+            {
+                "visualTagHints": {
+                    "tags": ["cow_ears", "animal_ears", "cow_tail", "bikini"],
+                    "characterTags": ["methode"],
+                    "copyrightTags": ["goddess_of_victory_nikke"],
+                    "models": ["camie-tagger-v2"],
+                }
+            },
+        )
+
+        self.assertIn("Model tag hints:", prompt)
+        self.assertIn("specific animal type", prompt)
+        self.assertIn("cow_ears", prompt)
+        self.assertIn("cow_tail", prompt)
+        self.assertIn("goddess_of_victory_nikke", prompt)
+
+    def test_visual_tag_hints_are_deduped_and_compacted(self):
+        from app.services.auto_tagger import AutoTagResult, _add_visual_tag_hints, _compact_semantic_context
+
+        context = {}
+        _add_visual_tag_hints(
+            context,
+            [
+                AutoTagResult(
+                    tags=["cow_ears", "cow_ears", "animal_ears"],
+                    character_tags=["methode", "methode"],
+                    copyright_tags=["goddess_of_victory_nikke"],
+                    model="camie-tagger-v2",
+                )
+            ],
+        )
+
+        compact = _compact_semantic_context(context)
+        hints = compact["visualTagHints"]
+        self.assertEqual(hints["tags"], ["cow_ears", "animal_ears"])
+        self.assertEqual(hints["characterTags"], ["methode"])
+        self.assertEqual(hints["copyrightTags"], ["goddess_of_victory_nikke"])
 
     def test_semantic_json_empty_tags_falls_back_to_rationale_tags(self):
         from app.services.auto_tagger import _parse_semantic_json
@@ -1244,6 +1289,18 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertIn("woman", parsed["tags"])
         self.assertIn("bikini", parsed["tags"])
         self.assertNotIn("man", parsed["tags"])
+
+    def test_semantic_json_supplements_pose_tags_from_rationale(self):
+        from app.services.auto_tagger import _parse_semantic_json
+
+        parsed = _parse_semantic_json(
+            '{"tags":["photo","female","bed"],"safety":"safe",'
+            '"rationale":"The image is a close-up portrait of a female lying on a bed while looking at the viewer."}'
+        )
+
+        self.assertIn("photo", parsed["tags"])
+        self.assertIn("lying", parsed["tags"])
+        self.assertIn("looking_at_viewer", parsed["tags"])
 
     def test_semantic_malformed_json_recovers_declared_tag_list(self):
         from app.services.auto_tagger import _parse_semantic_json
