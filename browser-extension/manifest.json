@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Download to NekoBooru",
-  "version": "4.1.27",
+  "name": "NekoBooru",
+  "version": "4.1.28",
   "description": "Right-click to upload web images/videos to your NekoBooru instance, or browse your instance and insert media into whatever you're posting.",
   "permissions": ["contextMenus", "storage", "notifications", "clipboardWrite", "downloads", "nativeMessaging", "cookies", "scripting"],
   "host_permissions": ["*://*/*"],
