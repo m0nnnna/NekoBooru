@@ -1138,10 +1138,17 @@
           </label>
           <label class="field-row">
             <span class="label-with-help">
-              Video frames
+              Visual tagger frames
               <button type="button" class="info-icon" :data-tooltip="thresholdHelp.videoFrames" :aria-label="thresholdHelp.videoFrames">?</button>
             </span>
             <input type="number" min="1" max="8" v-model.number="autoTagSettings.videoMaxFrames" />
+          </label>
+          <label class="field-row">
+            <span class="label-with-help">
+              Qwen reasoning frames
+              <button type="button" class="info-icon" :data-tooltip="thresholdHelp.qwenVideoFrames" :aria-label="thresholdHelp.qwenVideoFrames">?</button>
+            </span>
+            <input type="number" min="1" max="8" v-model.number="autoTagSettings.qwenVideoMaxFrames" />
           </label>
           <label class="field-row">
             <span class="label-with-help">
@@ -1484,7 +1491,8 @@ const thresholdHelp = {
   unsafe: 'Explicit-rating confidence required before auto-tagging can promote a post to unsafe. Questionable/sensitive evidence can only promote to sketchy when it is very strong. Raise this to avoid false unsafe ratings.',
   sketchy: 'Confidence required before auto-tagging can promote a post to sketchy. The backend enforces a conservative floor so weak questionable/sensitive evidence does not relabel ordinary posts.',
   maxTags: 'Maximum number of tags kept from model output. Increase for richer search coverage; decrease if posts become cluttered. This limit applies before manual review.',
-  videoFrames: 'Number of sampled video frames for visual tagging. More frames improve AMV/edit coverage but take longer. 3-4 is a good default; use 1 for fast middle-frame tagging.',
+  videoFrames: 'Number of sampled video frames for WD, Camie, PixAI, and OCR frame-tag merging. 2 frames sample about 33% and 66%; 3 samples 25/50/75%; 4 samples 20/40/60/80%.',
+  qwenVideoFrames: 'Number of sampled video frames Qwen sees in one semantic reasoning prompt. If this matches Visual tagger frames, Qwen and the taggers inspect the same timestamps. Use 1 for fastest middle-frame reasoning.',
   lightCutoff: 'Posts with this many tags or fewer count as lightly tagged for bulk jobs. Increase to retag sparse libraries; decrease to only target nearly empty posts.',
 }
 const serverHelp = {
@@ -2454,6 +2462,7 @@ async function loadAutoTags() {
       semanticSearchEnabled: settingsResult.semanticSearchEnabled === true,
       saveSemanticAnalysis: settingsResult.saveSemanticAnalysis === true,
       semanticModelId: settingsResult.semanticModelId || 'qwen',
+      qwenVideoMaxFrames: Number(settingsResult.qwenVideoMaxFrames || 1),
     }
     autoTagStatus.value = statusResult
     autoTagJob.value = currentJob

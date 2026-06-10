@@ -919,17 +919,25 @@ class AutoTagUnitTests(unittest.TestCase):
         if backend_path not in sys.path:
             sys.path.insert(0, backend_path)
 
-    def test_video_timestamp_strategy_samples_middle_for_short_clip(self):
+    def test_video_timestamp_strategy_samples_middle_when_single_frame(self):
         from app.services.auto_tagger import AutoTagOptions, _timestamps
 
-        self.assertEqual(_timestamps(6.0, AutoTagOptions(videoMaxFrames=4)), [3.0])
+        self.assertEqual(_timestamps(6.0, AutoTagOptions(videoMaxFrames=1)), [3.0])
 
     def test_video_timestamp_strategy_samples_multiple_for_edits(self):
         from app.services.auto_tagger import AutoTagOptions, _timestamps
 
         self.assertEqual(
+            _timestamps(90.0, AutoTagOptions(videoMaxFrames=2)),
+            [30.0, 60.0],
+        )
+        self.assertEqual(
+            _timestamps(100.0, AutoTagOptions(videoMaxFrames=3)),
+            [25.0, 50.0, 75.0],
+        )
+        self.assertEqual(
             _timestamps(100.0, AutoTagOptions(videoMaxFrames=4)),
-            [10.0, 35.0, 60.0, 85.0],
+            [20.0, 40.0, 60.0, 80.0],
         )
 
     def test_combine_results_merges_optional_model_tags(self):
@@ -1173,6 +1181,14 @@ class AutoTagUnitTests(unittest.TestCase):
 
         self.assertEqual(opts.torchDevice, "auto")
 
+    def test_qwen_video_frame_count_validates_separately(self):
+        from app.services.auto_tagger import validate_options
+
+        opts = validate_options({"videoMaxFrames": 3, "qwenVideoMaxFrames": 9})
+
+        self.assertEqual(opts.videoMaxFrames, 3)
+        self.assertEqual(opts.qwenVideoMaxFrames, 8)
+
     def test_semantic_prompt_can_be_customized_and_validated(self):
         from app.services.auto_tagger import DEFAULT_SEMANTIC_PROMPT, validate_options
 
@@ -1195,6 +1211,7 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertIn("exact pose/action", DEFAULT_SEMANTIC_PROMPT)
         self.assertIn("lying", DEFAULT_SEMANTIC_PROMPT)
         self.assertIn("if lewd or nsfw explain what is erotic about it", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("do not output metadata tags", DEFAULT_SEMANTIC_PROMPT)
 
         capped = validate_options({"semanticPrompt": "x" * 5000})
         self.assertEqual(len(capped.semanticPrompt), 4000)
@@ -1248,7 +1265,8 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertIn("specific animal type", prompt)
         self.assertIn("cow_ears", prompt)
         self.assertIn("cow_tail", prompt)
-        self.assertIn("goddess_of_victory_nikke", prompt)
+        self.assertNotIn("methode", prompt)
+        self.assertNotIn("goddess_of_victory_nikke", prompt)
 
     def test_visual_tag_hints_are_deduped_and_compacted(self):
         from app.services.auto_tagger import AutoTagResult, _add_visual_tag_hints, _compact_semantic_context
@@ -1269,8 +1287,8 @@ class AutoTagUnitTests(unittest.TestCase):
         compact = _compact_semantic_context(context)
         hints = compact["visualTagHints"]
         self.assertEqual(hints["tags"], ["cow_ears", "animal_ears"])
-        self.assertEqual(hints["characterTags"], ["methode"])
-        self.assertEqual(hints["copyrightTags"], ["goddess_of_victory_nikke"])
+        self.assertNotIn("characterTags", hints)
+        self.assertNotIn("copyrightTags", hints)
 
     def test_semantic_json_empty_tags_falls_back_to_rationale_tags(self):
         from app.services.auto_tagger import _parse_semantic_json
@@ -1310,6 +1328,48 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertIn("photo", parsed["tags"])
         self.assertIn("lying", parsed["tags"])
         self.assertIn("looking_at_viewer", parsed["tags"])
+
+    def test_frame_metadata_tags_are_filtered_from_semantic_output(self):
+        from app.services.auto_tagger import _parse_semantic_json
+
+        parsed = _parse_semantic_json(
+            '{"tags":["video","three_frames","frame_1","frame_2","t_2.51s","smiling"],'
+            '"safety":"safe","rationale":"The sampled frames show a smiling subject over time."}'
+        )
+
+        self.assertIn("video", parsed["tags"])
+        self.assertIn("smiling", parsed["tags"])
+        self.assertNotIn("three_frames", parsed["tags"])
+        self.assertNotIn("frame_1", parsed["tags"])
+        self.assertNotIn("frame_2", parsed["tags"])
+        self.assertNotIn("t_2.51s", parsed["tags"])
+
+    def test_qwen_semantic_payload_removes_identity_hint_guesses(self):
+        from app.services.auto_tagger import _sanitize_qwen_semantic_payload
+
+        parsed = {
+            "tags": ["1girl", "black_hair", "tifa_lockhart", "final_fantasy_vii", "lingerie"],
+            "rationale": (
+                "The image consists of three frames showing a woman in lingerie. "
+                "The character is identified as Tifa Lockhart from Final Fantasy VII, but this may be wrong."
+            ),
+        }
+        context = {
+            "visualTagHints": {
+                "tags": ["black_hair", "lingerie"],
+                "characterTags": ["tifa_lockhart"],
+                "copyrightTags": ["final_fantasy_vii"],
+            }
+        }
+
+        clean = _sanitize_qwen_semantic_payload(parsed, context)
+
+        self.assertIn("black_hair", clean["tags"])
+        self.assertIn("lingerie", clean["tags"])
+        self.assertNotIn("tifa_lockhart", clean["tags"])
+        self.assertNotIn("final_fantasy_vii", clean["tags"])
+        self.assertNotIn("three frames", clean["rationale"].lower())
+        self.assertNotIn("tifa", clean["rationale"].lower())
 
     def test_semantic_malformed_json_recovers_declared_tag_list(self):
         from app.services.auto_tagger import _parse_semantic_json

@@ -17,12 +17,12 @@ import threading
 import time
 import uuid
 import gc
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from ..config import settings
 from .media import check_ffmpeg_available
@@ -202,10 +202,11 @@ DEFAULT_SEMANTIC_PROMPT = (
     "Return compact JSON only with keys: tags, safety, rationale.\n"
     "Use snake_case tags only.\n\n"
     "Semantic description:\n"
-    "- The rationale should describe the visible image or frame collection in detail, including clothing garments, describe the pose, setting, text, audio/transcript evidence, and if lewd or nsfw explain what is erotic about it.\n\n"
+    "- The rationale should describe the visible content in detail, including clothing garments, pose, setting, text, audio/transcript evidence, and if lewd or nsfw explain what is erotic about it. Do not mention sampled frame counts, frame labels, contact sheets, timestamps, or model sampling mechanics.\n\n"
     "Tags in priority order:\n"
     "- Return 6-28 useful searchable tags supported by the image, frame, OCR, transcript, or source page.\n"
-    "- When model tag hints are provided, use them as visual grounding. Prefer specific animal type, ear, horn, tail, clothing, and character/source hints from booru taggers unless the image clearly contradicts them.\n"
+    "- For video frame collections or contact sheets, compare the sampled frames in order and infer temporal context, but describe it as the video/content. Do not output or mention metadata such as frame_1, frame_2, three_frames, timestamps, contact_sheet, or sampled_frame.\n"
+    "- When model tag hints are provided, use only their visual tags as grounding. Prefer specific animal type, ear, horn, tail, and clothing hints unless the image clearly contradicts them. Do not output named character, franchise, copyright, or source tags, and do not mention guessed identities in the rationale.\n"
     "- Start with directly visible tags: media type, exact pose/action, subject count, male/female/girl/boy, setting, objects, actions, expression, hair color, eye color, framing, text/audio presence, and meme/edit format.\n"
     "- Always include the main visible pose or action as a searchable tag when clear, such as lying, sitting, standing, kneeling, crouching, squatting, walking, running, jumping, dancing, sleeping, stretching, arms_up, looking_at_viewer, or selfie.\n"
     "- Decompose clothing into specific garments and attributes. Name the garment type separately from pattern or theme. Example cow_print_outfit, bikini, swimsuit, would all be included.\n"
@@ -252,6 +253,7 @@ class AutoTagOptions:
     previewByDefault: bool = True
     videoFrameStrategy: str = "multi"
     videoMaxFrames: int = 4
+    qwenVideoMaxFrames: int = 1
     videoMaxDurationSeconds: int = 900
     semanticPoliticalEnabled: bool = False
     semanticPrompt: str = DEFAULT_SEMANTIC_PROMPT
@@ -861,6 +863,7 @@ class QwenSemanticTagger:
         trimmed = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated_ids)]
         output = self._processor.batch_decode(trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         parsed = _parse_semantic_json(output)
+        parsed = _sanitize_qwen_semantic_payload(parsed, context)
         tags = [normalize_tag(tag) for tag in parsed.get("tags", []) if normalize_tag(tag)]
         safety = normalize_safety_label(parsed.get("safety"))
         max_tags = _semantic_tag_limit(opts)
@@ -981,6 +984,7 @@ class QwenGgufSemanticTagger:
         )
         text = _chat_completion_text(output)
         parsed = _parse_semantic_json(text)
+        parsed = _sanitize_qwen_semantic_payload(parsed, context)
         tags = [normalize_tag(tag) for tag in parsed.get("tags", []) if normalize_tag(tag)]
         safety = normalize_safety_label(parsed.get("safety"))
         max_tags = _semantic_tag_limit(opts)
@@ -1254,6 +1258,33 @@ def _analyze_qwen_image(tagger, path: Path, context: dict | None = None, opts: A
             shutil.rmtree(analysis_path.parent, ignore_errors=True)
 
 
+def _analyze_qwen_video_frames(
+    tagger,
+    frames: list[tuple[float, Path]],
+    context: dict | None = None,
+    opts: AutoTagOptions | None = None,
+) -> AutoTagResult:
+    if not frames:
+        return AutoTagResult(enabled=True, model=getattr(tagger, "name", "qwen"), error="no_video_frames")
+    if len(frames) == 1:
+        return _analyze_qwen_image(tagger, frames[0][1], context=context, opts=opts)
+    sheet = _qwen_frame_contact_sheet(frames)
+    if context is not None:
+        context["videoFrameTimestamps"] = [round(ts, 3) for ts, _ in frames]
+        context["videoFrameCount"] = len(frames)
+    try:
+        result = _analyze_qwen_image(tagger, sheet, context=context, opts=opts)
+        if isinstance(result.evidence, dict):
+            result.evidence["videoFrames"] = {
+                "mode": "contact_sheet",
+                "count": len(frames),
+                "timestamps": [round(ts, 3) for ts, _ in frames],
+            }
+        return result
+    finally:
+        shutil.rmtree(sheet.parent, ignore_errors=True)
+
+
 def _qwen_analysis_image(path: Path, max_side: int = QWEN_ANALYSIS_MAX_SIDE) -> Path:
     try:
         with Image.open(path) as img:
@@ -1271,6 +1302,36 @@ def _qwen_analysis_image(path: Path, max_side: int = QWEN_ANALYSIS_MAX_SIDE) -> 
             return dest
     except Exception:
         return path
+
+
+def _qwen_frame_contact_sheet(frames: list[tuple[float, Path]]) -> Path:
+    cache_root = settings.cache_dir / "auto-tags"
+    cache_root.mkdir(parents=True, exist_ok=True)
+    tmpdir = Path(tempfile.mkdtemp(prefix="qwen-frames-", dir=cache_root))
+    columns = 2 if len(frames) <= 4 else 3
+    rows = max(1, math.ceil(len(frames) / columns))
+    cell_w = 420
+    cell_h = 420
+    label_h = 30
+    sheet = Image.new("RGB", (columns * cell_w, rows * (cell_h + label_h)), (18, 20, 24))
+    draw = ImageDraw.Draw(sheet)
+    for idx, (timestamp, frame_path) in enumerate(frames):
+        x = (idx % columns) * cell_w
+        y = (idx // columns) * (cell_h + label_h)
+        label = f"frame {idx + 1} / {len(frames)}  t={timestamp:.2f}s"
+        draw.text((x + 10, y + 8), label, fill=(235, 235, 235))
+        try:
+            with Image.open(frame_path) as frame:
+                frame = frame.convert("RGB")
+                frame.thumbnail((cell_w, cell_h), Image.Resampling.LANCZOS)
+                px = x + (cell_w - frame.width) // 2
+                py = y + label_h + (cell_h - frame.height) // 2
+                sheet.paste(frame, (px, py))
+        except Exception:
+            draw.text((x + 10, y + label_h + 20), "unreadable frame", fill=(255, 120, 120))
+    dest = tmpdir / "contact-sheet.jpg"
+    sheet.save(dest, "JPEG", quality=92, optimize=True)
+    return dest
 
 
 def _analysis_image_evidence(path: Path) -> dict:
@@ -1405,8 +1466,6 @@ def _compact_semantic_context(context: dict | None) -> dict:
     if isinstance(hints, dict):
         visual = {
             "tags": _dedupe_tags(hints.get("tags") or [])[:40],
-            "characterTags": _dedupe_tags(hints.get("characterTags") or [])[:20],
-            "copyrightTags": _dedupe_tags(hints.get("copyrightTags") or [])[:20],
             "models": _dedupe_plain_strings(hints.get("models") or [])[:8],
         }
         visual = {key: value for key, value in visual.items() if value}
@@ -1416,7 +1475,74 @@ def _compact_semantic_context(context: dict | None) -> dict:
         compact["ocrText"] = str(context.get("ocrText"))[:500]
     if context.get("transcript"):
         compact["transcript"] = str(context.get("transcript"))[:800]
+    if context.get("videoFrameCount"):
+        compact["videoFrameCount"] = int(context.get("videoFrameCount") or 0)
+    if context.get("videoFrameTimestamps"):
+        compact["videoFrameTimestamps"] = list(context.get("videoFrameTimestamps") or [])[:8]
     return compact
+
+
+def _sanitize_qwen_semantic_payload(parsed: dict, context: dict | None = None) -> dict:
+    if not isinstance(parsed, dict):
+        return parsed
+    blocked = _semantic_identity_hint_tags(context)
+    tags = [normalize_tag(tag) for tag in parsed.get("tags", []) if normalize_tag(tag)]
+    tags = [tag for tag in tags if tag not in blocked and not _is_frame_metadata_tag(tag)]
+    parsed["tags"] = _dedupe_tags(tags)
+    for key in ("rationale", "description", "summary"):
+        if parsed.get(key):
+            parsed[key] = _sanitize_semantic_rationale(str(parsed.get(key) or ""), blocked)
+    return parsed
+
+
+def _semantic_identity_hint_tags(context: dict | None) -> set[str]:
+    if not isinstance(context, dict):
+        return set()
+    hints = context.get("visualTagHints")
+    if not isinstance(hints, dict):
+        return set()
+    blocked = set()
+    for key in ("characterTags", "copyrightTags"):
+        for tag in hints.get(key) or []:
+            norm = normalize_tag(tag)
+            if norm:
+                blocked.add(norm)
+    return blocked
+
+
+def _sanitize_semantic_rationale(text: str, blocked_tags: set[str] | None = None) -> str:
+    out = str(text or "").strip()
+    if not out:
+        return out
+    out = re.sub(
+        r"\b(?:the\s+)?(?:image|video|content)\s+(?:consists\s+of|contains|shows)\s+"
+        r"(?:one|two|three|four|five|six|seven|eight|\d+)\s+(?:sampled\s+)?frames?\s+(?:showing|of)\b",
+        "The video shows",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
+        r"\b(?:across|in)\s+(?:the\s+)?(?:one|two|three|four|five|six|seven|eight|\d+)\s+(?:sampled\s+)?frames?\b",
+        "in the video",
+        out,
+        flags=re.IGNORECASE,
+    )
+    sentences = re.split(r"(?<=[.!?])\s+", out)
+    blocked_labels = {tag.replace("_", " ") for tag in (blocked_tags or set())}
+    filtered = []
+    identity_pattern = re.compile(
+        r"\b(?:identified\s+as|character\s+is\s+identified|identity\s+is|franchise\s+is|copyright\s+is)\b",
+        flags=re.IGNORECASE,
+    )
+    for sentence in sentences:
+        lower = sentence.lower()
+        if identity_pattern.search(sentence):
+            continue
+        if blocked_labels and any(label and label in lower for label in blocked_labels):
+            continue
+        filtered.append(sentence)
+    out = " ".join(part.strip() for part in filtered if part.strip())
+    return re.sub(r"\s+", " ", out).strip()
 
 
 def _add_visual_tag_hints(context: dict | None, results: list[AutoTagResult]) -> None:
@@ -1457,6 +1583,7 @@ def validate_options(raw: dict) -> AutoTagOptions:
         data[key] = min(1.0, max(0.0, float(data[key])))
     data["maxTags"] = min(200, max(1, int(data["maxTags"])))
     data["videoMaxFrames"] = min(8, max(1, int(data["videoMaxFrames"])))
+    data["qwenVideoMaxFrames"] = min(8, max(1, int(data["qwenVideoMaxFrames"])))
     data["videoMaxDurationSeconds"] = min(7200, max(1, int(data["videoMaxDurationSeconds"])))
     data["lightlyTaggedMaxTags"] = min(50, max(0, int(data["lightlyTaggedMaxTags"])))
     if data["mergeMode"] not in {"append_new", "replace_auto_tags", "preview_only"}:
@@ -2536,7 +2663,13 @@ def _tag_image(path: Path, opts: AutoTagOptions) -> AutoTagResult:
     return _combine_results(results)
 
 
-def _optional_image_results(path: Path, opts: AutoTagOptions, context: dict | None = None) -> list[AutoTagResult]:
+def _optional_image_results(
+    path: Path,
+    opts: AutoTagOptions,
+    context: dict | None = None,
+    *,
+    include_qwen: bool = True,
+) -> list[AutoTagResult]:
     results: list[AutoTagResult] = []
     if opts.pixaiEnabled:
         pixai = _unavailable_model_result("pixai") or _run_optional("pixai", lambda: _pixai_tagger.tag_image(path, opts))
@@ -2551,7 +2684,7 @@ def _optional_image_results(path: Path, opts: AutoTagOptions, context: dict | No
         results.append(ocr)
         if context is not None and ocr.evidence.get("text"):
             context["ocrText"] = ocr.evidence.get("text")
-    if opts.qwenEnabled or opts.semanticPoliticalEnabled:
+    if include_qwen and (opts.qwenEnabled or opts.semanticPoliticalEnabled):
         model_id = _semantic_model_id(opts)
         tagger = _tagger_for_model(model_id)
         results.append(
@@ -2571,13 +2704,32 @@ def _tag_video_with_enrichers(path: Path, opts: AutoTagOptions) -> AutoTagResult
         results.append(whisper)
         if whisper.evidence.get("transcript"):
             context["transcript"] = whisper.evidence.get("transcript")
-    if opts.pixaiEnabled or opts.characterModelEnabled or opts.ocrEnabled or opts.qwenEnabled or opts.semanticPoliticalEnabled:
-        frame = _representative_frame(path, opts)
-        if frame:
+    visual_enrichers = opts.pixaiEnabled or opts.characterModelEnabled or opts.ocrEnabled
+    qwen_enricher = opts.qwenEnabled or opts.semanticPoliticalEnabled
+    if visual_enrichers:
+        frames = _sample_video_frames(path, opts, frame_count=opts.videoMaxFrames, prefix="visual-frames-")
+        if frames:
             try:
-                results.extend(_optional_image_results(frame, opts, context=context))
+                visual_result = _tag_video_frames_with_image_enrichers(frames, opts, context=context)
+                results.append(visual_result)
+                _add_visual_tag_hints(context, [visual_result])
             finally:
-                shutil.rmtree(frame.parent, ignore_errors=True)
+                shutil.rmtree(frames[0][1].parent, ignore_errors=True)
+    if qwen_enricher:
+        model_id = _semantic_model_id(opts)
+        tagger = _tagger_for_model(model_id)
+        unavailable = _unavailable_model_result(model_id)
+        if unavailable:
+            results.append(unavailable)
+        else:
+            frames = _sample_video_frames(path, opts, frame_count=opts.qwenVideoMaxFrames, prefix="qwen-video-frames-")
+            if frames:
+                try:
+                    results.append(_run_optional(model_id, lambda: _analyze_qwen_video_frames(tagger, frames, context=context, opts=opts)))
+                finally:
+                    shutil.rmtree(frames[0][1].parent, ignore_errors=True)
+            else:
+                results.append(AutoTagResult(enabled=True, model=str(MODEL_REGISTRY[model_id]["name"]), error="no_video_frames"))
     return _combine_results(results)
 
 
@@ -2750,10 +2902,25 @@ def _dedupe_tags(tags: list[str]) -> list[str]:
     out: list[str] = []
     for tag in tags:
         norm = normalize_tag(tag)
-        if norm and norm not in seen:
+        if norm and not _is_frame_metadata_tag(norm) and norm not in seen:
             seen.add(norm)
             out.append(norm)
     return out
+
+
+def _is_frame_metadata_tag(tag: str) -> bool:
+    normalized = normalize_tag(tag)
+    if normalized in {"frame", "frames", "sampled_frame", "sampled_frames", "timestamp", "timestamps"}:
+        return True
+    if re.fullmatch(r"frame_\d+", normalized):
+        return True
+    if re.fullmatch(r"\d+_frames?", normalized):
+        return True
+    if re.fullmatch(r"(?:one|two|three|four|five|six|seven|eight)_frames?", normalized):
+        return True
+    if re.fullmatch(r"t_\d+(?:[._]\d+)?s?", normalized):
+        return True
+    return False
 
 
 def _excluded_tags(opts: AutoTagOptions) -> set[str]:
@@ -3236,6 +3403,52 @@ def _representative_frame(path: Path, opts: AutoTagOptions) -> Path | None:
     return None
 
 
+def _sample_video_frames(path: Path, opts: AutoTagOptions, *, frame_count: int, prefix: str) -> list[tuple[float, Path]]:
+    if not check_ffmpeg_available():
+        return []
+    duration = _probe_duration(path)
+    if duration and duration > opts.videoMaxDurationSeconds:
+        duration = float(opts.videoMaxDurationSeconds)
+    sample_opts = replace(opts, videoMaxFrames=max(1, min(8, int(frame_count or 1))))
+    timestamps = _timestamps(duration, sample_opts)
+    if not timestamps:
+        return []
+    cache_root = settings.cache_dir / "auto-tags"
+    cache_root.mkdir(parents=True, exist_ok=True)
+    tmpdir = Path(tempfile.mkdtemp(prefix=prefix, dir=cache_root))
+    frames: list[tuple[float, Path]] = []
+    try:
+        for idx, ts in enumerate(timestamps):
+            frame = tmpdir / f"frame-{idx}.jpg"
+            if _extract_frame(path, frame, ts) and not _is_near_black(frame):
+                frames.append((ts, frame))
+        if frames:
+            return frames
+    except Exception:
+        pass
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    return []
+
+
+def _tag_video_frames_with_image_enrichers(
+    frames: list[tuple[float, Path]],
+    opts: AutoTagOptions,
+    context: dict | None = None,
+) -> AutoTagResult:
+    frame_results: list[tuple[float, AutoTagResult]] = []
+    for ts, frame in frames:
+        result = _combine_results(_optional_image_results(frame, opts, context=context, include_qwen=False))
+        if result.all_tags or result.rating or result.error:
+            frame_results.append((ts, result))
+    if not frame_results:
+        return AutoTagResult(enabled=True, model="frame-enrichers", error="no_video_frames")
+    merged = _merge_frame_results(frame_results, opts)
+    merged.model = "+".join(_dedupe_plain_strings([result.model for _, result in frame_results if result.model])) or "frame-enrichers"
+    if isinstance(merged.evidence, dict):
+        merged.evidence["kind"] = "video_frame_enrichers"
+    return merged
+
+
 def safety_from_rating(rating: dict[str, float], opts: AutoTagOptions) -> str | None:
     explicit = max(rating.get("explicit", 0.0), rating.get("rating_explicit", 0.0))
     questionable = max(rating.get("questionable", 0.0), rating.get("rating_questionable", 0.0))
@@ -3322,15 +3535,19 @@ def _probe_duration(path: Path) -> float | None:
 def _timestamps(duration: float | None, opts: AutoTagOptions) -> list[float]:
     if not duration or duration <= 0:
         return []
-    if opts.videoFrameStrategy == "middle" or opts.videoMaxFrames == 1:
+    frame_count = max(1, min(8, int(opts.videoMaxFrames or 1)))
+    if opts.videoFrameStrategy == "middle" or frame_count == 1:
         points = [0.5]
-    elif duration < 8:
-        points = [0.5]
-    elif duration <= 60:
+    elif frame_count == 2:
+        points = [1 / 3, 2 / 3]
+    elif frame_count == 3:
         points = [0.25, 0.5, 0.75]
+    elif frame_count == 4:
+        points = [0.20, 0.40, 0.60, 0.80]
     else:
-        points = [0.10, 0.35, 0.60, 0.85]
-    return [max(0.0, min(duration - 0.05, duration * p)) for p in points[: opts.videoMaxFrames]]
+        step = 1.0 / (frame_count + 1)
+        points = [step * (idx + 1) for idx in range(frame_count)]
+    return [max(0.0, min(duration - 0.05, duration * p)) for p in points[:frame_count]]
 
 
 def _extract_frame(source: Path, dest: Path, timestamp: float) -> bool:

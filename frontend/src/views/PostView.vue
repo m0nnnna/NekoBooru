@@ -1402,7 +1402,7 @@ function autoTagProfileSettings(profileId) {
       generalThreshold: 0.35,
       characterThreshold: 0.45,
       maxTags: 40,
-      ...(isVideo ? { videoMaxFrames: 4 } : {}),
+      ...(isVideo ? { videoMaxFrames: 4, qwenVideoMaxFrames: savedAutoTagSettings.value.qwenVideoMaxFrames || 1 } : {}),
     }
   }
   if (profileId === 'realistic') {
@@ -1418,7 +1418,7 @@ function autoTagProfileSettings(profileId) {
       generalThreshold: 0.5,
       characterThreshold: 0.6,
       maxTags: isVideo ? 20 : 18,
-      ...(isVideo ? { videoMaxFrames: 4 } : {}),
+      ...(isVideo ? { videoMaxFrames: 4, qwenVideoMaxFrames: savedAutoTagSettings.value.qwenVideoMaxFrames || 1 } : {}),
     }
   }
   return null

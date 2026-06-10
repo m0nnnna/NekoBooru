@@ -1429,6 +1429,9 @@ function applyAiTagProfile(profileId) {
     ...profileDefaultStack(rootProfileId),
   }
   if (mediaType !== 'video') settings.whisperEnabled = false
+  if (mediaType === 'video') {
+    settings.qwenVideoMaxFrames = Number(autoTagSavedSettings.qwenVideoMaxFrames || settings.qwenVideoMaxFrames || 1)
+  }
   Object.entries(settings).forEach(([key, value]) => {
     autoTagSettings[key] = value
     autoTagModelOverrides[key] = value
