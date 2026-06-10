@@ -6,6 +6,7 @@ const srcUrl = normalizeUploadSrcUrl(params.get('src') || '')
 const pageUrl = params.get('page') || ''
 const mediaType = params.get('type') || 'image'
 const xTweetId = params.get('xTweetId') || tweetIdFromUrl(pageUrl) || tweetIdFromUrl(srcUrl)
+const xMediaIndex = parseXMediaIndex(params.get('xMediaIndex')) ?? xPhotoIndexFromUrl(pageUrl) ?? xPhotoIndexFromUrl(srcUrl)
 // 'link' when src is a page URL the server should fetch (yt-dlp), not direct
 // media to preview inline (e.g. an X tweet whose <video> is a blob URL).
 const fetchMode = params.get('fetch') || ''
@@ -718,6 +719,27 @@ function tweetIdFromUrl(raw) {
     return url.pathname.match(/\/status\/(\d+)/)?.[1] || ''
   } catch {
     return ''
+  }
+}
+
+function parseXMediaIndex(value) {
+  if (value == null || value === '') return null
+  const index = Number.parseInt(String(value), 10)
+  return Number.isFinite(index) && index >= 0 ? index : null
+}
+
+function xPhotoIndexFromUrl(raw) {
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    if (!/(^|\.)x\.com$|(^|\.)twitter\.com$/.test(host)) return null
+    const match = url.pathname.match(/\/photo\/(\d+)/)
+    if (!match) return null
+    const index = Number.parseInt(match[1], 10)
+    return Number.isFinite(index) && index > 0 ? index - 1 : null
+  } catch {
+    return null
   }
 }
 
@@ -1888,12 +1910,28 @@ async function uploadCapturedXMedia() {
   const candidates = await capturedXMediaCandidates()
   if (!candidates.length) return ''
   const previewUrl = canonicalMediaUrl(srcUrl)
+  const indexedCandidate = Number.isInteger(xMediaIndex)
+    ? candidates.find((item) => item.index === xMediaIndex)
+    : null
+  const exactCandidate = previewUrl
+    ? candidates.find((item) => canonicalMediaUrl(item.url) === previewUrl)
+    : null
+  const selectedCandidate = exactCandidate || indexedCandidate
+  if (selectedCandidate?.url) {
+    try {
+      setStatus('Using selected X media...', 'working')
+      return await uploadMediaUrl(selectedCandidate.url, selectedCandidate.type === 'video' ? 'video/mp4' : 'image/jpeg', { browserFirst: true })
+    } catch (error) {
+      throw new Error(`selected X media failed: ${error?.message || String(error)}`)
+    }
+  }
   const ordered = candidates
     .map((item, index) => ({
       item,
       index,
       score:
-        (canonicalMediaUrl(item.url) === previewUrl ? 100 : 0) +
+        (canonicalMediaUrl(item.url) === previewUrl ? 1000 : 0) +
+        (Number.isInteger(xMediaIndex) && item.index === xMediaIndex ? 500 : 0) +
         (item.type === mediaType ? 10 : 0) -
         index,
     }))
@@ -1942,6 +1980,10 @@ function canonicalMediaUrl(raw) {
 async function getContentToken() {
   if (contentToken) return contentToken
   await ensureBackendReady()
+  if (fetchMode === 'direct' && isTwitterMediaCdnUrl(srcUrl)) {
+    contentToken = await uploadMediaUrl(srcUrl, mediaType === 'video' ? 'video/mp4' : 'image/jpeg', { browserFirst: true })
+    return contentToken
+  }
   if (xTweetId) {
     const capturedToken = await uploadCapturedXMedia()
     if (capturedToken) {

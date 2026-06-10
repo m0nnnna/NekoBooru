@@ -8,10 +8,50 @@ const MENU_ID = 'nekobooru-upload'
 // where the right-click never lands on the <video> itself.
 const DOWNLOAD_PAGE_ID = 'nekobooru-upload-page'
 const INSERT_MENU_ID = 'nekobooru-insert'
+const REVERSE_MENU_ID = 'nekobooru-reverse'
+const REVERSE_PAGE_MENU_ID = 'nekobooru-reverse-page'
+const REVERSE_OPEN_ALL_ID = 'nekobooru-reverse-all'
+const REVERSE_PAGE_OPEN_ALL_ID = 'nekobooru-reverse-page-all'
+const REVERSE_FRAME_ID = 'nekobooru-reverse-frame'
+const REVERSE_PAGE_FRAME_ID = 'nekobooru-reverse-page-frame'
+const GOOGLE_LENS_UPLOAD_KEY_PREFIX = 'nekobooruGoogleLensUpload:'
 const POPUP_WIDTH = 500
 const POPUP_HEIGHT = 680
 const X_MEDIA_CACHE_KEY = 'nekobooruXMediaCache'
 const X_MEDIA_CACHE_MAX_AGE_MS = 60 * 60 * 1000
+const REVERSE_SEARCH_SERVICES = [
+  {
+    id: 'saucenao',
+    title: 'SauceNAO',
+    url: (mediaUrl) => `https://saucenao.com/search.php?url=${encodeURIComponent(mediaUrl)}`,
+  },
+  {
+    id: 'tinyurl',
+    title: 'TinyURL',
+    url: (mediaUrl) => `https://tinyurl.com/create.php?url=${encodeURIComponent(mediaUrl)}`,
+  },
+  {
+    id: 'iqdb',
+    title: 'IQDB',
+    url: (mediaUrl) => `https://iqdb.org/?url=${encodeURIComponent(mediaUrl)}`,
+  },
+  {
+    id: 'tineye',
+    title: 'TinEye',
+    url: (mediaUrl) => `https://tineye.com/search?url=${encodeURIComponent(mediaUrl)}`,
+  },
+  {
+    id: 'google',
+    title: 'Google Lens',
+    url: (mediaUrl) => `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(mediaUrl)}`,
+    upload: true,
+  },
+  {
+    id: 'trace',
+    title: 'trace.moe',
+    url: (mediaUrl) => `https://trace.moe/?url=${encodeURIComponent(mediaUrl)}`,
+  },
+]
 
 // Video platforms where the direct media often can't be grabbed normally (blob
 // <video> srcs, poster images standing in for the video), so the click handler
@@ -50,6 +90,16 @@ const PLAYER_OVERLAY_PATTERNS = [
   '*://*.tiktok.com/*',
   '*://*.redgifs.com/*',
 ]
+const NEKOBOORU_PAGE_PATTERNS = [
+  'http://localhost/*',
+  'https://localhost/*',
+  'http://127.0.0.1/*',
+  'https://127.0.0.1/*',
+]
+const REVERSE_PAGE_PATTERNS = [
+  ...PLAYER_OVERLAY_PATTERNS,
+  ...NEKOBOORU_PAGE_PATTERNS,
+]
 
 // Last known cursor position (screen coords) and whether it was over a <video>,
 // reported by track-cursor.js on right-click. The position opens the popup near
@@ -58,6 +108,10 @@ const PLAYER_OVERLAY_PATTERNS = [
 let lastCursor = null
 let lastHasVideo = false
 let lastPostUrl = ''
+let lastMediaUrl = ''
+let lastMediaType = ''
+let menuCreateInProgress = false
+let menuCreatePending = false
 const xMediaCache = new Map()
 
 function tweetIdFromUrl(raw) {
@@ -69,6 +123,21 @@ function tweetIdFromUrl(raw) {
     return url.pathname.match(/\/status\/(\d+)/)?.[1] || ''
   } catch {
     return ''
+  }
+}
+
+function xPhotoIndexFromUrl(raw) {
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    if (!/(^|\.)x\.com$|(^|\.)twitter\.com$/.test(host)) return null
+    const match = url.pathname.match(/\/photo\/(\d+)/)
+    if (!match) return null
+    const index = Number.parseInt(match[1], 10)
+    return Number.isFinite(index) && index > 0 ? index - 1 : null
+  } catch {
+    return null
   }
 }
 
@@ -167,6 +236,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     lastCursor = { x: msg.x, y: msg.y }
     lastHasVideo = !!msg.hasVideo
     lastPostUrl = typeof msg.postUrl === 'string' ? msg.postUrl : ''
+    lastMediaUrl = typeof msg.mediaUrl === 'string' ? msg.mediaUrl : ''
+    lastMediaType = typeof msg.mediaType === 'string' ? msg.mediaType : ''
     return
   }
 
@@ -181,6 +252,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })
     const xTweetId = msg.xTweetId || tweetIdFromUrl(msg.page || target)
     if (xTweetId) params.set('xTweetId', xTweetId)
+    const xMediaIndex = Number.isInteger(msg.xMediaIndex)
+      ? msg.xMediaIndex
+      : xPhotoIndexFromUrl(msg.page || target)
+    if (Number.isInteger(xMediaIndex)) params.set('xMediaIndex', String(xMediaIndex))
     openPopup('upload.html', params, sender.tab)
     return
   }
@@ -338,8 +413,18 @@ function blobToDataUrl(blob) {
 }
 
 function createMenu() {
-  // Remove first so re-installing / updating doesn't throw "duplicate id".
-  chrome.contextMenus.removeAll(() => {
+  if (menuCreateInProgress) {
+    menuCreatePending = true
+    return
+  }
+  menuCreateInProgress = true
+  chrome.storage.sync.get('instanceUrl', (stored) => {
+    const reversePagePatterns = [
+      ...REVERSE_PAGE_PATTERNS,
+      ...documentPatternsForInstanceUrl(stored?.instanceUrl),
+    ]
+    // Remove first so re-installing / updating doesn't throw "duplicate id".
+    chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: MENU_ID,
       title: 'Download to NekoBooru',
@@ -354,6 +439,60 @@ function createMenu() {
       contexts: ['page'],
       documentUrlPatterns: PLAYER_OVERLAY_PATTERNS,
     })
+    chrome.contextMenus.create({
+      id: REVERSE_MENU_ID,
+      title: 'NekoBooru reverse image search',
+      contexts: ['image', 'video'],
+    })
+    chrome.contextMenus.create({
+      id: REVERSE_OPEN_ALL_ID,
+      parentId: REVERSE_MENU_ID,
+      title: 'Open all',
+      contexts: ['image', 'video'],
+    })
+    for (const service of REVERSE_SEARCH_SERVICES) {
+      chrome.contextMenus.create({
+        id: reverseMenuItemId(service.id),
+        parentId: REVERSE_MENU_ID,
+        title: service.title,
+        contexts: ['image', 'video'],
+      })
+    }
+    chrome.contextMenus.create({
+      id: REVERSE_FRAME_ID,
+      parentId: REVERSE_MENU_ID,
+      title: 'Download current frame PNG',
+      contexts: ['image', 'video'],
+    })
+    chrome.contextMenus.create({
+      id: REVERSE_PAGE_MENU_ID,
+      title: 'NekoBooru reverse image search',
+      contexts: ['page'],
+      documentUrlPatterns: reversePagePatterns,
+    })
+    chrome.contextMenus.create({
+      id: REVERSE_PAGE_OPEN_ALL_ID,
+      parentId: REVERSE_PAGE_MENU_ID,
+      title: 'Open all from page URL',
+      contexts: ['page'],
+      documentUrlPatterns: reversePagePatterns,
+    })
+    for (const service of REVERSE_SEARCH_SERVICES) {
+      chrome.contextMenus.create({
+        id: reversePageMenuItemId(service.id),
+        parentId: REVERSE_PAGE_MENU_ID,
+        title: service.title,
+        contexts: ['page'],
+        documentUrlPatterns: reversePagePatterns,
+      })
+    }
+    chrome.contextMenus.create({
+      id: REVERSE_PAGE_FRAME_ID,
+      parentId: REVERSE_PAGE_MENU_ID,
+      title: 'Download current frame PNG',
+      contexts: ['page'],
+      documentUrlPatterns: reversePagePatterns,
+    })
     // Only show while composing in an editable field. The picker copies media
     // to the clipboard for the user to paste into that same text area/editor.
     chrome.contextMenus.create({
@@ -361,13 +500,34 @@ function createMenu() {
       title: 'Insert media from NekoBooru…',
       contexts: ['editable'],
     })
+    menuCreateInProgress = false
+    if (menuCreatePending) {
+      menuCreatePending = false
+      createMenu()
+    }
+    })
   })
+}
+
+function documentPatternsForInstanceUrl(raw) {
+  if (!raw) return []
+  try {
+    const url = new URL(raw)
+    const protocol = url.protocol === 'https:' ? 'https' : 'http'
+    if (!url.hostname) return []
+    return [`${protocol}://${url.hostname}/*`]
+  } catch {
+    return []
+  }
 }
 
 chrome.runtime.onInstalled.addListener(createMenu)
 chrome.runtime.onStartup.addListener(createMenu)
+createMenu()
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (handleReverseSearchClick(info, tab)) return
+
   if (info.menuItemId === INSERT_MENU_ID) {
     const params = new URLSearchParams()
     if (tab?.id != null) params.set('targetTabId', String(tab.id))
@@ -402,20 +562,211 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     })
     const xTweetId = tweetIdFromUrl(target)
     if (xTweetId) params.set('xTweetId', xTweetId)
+    const xMediaIndex = xPhotoIndexFromUrl(target)
+    if (Number.isInteger(xMediaIndex)) params.set('xMediaIndex', String(xMediaIndex))
     openPopup('upload.html', params, tab)
     return
   }
 
   const srcUrl = normalizeUploadSrcUrl(info.srcUrl)
   if (!srcUrl) return
+  const linkedPageUrl = info.linkUrl && isVideoPlatformUrl(info.linkUrl) ? info.linkUrl : ''
+  const sourcePageUrl = linkedPageUrl || pageUrl
   const params = new URLSearchParams({
     src: srcUrl,
-    page: pageUrl,
+    page: sourcePageUrl,
     type: info.mediaType || 'image',
     fetch: 'direct', // grab this src as-is; don't second-guess via yt-dlp
   })
+  const xTweetId = tweetIdFromUrl(sourcePageUrl)
+  if (xTweetId) params.set('xTweetId', xTweetId)
+  const xMediaIndex = xPhotoIndexFromUrl(sourcePageUrl)
+  if (Number.isInteger(xMediaIndex)) params.set('xMediaIndex', String(xMediaIndex))
   openPopup('upload.html', params, tab)
 })
+
+function reverseMenuItemId(serviceId) {
+  return `${REVERSE_MENU_ID}-${serviceId}`
+}
+
+function reversePageMenuItemId(serviceId) {
+  return `${REVERSE_PAGE_MENU_ID}-${serviceId}`
+}
+
+function reverseSearchTargetUrl(info, tab) {
+  const srcUrl = normalizeUploadSrcUrl(info.srcUrl || '')
+  if (srcUrl) return srcUrl
+  if (lastMediaUrl) return normalizeUploadSrcUrl(lastMediaUrl)
+  const linked = info.linkUrl && isVideoPlatformUrl(info.linkUrl) ? info.linkUrl : ''
+  const contextualPost = lastPostUrl && isVideoPlatformUrl(lastPostUrl) ? lastPostUrl : ''
+  return linked || contextualPost || info.pageUrl || tab?.url || ''
+}
+
+function handleReverseSearchClick(info, tab) {
+  const id = String(info.menuItemId || '')
+  const isFrame = id === REVERSE_FRAME_ID || id === REVERSE_PAGE_FRAME_ID
+  const isOpenAll = id === REVERSE_OPEN_ALL_ID || id === REVERSE_PAGE_OPEN_ALL_ID
+  const service = REVERSE_SEARCH_SERVICES.find((item) => (
+    id === reverseMenuItemId(item.id) || id === reversePageMenuItemId(item.id)
+  ))
+  if (!isFrame && !isOpenAll && !service) return false
+
+  if (isFrame) {
+    captureCurrentFrame(tab, info)
+    return true
+  }
+
+  const target = reverseSearchTargetUrl(info, tab)
+  if (!target) {
+    notifyReverseSearch('No media URL found for this right-click.')
+    return true
+  }
+  if (isOpenAll) {
+    for (const item of REVERSE_SEARCH_SERVICES) {
+      if (item.upload) {
+        openGoogleLensUpload(tab, info, false)
+      } else {
+        openReverseSearchTab(item.url(target), tab, false)
+      }
+    }
+    return true
+  }
+  if (service.upload) {
+    openGoogleLensUpload(tab, info, true)
+    return true
+  }
+  openReverseSearchTab(service.url(target), tab, true)
+  return true
+}
+
+function openReverseSearchTab(url, tab, active) {
+  const opts = { url, active }
+  if (tab?.windowId != null) opts.windowId = tab.windowId
+  chrome.tabs.create(opts, () => {
+    const error = chrome.runtime.lastError
+    if (error) notifyReverseSearch(error.message || 'Could not open reverse search tab.')
+  })
+}
+
+async function captureCurrentFrame(tab, info) {
+  try {
+    if (!tab?.id) throw new Error('No active tab.')
+    const frameId = Number.isInteger(info.frameId) ? info.frameId : 0
+    let result = await sendMessageToFrame(tab.id, frameId, {
+      type: 'nekobooru-capture-current-frame',
+    })
+    if (!result.ok && isMissingContentScriptError(result.error)) {
+      const injected = await injectPasteContentScript(tab.id, frameId)
+      if (injected.ok) {
+        result = await sendMessageToFrame(tab.id, frameId, {
+          type: 'nekobooru-capture-current-frame',
+        })
+      }
+    }
+    const fallbackUrl = info.srcUrl || lastMediaUrl
+    if (!result.ok && fallbackUrl) {
+      await chrome.downloads.download({
+        url: normalizeUploadSrcUrl(fallbackUrl),
+        filename: frameFallbackFilename(fallbackUrl),
+        saveAs: false,
+      })
+      return
+    }
+    if (!result.ok) throw new Error(result.error || 'Could not capture frame.')
+    await chrome.downloads.download({
+      url: result.dataUrl,
+      filename: result.filename || 'nekobooru-frame.png',
+      saveAs: false,
+    })
+  } catch (e) {
+    notifyReverseSearch(e.message || 'Could not capture the current media frame.')
+  }
+}
+
+async function openGoogleLensUpload(tab, info, active = true) {
+  try {
+    const blob = await blobForReverseSearch(tab, info)
+    const key = `${GOOGLE_LENS_UPLOAD_KEY_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2)}`
+    await chrome.storage.local.set({
+      [key]: {
+        dataUrl: await blobToDataUrl(blob),
+        filename: googleLensFilename(info),
+        savedAt: Date.now(),
+      },
+    })
+    const url = chrome.runtime.getURL(`google-lens-upload.html?key=${encodeURIComponent(key)}`)
+    openReverseSearchTab(url, tab, active)
+  } catch (e) {
+    const target = reverseSearchTargetUrl(info, tab)
+    if (target) {
+      openReverseSearchTab(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(target)}`, tab, active)
+      notifyReverseSearch('Could not capture/upload the image bytes. Opened the URL fallback, which only works for public image URLs.')
+      return
+    }
+    notifyReverseSearch(e.message || 'Google Lens upload failed.')
+  }
+}
+
+function googleLensFilename(info) {
+  const raw = info.srcUrl || lastMediaUrl || ''
+  const base = filenameFromUrl(raw || 'nekobooru-search.png')
+  if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(base)) return base
+  return base.replace(/\.[^.]+$/, '') + '.png'
+}
+
+async function blobForReverseSearch(tab, info) {
+  const directUrl = info.srcUrl || lastMediaUrl
+  if (directUrl) {
+    try {
+      const response = await fetch(normalizeUploadSrcUrl(directUrl), { credentials: 'include' })
+      if (response.ok) return await response.blob()
+    } catch {
+      // Fall back to content-script frame capture below.
+    }
+  }
+
+  if (!tab?.id) throw new Error('No active tab for frame capture.')
+  const frameId = Number.isInteger(info.frameId) ? info.frameId : 0
+  let result = await sendMessageToFrame(tab.id, frameId, {
+    type: 'nekobooru-capture-current-frame',
+  })
+  if (!result.ok && isMissingContentScriptError(result.error)) {
+    const injected = await injectPasteContentScript(tab.id, frameId)
+    if (injected.ok) {
+      result = await sendMessageToFrame(tab.id, frameId, {
+        type: 'nekobooru-capture-current-frame',
+      })
+    }
+  }
+  if (!result.ok || !result.dataUrl) throw new Error(result.error || 'Could not capture media for Google Lens.')
+  return dataUrlToBlob(result.dataUrl)
+}
+
+function dataUrlToBlob(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:([^;,]+)?(;base64)?,([\s\S]*)$/)
+  if (!match) throw new Error('Captured frame was not a valid image.')
+  const mime = match[1] || 'image/png'
+  const isBase64 = !!match[2]
+  const raw = isBase64 ? atob(match[3]) : decodeURIComponent(match[3])
+  const bytes = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i)
+  return new Blob([bytes], { type: mime })
+}
+
+function notifyReverseSearch(message) {
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icons/icon48.png',
+    title: 'NekoBooru reverse image search',
+    message,
+  })
+}
+
+function frameFallbackFilename(raw) {
+  const name = filenameFromUrl(raw)
+  if (/\.[a-z0-9]{2,5}$/i.test(name)) return name.replace(/(\.[a-z0-9]{2,5})$/i, '-frame$1')
+  return `${name}-frame`
+}
 
 async function openPopup(page, params, tab) {
   const opts = {

@@ -6,7 +6,7 @@ Brave, and other Chromium browsers (and Firefox, see notes below).
 
 ## How it works
 
-The extension adds two right-click menu items:
+The extension adds three right-click menu items:
 
 ### Download to NekoBooru (web → your instance)
 
@@ -29,6 +29,15 @@ The extension adds two right-click menu items:
    can paste them straight into the composer; **GIFs and videos download**
    instead (the clipboard can't hold them) so you can attach the file.
 
+### NekoBooru reverse image search
+
+Right-click an image, GIF, or video and choose **NekoBooru reverse image search**
+to open SauceNAO, TinyURL, IQDB, TinEye, Google Lens, trace.moe, or all of them
+at once. Google Lens uses a temporary extension helper page that submits the
+image/frame bytes directly instead of relying on a public image URL. The menu
+also includes **Download current frame PNG** for video/GIF/image frame searches
+where a site needs an uploaded file instead of a URL.
+
 No login/token is required — it talks to the same open API the web UI uses, so
 point it at an instance only you can reach (localhost or your LAN/VPN).
 
@@ -46,7 +55,8 @@ root — see `README-BUILD.md`.)
    your **instance URL**, e.g. `http://localhost:8772`. Use **Test connection**
    to confirm it can reach the server, then **Save**.
 
-That's it — right-click an image anywhere and pick **Download to NekoBooru**.
+That's it — right-click an image anywhere and pick **Download to NekoBooru** or
+**NekoBooru reverse image search**.
 
 ### Optional: Start NekoBooru from the extension
 

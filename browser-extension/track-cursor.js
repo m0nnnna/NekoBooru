@@ -25,6 +25,20 @@ function elementsUnder(x, y) {
   }
 }
 
+function mediaFromStack(stack) {
+  return stack.find((el) => el.tagName === 'VIDEO' || el.tagName === 'IMG') || null
+}
+
+function mediaUrlFromElement(media) {
+  const raw = media?.currentSrc || media?.src || ''
+  if (!raw) return ''
+  try {
+    return new URL(raw, location.href).href
+  } catch {
+    return raw
+  }
+}
+
 function editableTargetFromEvent(event) {
   const target = event.target
   if (!target?.closest) return null
@@ -171,6 +185,14 @@ function normalizedStatusUrl(raw) {
 function tweetIdFromUrl(raw) {
   const url = normalizedStatusUrl(raw)
   return url.match(/\/status\/(\d+)/)?.[1] || ''
+}
+
+function xPhotoIndexFromUrl(raw) {
+  const url = normalizedStatusUrl(raw)
+  const match = url.match(/\/photo\/(\d+)/)
+  if (!match) return null
+  const index = Number.parseInt(match[1], 10)
+  return Number.isFinite(index) && index > 0 ? index - 1 : null
 }
 
 function statusUrlFromArticle(article) {
@@ -367,6 +389,7 @@ function uploadTargetFromArticle(article) {
       mediaType: 'image',
       fetch: 'direct',
       xTweetId: tweetIdFromUrl(image.statusUrl || statusUrl),
+      xMediaIndex: xPhotoIndexFromUrl(image.statusUrl || statusUrl),
     }
   }
 
@@ -456,14 +479,19 @@ function nativeActionShell(actionGroup, innerButton) {
 function openUploadForTarget(target) {
   if (!target?.src) return
   try {
-    chrome.runtime.sendMessage({
+    const message = {
       type: 'nekobooru-open-upload',
       src: target.src,
       page: target.page || target.src,
       mediaType: target.mediaType || 'image',
       fetch: target.fetch || 'direct',
       xTweetId: target.xTweetId || tweetIdFromUrl(target.page || target.src),
-    })
+    }
+    const xMediaIndex = Number.isInteger(target.xMediaIndex)
+      ? target.xMediaIndex
+      : xPhotoIndexFromUrl(target.page || target.src)
+    if (Number.isInteger(xMediaIndex)) message.xMediaIndex = xMediaIndex
+    chrome.runtime.sendMessage(message)
   } catch {
     // Extension context may be reloading; ignore.
   }
@@ -538,15 +566,68 @@ function setupXPostButtons() {
 // Listen on window in the capture phase so we run before the page's own handlers
 // (capture order is window -> document -> ... -> target), letting us neutralise
 // them before they can suppress the menu.
+let lastContextMenuPoint = { x: 0, y: 0 }
+
+function currentMediaAtLastContextMenu() {
+  const stack = elementsUnder(lastContextMenuPoint.x, lastContextMenuPoint.y)
+  return mediaFromStack(stack)
+}
+
+function filenameForCapturedFrame(media) {
+  const raw = media?.currentSrc || media?.src || location.href
+  try {
+    const name = decodeURIComponent(new URL(raw, location.href).pathname.split('/').pop() || '')
+    if (name) return name.replace(/\.[^.]+$/, '') + '-frame.png'
+  } catch {
+    // Use generic fallback.
+  }
+  return 'nekobooru-frame.png'
+}
+
+function captureCurrentMediaFrame() {
+  const media = currentMediaAtLastContextMenu()
+  if (!media) return { ok: false, error: 'No image or video was found under the last right-click.' }
+
+  const width = media.tagName === 'VIDEO' ? media.videoWidth : media.naturalWidth
+  const height = media.tagName === 'VIDEO' ? media.videoHeight : media.naturalHeight
+  if (!width || !height) return { ok: false, error: 'The media frame is not ready yet.' }
+
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) return { ok: false, error: 'Canvas capture is unavailable.' }
+    context.drawImage(media, 0, 0, width, height)
+    return {
+      ok: true,
+      dataUrl: canvas.toDataURL('image/png'),
+      filename: filenameForCapturedFrame(media),
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      error: 'This site blocks frame capture for cross-origin media. Open a reverse-search site and upload/download the frame manually.',
+    }
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type !== 'nekobooru-capture-current-frame') return
+  sendResponse(captureCurrentMediaFrame())
+})
+
 window.addEventListener(
   'contextmenu',
   (e) => {
+    lastContextMenuPoint = { x: e.clientX, y: e.clientY }
     const editableTarget = editableTargetFromEvent(e)
     if (editableTarget) lastEditableTarget = editableTarget
 
     const stack = elementsUnder(e.clientX, e.clientY)
-    const hasVideo = stack.some((el) => el.tagName === 'VIDEO')
-    const hasMedia = hasVideo || stack.some((el) => el.tagName === 'IMG')
+    const media = mediaFromStack(stack)
+    const hasVideo = media?.tagName === 'VIDEO' || stack.some((el) => el.tagName === 'VIDEO')
+    const hasMedia = !!media
     const postUrl = statusUrlFromStack(stack)
 
     // Report the cursor (for popup placement) and whether a video is under it
@@ -557,6 +638,8 @@ window.addEventListener(
         x: e.screenX,
         y: e.screenY,
         hasVideo,
+        mediaUrl: mediaUrlFromElement(media),
+        mediaType: media?.tagName === 'VIDEO' ? 'video' : media?.tagName === 'IMG' ? 'image' : '',
         postUrl,
       })
     } catch {
