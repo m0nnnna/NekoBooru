@@ -259,6 +259,19 @@
                 </template>
               </dl>
             </div>
+            <div v-if="inspectedSemanticLoading || inspectedSemanticAnalysis" class="inspector-semantic">
+              <div>
+                <strong>Semantic Description</strong>
+                <small v-if="inspectedSemanticAnalysis">
+                  {{ inspectedSemanticAnalysis.model }}{{ inspectedSemanticAnalysis.timing ? ` · ${inspectedSemanticAnalysis.timing}` : '' }}
+                </small>
+                <small v-else>Loading...</small>
+              </div>
+              <p v-if="inspectedSemanticAnalysis">{{ inspectedSemanticAnalysis.description }}</p>
+              <div v-if="inspectedSemanticAnalysis?.tags.length" class="inspector-tag-list semantic-tags">
+                <span v-for="tag in inspectedSemanticAnalysis.tags" :key="tag">{{ tag }}</span>
+              </div>
+            </div>
             <div class="inspector-tags">
               <div>
                 <strong>{{ inspectedPost.tags?.length || 0 }} tags</strong>
@@ -424,10 +437,13 @@ const selectMode = ref(false)
 const selectedIds = ref([])
 const lastSelectedId = ref(null)
 const hoveredPostId = ref(null)
+const inspectedSemanticCache = ref({})
+const inspectedSemanticLoading = ref(false)
 const busy = ref(false)
 const actionMessage = ref('')
 const actionMessageKind = ref('success')
 let actionMessageTimer = null
+let inspectedSemanticRequestId = 0
 
 const defaultSemanticPrompt = [
   'Return compact JSON only with keys: tags, safety, rationale.',
@@ -449,13 +465,15 @@ const batchTagMode = ref('add')
 const batchTagText = ref('')
 const batchSafety = ref('')
 const savedAutoTagSettings = ref({})
+const savedAutoTagProfileDefaults = ref({ custom: {}, anime: {}, realistic: {} })
 const batchAiProfile = ref('default')
 const batchAiSettings = ref(defaultBatchAiSettings())
 const batchAutoJob = ref(null)
 const batchOperation = ref(null)
 let batchAutoPollTimer = null
 
-const batchAiProfiles = [
+const aiModelDefaultKeys = ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']
+const batchAiProfiles = computed(() => [
   {
     id: 'default',
     label: 'Default',
@@ -465,25 +483,26 @@ const batchAiProfiles = [
   {
     id: 'anime',
     label: 'Anime',
-    short: 'Camie + OCR + audio',
-    help: 'Best for anime, manga, illustrations, AMVs, and booru-style art. Uses Camie, OCR, Whisper for videos, and Qwen when your saved semantic defaults enable it.',
+    short: profileStackSummary('anime'),
+    help: 'Uses the Anime / Booru model stack saved in Settings.',
   },
   {
     id: 'realistic',
     label: 'Realistic',
-    short: 'WD or Qwen + OCR + audio',
-    help: 'Best for real-life videos, screenshots, memes, and edits. Uses WD by default; when saved semantic defaults enable Qwen, Qwen replaces WD. OCR and video audio still run.',
+    short: profileStackSummary('realistic'),
+    help: 'Uses the Realistic model stack saved in Settings.',
   },
   {
     id: 'custom',
     label: 'Custom',
-    short: 'Manual stack',
-    help: 'Uses the model checkboxes and thresholds shown in this batch panel only.',
+    short: profileStackSummary('custom'),
+    help: 'Starts from the Custom model stack saved in Settings, then uses any edits shown in this batch panel.',
   },
-]
+])
 
 const batchModelOptions = [
   { key: 'wdEnabled', label: 'WD Tagger', help: 'Broad booru/media tags from images and sampled video frames.' },
+  { key: 'pixaiEnabled', label: 'PixAI Tagger v0.9', help: 'Fast PixAI/Danbooru anime and illustration tags.' },
   { key: 'characterModelEnabled', label: 'Camie Tagger v2', help: 'Anime character, copyright, artist, and rating tags.' },
   { key: 'ocrEnabled', label: 'TrOCR Printed', help: 'Visible text, captions, subtitle, and meme text extraction.' },
   { key: 'whisperEnabled', label: 'Whisper Small', help: 'Speech, music, AMV/edit, and audio transcript signals for videos.' },
@@ -547,6 +566,11 @@ const inspectedPost = computed(() => {
   const id = hoveredPostId.value ?? lastSelectedId.value ?? selectedIds.value[selectedIds.value.length - 1]
   if (id == null) return null
   return posts.value.find((post) => post.id === id) || null
+})
+const inspectedSemanticAnalysis = computed(() => {
+  const id = inspectedPost.value?.id
+  if (id == null) return null
+  return inspectedSemanticCache.value[id] || null
 })
 const batchPanelStyle = computed(() => (
   batchDock.value === 'right'
@@ -739,6 +763,112 @@ function truncateText(value, maxLength = 60) {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text
 }
 
+function formatDurationMs(ms) {
+  const value = Number(ms || 0)
+  if (!Number.isFinite(value) || value <= 0) return ''
+  if (value < 1000) return `${Math.round(value)} ms`
+  if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)} s`
+  const minutes = Math.floor(value / 60_000)
+  const seconds = Math.round((value % 60_000) / 1000)
+  return `${minutes}m ${seconds}s`
+}
+
+function parseSemanticRawOutput(raw) {
+  const text = String(raw || '').trim()
+  if (!text) return {}
+  try {
+    const match = text.match(/\{[\s\S]*\}/)
+    const parsed = JSON.parse(match ? match[0] : text)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    const rationale = extractJsonStringFragment(text, 'rationale')
+    const description = extractJsonStringFragment(text, 'description')
+    const summary = extractJsonStringFragment(text, 'summary')
+    return { rationale, description, summary }
+  }
+}
+
+function extractJsonStringFragment(text, key) {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const quoted = new RegExp(`"${escapedKey}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, 'i').exec(text)
+  const fragment = quoted?.[1] || new RegExp(`"${escapedKey}"\\s*:\\s*"([\\s\\S]*)$`, 'i').exec(text)?.[1] || ''
+  return fragment
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .replace(/[}\],\s]*$/g, '')
+    .trim()
+}
+
+function cleanSemanticDescription(value) {
+  const text = String(value || '').trim()
+  if (/^[{\[]/.test(text)) return ''
+  return text
+    .replace(/\s+/g, ' ')
+    .replace(/^rationale:\s*/i, '')
+    .trim()
+}
+
+function semanticDescriptionFromField(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (!/^[{\[]/.test(text)) return text
+  const parsed = parseSemanticRawOutput(text)
+  return (
+    parsed.rationale ||
+    parsed.description ||
+    parsed.summary ||
+    parsed.scene ||
+    ''
+  )
+}
+
+function aiAnalysisDescription(analysis) {
+  if (analysis?.description) return String(analysis.description).trim()
+  return cleanSemanticDescription(
+    semanticDescriptionFromField(analysis?.rationale) ||
+    semanticDescriptionFromField(analysis?.summary) ||
+    semanticDescriptionFromField(analysis?.rawOutput)
+  )
+}
+
+function semanticResultFromAnalysis(analysis) {
+  const description = aiAnalysisDescription(analysis)
+  if (!description) return null
+  const rawParsed = parseSemanticRawOutput(analysis.rawOutput)
+  const semanticTags = Array.isArray(analysis.semanticTags) && analysis.semanticTags.length
+    ? analysis.semanticTags
+    : (Array.isArray(rawParsed.tags) ? rawParsed.tags : [])
+  return {
+    model: analysis.modelName || analysis.modelId || 'Qwen',
+    timing: formatDurationMs(analysis.durationMs),
+    description,
+    tags: semanticTags.map(String).filter(Boolean).slice(0, 12),
+  }
+}
+
+async function loadInspectedSemanticAnalysis(postId) {
+  if (!postId || Object.prototype.hasOwnProperty.call(inspectedSemanticCache.value, postId)) return
+  const requestId = ++inspectedSemanticRequestId
+  inspectedSemanticLoading.value = true
+  try {
+    const result = await api.getPostAiAnalysis(postId)
+    const analysis = (result.results || [])
+      .map(semanticResultFromAnalysis)
+      .find(Boolean) || null
+    inspectedSemanticCache.value = {
+      ...inspectedSemanticCache.value,
+      [postId]: analysis,
+    }
+  } catch {
+    inspectedSemanticCache.value = {
+      ...inspectedSemanticCache.value,
+      [postId]: null,
+    }
+  } finally {
+    if (requestId === inspectedSemanticRequestId) inspectedSemanticLoading.value = false
+  }
+}
+
 function selectedPostsInCurrentView() {
   const selected = new Set(selectedIds.value)
   return posts.value.filter((post) => selected.has(post.id))
@@ -808,38 +938,82 @@ function selectedMediaSummary() {
   return counts
 }
 
+function normalizeAiModelDefaults(raw = {}) {
+  const defaults = raw && typeof raw === 'object' ? raw : {}
+  const normalized = {}
+  for (const key of aiModelDefaultKeys) {
+    if (Object.prototype.hasOwnProperty.call(defaults, key)) {
+      normalized[key] = defaults[key] === true
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(normalized, 'qwenEnabled') && !Object.prototype.hasOwnProperty.call(normalized, 'semanticPoliticalEnabled')) {
+    normalized.semanticPoliticalEnabled = normalized.qwenEnabled
+  }
+  return normalized
+}
+
+function normalizeAiProfileDefaults(raw = {}, fallback = {}) {
+  const profiles = raw && typeof raw === 'object' ? raw : {}
+  const defaults = {
+    custom: fallback,
+    anime: { wdEnabled: false, pixaiEnabled: true, characterModelEnabled: true, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+    realistic: { wdEnabled: true, pixaiEnabled: false, characterModelEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+  }
+  return ['custom', 'anime', 'realistic'].reduce((memo, profileId) => {
+    memo[profileId] = {
+      ...defaults[profileId],
+      ...normalizeAiModelDefaults(profiles[profileId] || {}),
+    }
+    return memo
+  }, {})
+}
+
+function profileStack(profileId) {
+  if (profileId === 'custom') return normalizeAiModelDefaults(batchAiSettings.value)
+  return normalizeAiModelDefaults(savedAutoTagProfileDefaults.value?.[profileId] || {})
+}
+
+function profileStackSummary(profileId) {
+  const stack = profileStack(profileId)
+  const names = [
+    stack.wdEnabled ? 'WD' : '',
+    stack.pixaiEnabled ? 'PixAI' : '',
+    stack.characterModelEnabled ? 'Camie' : '',
+    stack.qwenEnabled ? 'Qwen' : '',
+    stack.ocrEnabled ? 'OCR' : '',
+    stack.whisperEnabled ? 'audio' : '',
+  ].filter(Boolean)
+  return names.length ? names.join(' + ') : 'No models enabled'
+}
+
 function batchAiRunSettings() {
   const base = {
     ...(savedAutoTagSettings.value || {}),
     enabled: true,
   }
   if (batchAiProfile.value === 'default') return base
+  const counts = selectedMediaSummary()
+  const hasVideo = counts.videos > 0
   if (batchAiProfile.value === 'custom') {
+    const stack = normalizeAiModelDefaults(batchAiSettings.value)
     return {
       ...base,
       ...batchAiSettings.value,
+      ...stack,
+      semanticPoliticalEnabled: stack.qwenEnabled === true,
+      whisperEnabled: hasVideo && stack.whisperEnabled === true,
       enabled: true,
     }
   }
 
-  const counts = selectedMediaSummary()
-  const hasVideo = counts.videos > 0
-  const useSemanticQwen = Boolean(
-    batchAiSettings.value.qwenEnabled ||
-    batchAiSettings.value.semanticPoliticalEnabled ||
-    base.qwenEnabled ||
-    base.semanticPoliticalEnabled,
-  )
+  const stack = profileStack(batchAiProfile.value)
   if (batchAiProfile.value === 'anime') {
     return {
       ...base,
       enabled: true,
-      wdEnabled: false,
-      characterModelEnabled: true,
-      ocrEnabled: true,
-      whisperEnabled: hasVideo,
-      qwenEnabled: useSemanticQwen,
-      semanticPoliticalEnabled: useSemanticQwen,
+      ...stack,
+      semanticPoliticalEnabled: stack.qwenEnabled === true,
+      whisperEnabled: hasVideo && stack.whisperEnabled === true,
       generalThreshold: 0.35,
       characterThreshold: 0.45,
       maxTags: 40,
@@ -850,12 +1024,9 @@ function batchAiRunSettings() {
     return {
       ...base,
       enabled: true,
-      wdEnabled: !useSemanticQwen,
-      characterModelEnabled: false,
-      ocrEnabled: true,
-      whisperEnabled: hasVideo,
-      qwenEnabled: useSemanticQwen,
-      semanticPoliticalEnabled: useSemanticQwen,
+      ...stack,
+      semanticPoliticalEnabled: stack.qwenEnabled === true,
+      whisperEnabled: hasVideo && stack.whisperEnabled === true,
       generalThreshold: 0.5,
       characterThreshold: 0.6,
       maxTags: hasVideo ? 20 : 18,
@@ -867,12 +1038,20 @@ function batchAiRunSettings() {
 
 async function loadBatchAiSettings() {
   try {
-    const settings = await api.getAutoTagSettings()
+    const [settings, defaultsResult] = await Promise.all([
+      api.getAutoTagSettings(),
+      api.getAiModelDefaults(),
+    ])
+    const modelDefaults = normalizeAiModelDefaults(defaultsResult?.modelDefaults)
+    savedAutoTagProfileDefaults.value = normalizeAiProfileDefaults(defaultsResult?.modelDefaults?.profileDefaults, modelDefaults)
+    const customDefaults = savedAutoTagProfileDefaults.value.custom || modelDefaults
     savedAutoTagSettings.value = { ...settings }
     batchAiSettings.value = {
       ...defaultBatchAiSettings(),
       ...settings,
+      ...customDefaults,
       enabled: true,
+      semanticPoliticalEnabled: customDefaults.qwenEnabled === true,
       semanticPrompt: settings.semanticPrompt || defaultSemanticPrompt,
       semanticModelId: settings.semanticModelId || 'qwen',
     }
@@ -1179,6 +1358,22 @@ watch(
     }
     fetchPosts()
   }
+)
+
+watch(
+  () => inspectedPost.value?.id,
+  (postId) => {
+    if (!postId) {
+      inspectedSemanticLoading.value = false
+      return
+    }
+    if (Object.prototype.hasOwnProperty.call(inspectedSemanticCache.value, postId)) {
+      inspectedSemanticLoading.value = false
+      return
+    }
+    loadInspectedSemanticAnalysis(postId)
+  },
+  { immediate: true }
 )
 
 function loadPerPage() {
@@ -1814,6 +2009,46 @@ function scrollToTop() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.inspector-semantic {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+
+.inspector-semantic > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.inspector-semantic strong {
+  color: var(--accent);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.74rem;
+}
+
+.inspector-semantic small {
+  text-align: right;
+}
+
+.inspector-semantic p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  max-height: 7.4rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.inspector-tag-list.semantic-tags {
+  margin-top: 0.6rem;
+  max-height: 70px;
 }
 
 .inspector-tags {
