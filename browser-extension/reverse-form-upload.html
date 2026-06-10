@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>NekoBooru Google Lens upload</title>
+  <title>NekoBooru reverse image upload</title>
   <style>
     body {
       margin: 0;
@@ -38,17 +38,13 @@
 </head>
 <body>
   <main>
-    <h1>Uploading to Google Lens</h1>
+    <h1 id="title">Uploading image</h1>
     <p id="status">Preparing image...</p>
-    <form
-      id="lens-form"
-      action="https://lens.google.com/v3/upload"
-      method="post"
-      enctype="multipart/form-data"
-    >
-      <input id="encoded-image" type="file" name="encoded_image" hidden />
+    <form id="upload-form" method="post" enctype="multipart/form-data">
+      <input id="search-image" type="file" hidden />
     </form>
   </main>
-  <script src="google-lens-upload.js"></script>
+  <script src="reverse-upload-store.js"></script>
+  <script src="reverse-form-upload.js"></script>
 </body>
 </html>

@@ -32,11 +32,12 @@ The extension adds three right-click menu items:
 ### NekoBooru reverse image search
 
 Right-click an image, GIF, or video and choose **NekoBooru reverse image search**
-to open SauceNAO, TinyURL, IQDB, TinEye, Google Lens, trace.moe, or all of them
-at once. Google Lens uses a temporary extension helper page that submits the
-image/frame bytes directly instead of relying on a public image URL. The menu
-also includes **Download current frame PNG** for video/GIF/image frame searches
-where a site needs an uploaded file instead of a URL.
+to open SauceNAO, IQDB, TinEye, Google Lens, trace.moe, or all of them at once.
+Most services use temporary extension helper pages that submit the image/frame
+bytes directly instead of relying on a public image URL. TinEye and trace.moe
+open their official UIs and inject the captured image into their upload controls. The menu also includes
+**Download current frame PNG** for video/GIF/image frame searches where a site
+needs an uploaded file instead of a URL.
 
 No login/token is required — it talks to the same open API the web UI uses, so
 point it at an instance only you can reach (localhost or your LAN/VPN).

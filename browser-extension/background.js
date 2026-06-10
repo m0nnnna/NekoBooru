@@ -14,8 +14,8 @@ const REVERSE_OPEN_ALL_ID = 'nekobooru-reverse-all'
 const REVERSE_PAGE_OPEN_ALL_ID = 'nekobooru-reverse-page-all'
 const REVERSE_FRAME_ID = 'nekobooru-reverse-frame'
 const REVERSE_PAGE_FRAME_ID = 'nekobooru-reverse-page-frame'
-const GOOGLE_LENS_UPLOAD_DB = 'nekobooruReverseSearch'
-const GOOGLE_LENS_UPLOAD_STORE = 'googleLensUploads'
+const REVERSE_UPLOAD_DB = 'nekobooruReverseSearch'
+const REVERSE_UPLOAD_STORE = 'reverseSearchUploads'
 const POPUP_WIDTH = 500
 const POPUP_HEIGHT = 680
 const X_MEDIA_CACHE_KEY = 'nekobooruXMediaCache'
@@ -24,32 +24,27 @@ const REVERSE_SEARCH_SERVICES = [
   {
     id: 'saucenao',
     title: 'SauceNAO',
-    url: (mediaUrl) => `https://saucenao.com/search.php?url=${encodeURIComponent(mediaUrl)}`,
-  },
-  {
-    id: 'tinyurl',
-    title: 'TinyURL',
-    url: (mediaUrl) => `https://tinyurl.com/create.php?url=${encodeURIComponent(mediaUrl)}`,
+    upload: 'saucenao',
   },
   {
     id: 'iqdb',
     title: 'IQDB',
-    url: (mediaUrl) => `https://iqdb.org/?url=${encodeURIComponent(mediaUrl)}`,
+    upload: 'iqdb',
   },
   {
     id: 'tineye',
     title: 'TinEye',
-    url: (mediaUrl) => `https://tineye.com/search?url=${encodeURIComponent(mediaUrl)}`,
+    upload: 'tineye',
   },
   {
     id: 'google',
     title: 'Google Lens',
-    upload: true,
+    upload: 'google',
   },
   {
     id: 'trace',
     title: 'trace.moe',
-    url: (mediaUrl) => `https://trace.moe/?url=${encodeURIComponent(mediaUrl)}`,
+    upload: 'trace',
   },
 ]
 
@@ -624,7 +619,7 @@ function handleReverseSearchClick(info, tab) {
   if (isOpenAll) {
     for (const item of REVERSE_SEARCH_SERVICES) {
       if (item.upload) {
-        openGoogleLensUpload(tab, info, false)
+        openReverseUpload(item, tab, info, false)
       } else {
         openReverseSearchTab(item.url(target), tab, false)
       }
@@ -632,7 +627,7 @@ function handleReverseSearchClick(info, tab) {
     return true
   }
   if (service.upload) {
-    openGoogleLensUpload(tab, info, true)
+    openReverseUpload(service, tab, info, true)
     return true
   }
   openReverseSearchTab(service.url(target), tab, true)
@@ -683,32 +678,169 @@ async function captureCurrentFrame(tab, info) {
   }
 }
 
-async function openGoogleLensUpload(tab, info, active = true) {
+async function openReverseUpload(service, tab, info, active = true) {
+  if (service.upload === 'trace') {
+    openTraceMoeUpload(tab, info, active)
+    return
+  }
+  if (service.upload === 'tineye') {
+    openTinEyeUpload(tab, info, active)
+    return
+  }
+
   try {
     const blob = await blobForReverseSearch(tab, info)
-    const key = `lens-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    await saveGoogleLensUpload(key, {
+    const key = `${service.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    await saveReverseUpload(key, {
       blob,
-      filename: googleLensFilename(info),
+      filename: reverseUploadFilename(info),
       savedAt: Date.now(),
     })
-    const url = chrome.runtime.getURL(`google-lens-upload.html?key=${encodeURIComponent(key)}`)
+    const page = reverseUploadPage(service.upload)
+    const params = new URLSearchParams({ key, service: service.upload })
+    const url = chrome.runtime.getURL(`${page}?${params.toString()}`)
     openReverseSearchTab(url, tab, active)
   } catch (e) {
-    notifyReverseSearch(e.message || 'Google Lens upload failed.')
+    notifyReverseSearch(e.message || `${service.title} upload failed.`)
   }
 }
 
-function googleLensFilename(info) {
+function reverseUploadPage(uploadType) {
+  if (uploadType === 'google') return 'google-lens-upload.html'
+  return 'reverse-form-upload.html'
+}
+
+async function openTraceMoeUpload(tab, info, active = true) {
+  try {
+    const blob = await blobForReverseSearch(tab, info, { landscape: true })
+    const dataUrl = await blobToDataUrl(blob)
+    const created = await createReverseSearchTab('https://trace.moe/', tab, active)
+    await waitForTabComplete(created.id)
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: created.id },
+      func: injectTraceMoeUpload,
+      args: [dataUrl, reverseUploadFilename(info)],
+    })
+    if (!result?.result?.ok) throw new Error(result?.result?.error || 'trace.moe upload injection failed.')
+  } catch (e) {
+    notifyReverseSearch(e.message || 'trace.moe upload failed.')
+  }
+}
+
+async function openTinEyeUpload(tab, info, active = true) {
+  try {
+    const blob = await blobForReverseSearch(tab, info)
+    const dataUrl = await blobToDataUrl(blob)
+    const created = await createReverseSearchTab('https://tineye.com/', tab, active)
+    await waitForTabComplete(created.id, 'TinEye')
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: created.id },
+      func: injectTinEyeUpload,
+      args: [dataUrl, reverseUploadFilename(info)],
+    })
+    if (!result?.result?.ok) throw new Error(result?.result?.error || 'TinEye upload injection failed.')
+  } catch (e) {
+    notifyReverseSearch(e.message || 'TinEye upload failed.')
+  }
+}
+
+function createReverseSearchTab(url, tab, active) {
+  return new Promise((resolve, reject) => {
+    const opts = { url, active }
+    if (tab?.windowId != null) opts.windowId = tab.windowId
+    chrome.tabs.create(opts, (created) => {
+      const error = chrome.runtime.lastError
+      if (error) reject(new Error(error.message || 'Could not open reverse search tab.'))
+      else resolve(created)
+    })
+  })
+}
+
+function waitForTabComplete(tabId, serviceName = 'reverse-search site') {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener)
+      reject(new Error(`${serviceName} did not finish loading.`))
+    }, 30000)
+    const listener = (updatedTabId, changeInfo) => {
+      if (updatedTabId !== tabId || changeInfo.status !== 'complete') return
+      clearTimeout(timeout)
+      chrome.tabs.onUpdated.removeListener(listener)
+      resolve()
+    }
+    chrome.tabs.onUpdated.addListener(listener)
+    chrome.tabs.get(tabId, (loadedTab) => {
+      if (chrome.runtime.lastError) return
+      if (loadedTab?.status === 'complete') {
+        clearTimeout(timeout)
+        chrome.tabs.onUpdated.removeListener(listener)
+        resolve()
+      }
+    })
+  })
+}
+
+async function injectTinEyeUpload(dataUrl, filename) {
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  const fileInputSelector = 'input[type="file"]'
+  let input = document.querySelector(fileInputSelector)
+  for (let i = 0; !input && i < 300; i += 1) {
+    await wait(100)
+    input = document.querySelector(fileInputSelector)
+  }
+  if (!input) {
+    return {
+      ok: false,
+      error: document.title.includes('Just a moment')
+        ? 'TinEye is still on its browser check. Open TinEye once, let it finish, then try again.'
+        : 'Could not find the TinEye upload input.',
+    }
+  }
+
+  const response = await fetch(dataUrl)
+  const blob = await response.blob()
+  const file = new File([blob], filename || 'nekobooru-search.png', {
+    type: blob.type || 'image/png',
+  })
+  const transfer = new DataTransfer()
+  transfer.items.add(file)
+  input.files = transfer.files
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+
+  await wait(500)
+  const submit = input.form?.querySelector('button[type="submit"], input[type="submit"], button:not([type])')
+  if (submit && !submit.disabled) submit.click()
+  else if (input.form?.requestSubmit) input.form.requestSubmit()
+
+  return { ok: true }
+}
+
+async function injectTraceMoeUpload(dataUrl, filename) {
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  let image = document.querySelector('#originalImage')
+  for (let i = 0; !image && i < 150; i += 1) {
+    await wait(100)
+    image = document.querySelector('#originalImage')
+  }
+  if (!image) return { ok: false, error: 'Could not find the trace.moe search image target.' }
+
+  image.src = dataUrl
+  return { ok: true }
+}
+
+function reverseUploadFilename(info) {
   const raw = info.srcUrl || lastMediaUrl || ''
   const base = filenameFromUrl(raw || 'nekobooru-search.png')
+  if (shouldCaptureFrameForUpload(info, raw)) return base.replace(/\.[^.]+$/, '') + '-frame.png'
   if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(base)) return base
   return base.replace(/\.[^.]+$/, '') + '.png'
 }
 
-async function blobForReverseSearch(tab, info) {
+async function blobForReverseSearch(tab, info, options = {}) {
   const directUrl = info.srcUrl || lastMediaUrl
-  if (directUrl) {
+  const preferFrame = shouldCaptureFrameForUpload(info, directUrl)
+  if (directUrl && !preferFrame) {
     try {
       const response = await fetch(normalizeUploadSrcUrl(directUrl), { credentials: 'include' })
       if (response.ok) return await response.blob()
@@ -721,17 +853,32 @@ async function blobForReverseSearch(tab, info) {
   const frameId = Number.isInteger(info.frameId) ? info.frameId : 0
   let result = await sendMessageToFrame(tab.id, frameId, {
     type: 'nekobooru-capture-current-frame',
+    landscape: !!options.landscape,
   })
   if (!result.ok && isMissingContentScriptError(result.error)) {
     const injected = await injectPasteContentScript(tab.id, frameId)
     if (injected.ok) {
       result = await sendMessageToFrame(tab.id, frameId, {
         type: 'nekobooru-capture-current-frame',
+        landscape: !!options.landscape,
       })
     }
   }
-  if (!result.ok || !result.dataUrl) throw new Error(result.error || 'Could not capture media for Google Lens.')
+  if (!result.ok || !result.dataUrl) throw new Error(result.error || 'Could not capture media frame.')
   return dataUrlToBlob(result.dataUrl)
+}
+
+function shouldCaptureFrameForUpload(info, raw = '') {
+  const target = String(raw || info?.srcUrl || lastMediaUrl || '').toLowerCase()
+  const mediaType = String(info?.mediaType || lastMediaType || '').toLowerCase()
+  return (
+    mediaType === 'video' ||
+    target.includes('.mp4') ||
+    target.includes('.webm') ||
+    target.includes('.mov') ||
+    target.includes('.m4v') ||
+    target.includes('.gif')
+  )
 }
 
 function dataUrlToBlob(dataUrl) {
@@ -745,25 +892,27 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([bytes], { type: mime })
 }
 
-function openGoogleLensDb() {
+function openReverseUploadDb() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(GOOGLE_LENS_UPLOAD_DB, 1)
+    const request = indexedDB.open(REVERSE_UPLOAD_DB, 2)
     request.onupgradeneeded = () => {
-      request.result.createObjectStore(GOOGLE_LENS_UPLOAD_STORE)
+      if (!request.result.objectStoreNames.contains(REVERSE_UPLOAD_STORE)) {
+        request.result.createObjectStore(REVERSE_UPLOAD_STORE)
+      }
     }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error || new Error('Could not open temporary upload storage.'))
   })
 }
 
-async function saveGoogleLensUpload(key, payload) {
-  const db = await openGoogleLensDb()
+async function saveReverseUpload(key, payload) {
+  const db = await openReverseUploadDb()
   try {
     await new Promise((resolve, reject) => {
-      const tx = db.transaction(GOOGLE_LENS_UPLOAD_STORE, 'readwrite')
-      tx.objectStore(GOOGLE_LENS_UPLOAD_STORE).put(payload, key)
+      const tx = db.transaction(REVERSE_UPLOAD_STORE, 'readwrite')
+      tx.objectStore(REVERSE_UPLOAD_STORE).put(payload, key)
       tx.oncomplete = resolve
-      tx.onerror = () => reject(tx.error || new Error('Could not save temporary Google Lens upload.'))
+      tx.onerror = () => reject(tx.error || new Error('Could not save temporary reverse-search upload.'))
     })
   } finally {
     db.close()

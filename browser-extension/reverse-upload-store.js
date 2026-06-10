@@ -1,35 +1,7 @@
-const statusEl = document.getElementById('status')
-const formEl = document.getElementById('lens-form')
-const fileInputEl = document.getElementById('encoded-image')
 const DB_NAME = 'nekobooruReverseSearch'
 const STORE_NAME = 'reverseSearchUploads'
 
-init()
-
-async function init() {
-  try {
-    const key = new URLSearchParams(location.search).get('key') || ''
-    if (!key) throw new Error('Missing temporary upload key.')
-
-    const payload = await takeUpload(key)
-    cleanupOldUploads()
-
-    if (!payload?.blob) throw new Error('Temporary image data was not found.')
-    const file = new File([payload.blob], payload.filename || 'nekobooru-search.png', {
-      type: payload.blob.type || 'image/png',
-    })
-    const transfer = new DataTransfer()
-    transfer.items.add(file)
-    fileInputEl.files = transfer.files
-    statusEl.textContent = 'Submitting image to Google Lens...'
-    formEl.submit()
-  } catch (error) {
-    statusEl.textContent = error.message || 'Could not upload to Google Lens.'
-    statusEl.classList.add('error')
-  }
-}
-
-function openDb() {
+function openReverseUploadDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2)
     request.onupgradeneeded = () => {
@@ -42,8 +14,8 @@ function openDb() {
   })
 }
 
-async function takeUpload(key) {
-  const db = await openDb()
+async function takeReverseUpload(key) {
+  const db = await openReverseUploadDb()
   try {
     return await new Promise((resolve, reject) => {
       let payload
@@ -63,10 +35,10 @@ async function takeUpload(key) {
   }
 }
 
-async function cleanupOldUploads() {
+async function cleanupOldReverseUploads() {
   let db
   try {
-    db = await openDb()
+    db = await openReverseUploadDb()
     const now = Date.now()
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -86,4 +58,11 @@ async function cleanupOldUploads() {
   } finally {
     db?.close()
   }
+}
+
+function fileFromReverseUpload(payload, fallbackName = 'nekobooru-search.png') {
+  if (!payload?.blob) throw new Error('Temporary image data was not found.')
+  return new File([payload.blob], payload.filename || fallbackName, {
+    type: payload.blob.type || 'image/png',
+  })
 }

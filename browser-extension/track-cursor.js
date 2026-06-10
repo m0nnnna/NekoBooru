@@ -584,7 +584,28 @@ function filenameForCapturedFrame(media) {
   return 'nekobooru-frame.png'
 }
 
-function captureCurrentMediaFrame() {
+function captureRect(width, height, landscape = false) {
+  if (!landscape) return { sx: 0, sy: 0, sw: width, sh: height, dw: width, dh: height }
+
+  const targetAspect = 16 / 9
+  const sourceAspect = width / height
+  let sx = 0
+  let sy = 0
+  let sw = width
+  let sh = height
+
+  if (sourceAspect < targetAspect) {
+    sh = Math.round(width / targetAspect)
+    sy = Math.max(0, Math.round((height - sh) / 2))
+  } else if (sourceAspect > targetAspect) {
+    sw = Math.round(height * targetAspect)
+    sx = Math.max(0, Math.round((width - sw) / 2))
+  }
+
+  return { sx, sy, sw, sh, dw: sw, dh: sh }
+}
+
+function captureCurrentMediaFrame(options = {}) {
   const media = currentMediaAtLastContextMenu()
   if (!media) return { ok: false, error: 'No image or video was found under the last right-click.' }
 
@@ -593,12 +614,13 @@ function captureCurrentMediaFrame() {
   if (!width || !height) return { ok: false, error: 'The media frame is not ready yet.' }
 
   try {
+    const rect = captureRect(width, height, !!options.landscape)
     const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
+    canvas.width = rect.dw
+    canvas.height = rect.dh
     const context = canvas.getContext('2d')
     if (!context) return { ok: false, error: 'Canvas capture is unavailable.' }
-    context.drawImage(media, 0, 0, width, height)
+    context.drawImage(media, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, rect.dw, rect.dh)
     return {
       ok: true,
       dataUrl: canvas.toDataURL('image/png'),
@@ -614,7 +636,7 @@ function captureCurrentMediaFrame() {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type !== 'nekobooru-capture-current-frame') return
-  sendResponse(captureCurrentMediaFrame())
+  sendResponse(captureCurrentMediaFrame({ landscape: !!msg.landscape }))
 })
 
 window.addEventListener(
