@@ -14,7 +14,8 @@ const REVERSE_OPEN_ALL_ID = 'nekobooru-reverse-all'
 const REVERSE_PAGE_OPEN_ALL_ID = 'nekobooru-reverse-page-all'
 const REVERSE_FRAME_ID = 'nekobooru-reverse-frame'
 const REVERSE_PAGE_FRAME_ID = 'nekobooru-reverse-page-frame'
-const GOOGLE_LENS_UPLOAD_KEY_PREFIX = 'nekobooruGoogleLensUpload:'
+const GOOGLE_LENS_UPLOAD_DB = 'nekobooruReverseSearch'
+const GOOGLE_LENS_UPLOAD_STORE = 'googleLensUploads'
 const POPUP_WIDTH = 500
 const POPUP_HEIGHT = 680
 const X_MEDIA_CACHE_KEY = 'nekobooruXMediaCache'
@@ -43,7 +44,6 @@ const REVERSE_SEARCH_SERVICES = [
   {
     id: 'google',
     title: 'Google Lens',
-    url: (mediaUrl) => `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(mediaUrl)}`,
     upload: true,
   },
   {
@@ -686,23 +686,15 @@ async function captureCurrentFrame(tab, info) {
 async function openGoogleLensUpload(tab, info, active = true) {
   try {
     const blob = await blobForReverseSearch(tab, info)
-    const key = `${GOOGLE_LENS_UPLOAD_KEY_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2)}`
-    await chrome.storage.local.set({
-      [key]: {
-        dataUrl: await blobToDataUrl(blob),
-        filename: googleLensFilename(info),
-        savedAt: Date.now(),
-      },
+    const key = `lens-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    await saveGoogleLensUpload(key, {
+      blob,
+      filename: googleLensFilename(info),
+      savedAt: Date.now(),
     })
     const url = chrome.runtime.getURL(`google-lens-upload.html?key=${encodeURIComponent(key)}`)
     openReverseSearchTab(url, tab, active)
   } catch (e) {
-    const target = reverseSearchTargetUrl(info, tab)
-    if (target) {
-      openReverseSearchTab(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(target)}`, tab, active)
-      notifyReverseSearch('Could not capture/upload the image bytes. Opened the URL fallback, which only works for public image URLs.')
-      return
-    }
     notifyReverseSearch(e.message || 'Google Lens upload failed.')
   }
 }
@@ -751,6 +743,31 @@ function dataUrlToBlob(dataUrl) {
   const bytes = new Uint8Array(raw.length)
   for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i)
   return new Blob([bytes], { type: mime })
+}
+
+function openGoogleLensDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(GOOGLE_LENS_UPLOAD_DB, 1)
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(GOOGLE_LENS_UPLOAD_STORE)
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error || new Error('Could not open temporary upload storage.'))
+  })
+}
+
+async function saveGoogleLensUpload(key, payload) {
+  const db = await openGoogleLensDb()
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(GOOGLE_LENS_UPLOAD_STORE, 'readwrite')
+      tx.objectStore(GOOGLE_LENS_UPLOAD_STORE).put(payload, key)
+      tx.oncomplete = resolve
+      tx.onerror = () => reject(tx.error || new Error('Could not save temporary Google Lens upload.'))
+    })
+  } finally {
+    db.close()
+  }
 }
 
 function notifyReverseSearch(message) {
