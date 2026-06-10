@@ -38,6 +38,8 @@ WD_MODEL_ID = "SmilingWolf/wd-eva02-large-tagger-v3"
 WHISPER_MAX_AUDIO_SECONDS = 30
 QWEN_MIN_FREE_VRAM_GB = 18.0
 QWEN_ANALYSIS_MAX_SIDE = 900
+QWEN_MAX_NEW_TOKENS = 512
+QWEN_GGUF_MAX_TOKENS = 512
 QWEN_GGUF_REPO_ID = "Qwen/Qwen3-VL-8B-Instruct-GGUF"
 QWEN_GGUF_MMPROJ_FILE = "mmproj-Qwen3VL-8B-Instruct-F16.gguf"
 QWEN_GGUF_FILE_SIZES = {
@@ -200,16 +202,17 @@ DEFAULT_SEMANTIC_PROMPT = (
     "Return compact JSON only with keys: tags, safety, rationale.\n"
     "Use snake_case tags only.\n\n"
     "Semantic description:\n"
-    "- The rationale should describe the visible image or frame collection in detail, including clothing garments, describe the pose, setting, text, audio/transcript evidence, and why semantic/context tags were included.\n\n"
+    "- The rationale should describe the visible image or frame collection in detail, including clothing garments, describe the pose, setting, text, audio/transcript evidence, and if lewd or nsfw explain what is erotic about it.\n\n"
     "Tags in priority order:\n"
     "- Return 6-28 useful searchable tags supported by the image, frame, OCR, transcript, or source page.\n"
     "- When model tag hints are provided, use them as visual grounding. Prefer specific animal type, ear, horn, tail, clothing, and character/source hints from booru taggers unless the image clearly contradicts them.\n"
-    "- Start with directly visible tags: media type, exact pose/action, subject count, male/female/girl/boy, setting, objects, expression, hair color, eye color, framing, text/audio presence, and meme/edit format.\n"
+    "- Start with directly visible tags: media type, exact pose/action, subject count, male/female/girl/boy, setting, objects, actions, expression, hair color, eye color, framing, text/audio presence, and meme/edit format.\n"
     "- Always include the main visible pose or action as a searchable tag when clear, such as lying, sitting, standing, kneeling, crouching, squatting, walking, running, jumping, dancing, sleeping, stretching, arms_up, looking_at_viewer, or selfie.\n"
     "- Decompose clothing into specific garments and attributes. Name the garment type separately from pattern or theme. Example cow_print_outfit, bikini, swimsuit, would all be included.\n"
-    "- Do not confuse animal ears or horns for clothing, or horns for ears. Tag what is visibly present, such as animal_ears, cow_horns, white_horns, tail, or cow_tail.\n"
+    "- Do not confuse animal ears types or horns for clothing, or horns for ears. Tag what is visibly present, such as animal_ears, cow_horns, white_horns, tail, or cow_tail.\n"
     "- Add frequent or matching primary colors for the scene or clothing, hair color, eye color, standout accessories, exact pose, and anything visually distinctive.\n"
     "- Include screenshot, photo, video, image, or gif when they fit.\n"
+    "- If lewd or nsfw explain what is erotic about it.\n"
     "- Add semantic/context tags only when supported: political_edit, meme_edit, amv, music_video, captioned, protest, politician, propaganda, music, edit, has_text, text_overlay, has_speech, swastika, sonnenrad, black_sun, national_socialism, hammer_and_sickle, communism."
 )
 LEGACY_SEMANTIC_PROMPTS = {
@@ -854,16 +857,17 @@ class QwenSemanticTagger:
         image_inputs, video_inputs = process_vision_info(messages)
         inputs = self._processor(text=[text], images=image_inputs, videos=video_inputs, padding=True, return_tensors="pt")
         inputs = inputs.to(self._model.device)
-        generated_ids = self._model.generate(**inputs, max_new_tokens=160)
+        generated_ids = self._model.generate(**inputs, max_new_tokens=QWEN_MAX_NEW_TOKENS)
         trimmed = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated_ids)]
         output = self._processor.batch_decode(trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         parsed = _parse_semantic_json(output)
         tags = [normalize_tag(tag) for tag in parsed.get("tags", []) if normalize_tag(tag)]
         safety = normalize_safety_label(parsed.get("safety"))
+        max_tags = _semantic_tag_limit(opts)
         return AutoTagResult(
-            tags=tags[:20],
+            tags=tags[:max_tags],
             safety=safety,
-            categories={tag: "general" for tag in tags[:20]},
+            categories={tag: "general" for tag in tags[:max_tags]},
             evidence={"kind": "qwen", "raw": output, "parsed": parsed, **_analysis_image_evidence(path)},
             model=self.name,
             enabled=True,
@@ -971,7 +975,7 @@ class QwenGgufSemanticTagger:
                     {"type": "image_url", "image_url": {"url": image_url}},
                 ],
             }],
-            max_tokens=180,
+            max_tokens=QWEN_GGUF_MAX_TOKENS,
             temperature=0.2,
             response_format={"type": "json_object"},
         )
@@ -979,10 +983,11 @@ class QwenGgufSemanticTagger:
         parsed = _parse_semantic_json(text)
         tags = [normalize_tag(tag) for tag in parsed.get("tags", []) if normalize_tag(tag)]
         safety = normalize_safety_label(parsed.get("safety"))
+        max_tags = _semantic_tag_limit(opts)
         return AutoTagResult(
-            tags=tags[:20],
+            tags=tags[:max_tags],
             safety=safety,
-            categories={tag: "general" for tag in tags[:20]},
+            categories={tag: "general" for tag in tags[:max_tags]},
             evidence={"kind": "qwen_gguf", "raw": text, "parsed": parsed, "modelId": self.model_id, **_analysis_image_evidence(path)},
             model=self.name,
             enabled=True,
@@ -1373,6 +1378,10 @@ def _semantic_prompt(opts: AutoTagOptions) -> str:
     if not opts.semanticPromptEnabled:
         return DEFAULT_SEMANTIC_PROMPT
     return _clean_semantic_prompt(opts.semanticPrompt)
+
+
+def _semantic_tag_limit(opts: AutoTagOptions) -> int:
+    return max(1, min(int(opts.maxTags or 28), 60))
 
 
 def _semantic_prompt_with_context(opts: AutoTagOptions, context: dict | None = None) -> str:

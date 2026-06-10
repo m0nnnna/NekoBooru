@@ -1194,6 +1194,7 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertIn("bikini", DEFAULT_SEMANTIC_PROMPT)
         self.assertIn("exact pose/action", DEFAULT_SEMANTIC_PROMPT)
         self.assertIn("lying", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("if lewd or nsfw explain what is erotic about it", DEFAULT_SEMANTIC_PROMPT)
 
         capped = validate_options({"semanticPrompt": "x" * 5000})
         self.assertEqual(len(capped.semanticPrompt), 4000)
@@ -1208,6 +1209,14 @@ class AutoTagUnitTests(unittest.TestCase):
         )
         migrated = validate_options({"semanticPrompt": legacy_default})
         self.assertEqual(migrated.semanticPrompt, DEFAULT_SEMANTIC_PROMPT)
+
+    def test_semantic_generation_limits_allow_richer_rationale_and_tags(self):
+        from app.services.auto_tagger import AutoTagOptions, QWEN_GGUF_MAX_TOKENS, QWEN_MAX_NEW_TOKENS, _semantic_tag_limit
+
+        self.assertGreaterEqual(QWEN_MAX_NEW_TOKENS, 512)
+        self.assertGreaterEqual(QWEN_GGUF_MAX_TOKENS, 512)
+        self.assertEqual(_semantic_tag_limit(AutoTagOptions(maxTags=28)), 28)
+        self.assertEqual(_semantic_tag_limit(AutoTagOptions(maxTags=80)), 60)
 
     def test_semantic_prompt_and_search_flags_validate(self):
         from app.services.auto_tagger import validate_options
