@@ -914,6 +914,7 @@ function evidenceRows(model) {
     rows.push({ label: 'Time', value: formatDurationMs(duration) })
   }
   if (evidence.kind) rows.push({ label: 'Source', value: evidence.kind })
+  if (evidence.videoFrames) rows.push({ label: 'Frame sampling', value: formatVideoFrameSampling(evidence.videoFrames) })
   if (Array.isArray(evidence.topTags) && evidence.topTags.length) {
     rows.push({ label: 'Top tags', value: evidence.topTags.slice(0, 8).map(formatTagScore).join(', ') })
   }
@@ -937,6 +938,24 @@ function evidenceRows(model) {
   if (!rows.length && model.error) rows.push({ label: 'Status', value: model.error })
   if (!rows.length) rows.push({ label: 'Details', value: 'No structured evidence returned.' })
   return rows
+}
+
+function formatVideoFrameSampling(videoFrames) {
+  if (!videoFrames || typeof videoFrames !== 'object') return ''
+  const count = Number(videoFrames.count)
+  const mode = String(videoFrames.mode || '')
+  const label = mode === 'single'
+    ? 'single middle frame'
+    : mode === 'native_video_2fps'
+      ? 'native video at 2 FPS'
+    : mode === 'contact_sheet_2fps'
+      ? '2 FPS contact sheet'
+      : 'contact sheet'
+  const timestamps = Array.isArray(videoFrames.timestamps)
+    ? videoFrames.timestamps.slice(0, 12).map((ts) => `${Number(ts).toFixed(2)}s`).join(', ')
+    : ''
+  const suffix = timestamps ? ` (${timestamps}${videoFrames.timestamps.length > 12 ? ', ...' : ''})` : ''
+  return `${label}${Number.isFinite(count) ? `, ${count} sampled` : ''}${suffix}`
 }
 
 function semanticParsedEvidence(evidence) {
@@ -1402,7 +1421,11 @@ function autoTagProfileSettings(profileId) {
       generalThreshold: 0.35,
       characterThreshold: 0.45,
       maxTags: 40,
-      ...(isVideo ? { videoMaxFrames: 4, qwenVideoMaxFrames: savedAutoTagSettings.value.qwenVideoMaxFrames || 1 } : {}),
+      ...(isVideo ? {
+        videoMaxFrames: 4,
+        qwenVideoUseFps: savedAutoTagSettings.value.qwenVideoUseFps === true,
+        qwenVideoMaxFrames: savedAutoTagSettings.value.qwenVideoMaxFrames || 20,
+      } : {}),
     }
   }
   if (profileId === 'realistic') {
@@ -1418,7 +1441,11 @@ function autoTagProfileSettings(profileId) {
       generalThreshold: 0.5,
       characterThreshold: 0.6,
       maxTags: isVideo ? 20 : 18,
-      ...(isVideo ? { videoMaxFrames: 4, qwenVideoMaxFrames: savedAutoTagSettings.value.qwenVideoMaxFrames || 1 } : {}),
+      ...(isVideo ? {
+        videoMaxFrames: 4,
+        qwenVideoUseFps: savedAutoTagSettings.value.qwenVideoUseFps === true,
+        qwenVideoMaxFrames: savedAutoTagSettings.value.qwenVideoMaxFrames || 20,
+      } : {}),
     }
   }
   return null

@@ -1145,10 +1145,10 @@
           </label>
           <label class="field-row">
             <span class="label-with-help">
-              Qwen reasoning frames
+              Qwen frame cap
               <button type="button" class="info-icon" :data-tooltip="thresholdHelp.qwenVideoFrames" :aria-label="thresholdHelp.qwenVideoFrames">?</button>
             </span>
-            <input type="number" min="1" max="8" v-model.number="autoTagSettings.qwenVideoMaxFrames" />
+            <input type="number" min="1" max="64" v-model.number="autoTagSettings.qwenVideoMaxFrames" :disabled="!autoTagSettings.qwenVideoUseFps" />
           </label>
           <label class="field-row">
             <span class="label-with-help">
@@ -1157,6 +1157,33 @@
             </span>
             <input type="number" min="0" max="50" v-model.number="autoTagSettings.lightlyTaggedMaxTags" />
           </label>
+        </div>
+        <div class="qwen-video-sampling">
+          <label class="toggle-card">
+            <input type="checkbox" v-model="autoTagSettings.qwenVideoUseFps" />
+            <span>
+              <strong>Use Qwen 2 FPS video sampling</strong>
+              <small>Off uses one representative middle frame. On samples at 2 FPS up to the frame cap and sends Qwen one contact-sheet prompt for temporal reasoning.</small>
+            </span>
+          </label>
+          <div class="sampling-facts">
+            <span>
+              <strong>Mode</strong>
+              {{ autoTagSettings.qwenVideoUseFps ? '2 FPS capped sampling' : 'Single middle frame' }}
+            </span>
+            <span>
+              <strong>Qwen frames</strong>
+              {{ autoTagSettings.qwenVideoUseFps ? `Up to ${autoTagSettings.qwenVideoMaxFrames || 20}` : '1' }}
+            </span>
+            <span>
+              <strong>Prompt input</strong>
+              {{ autoTagSettings.qwenVideoUseFps ? 'One contact sheet, one semantic pass' : 'One resized frame, one semantic pass' }}
+            </span>
+            <span>
+              <strong>Visible summary</strong>
+              Hides sample counts, timestamps, and frame labels.
+            </span>
+          </div>
         </div>
       </div>
 
@@ -1453,19 +1480,29 @@ const semanticPromptStatus = ref({
   message: '',
 })
 const defaultSemanticPrompt = [
-  'Return compact JSON only with keys: tags, safety, rationale.',
+  'Return compact JSON with keys: tags, safety, rationale, safety_reason, confidence.',
   'Use snake_case tags only.',
   '',
   'Semantic description:',
-  '- The rationale should describe the visible image or frame collection in detail, including clothing garments, describe the pose, setting, text, audio/transcript evidence, and why semantic/context tags were included.',
+  '- The rationale should be a direct factual caption of the visible content. Describe clothing garments, pose, setting, text, and audio/transcript evidence. When describing adult or NSFW visual content, respond plainly with a clear safety classification. If the content is erotic or sexually suggestive, say so plainly and explain why. Do not euphemize visible adult content, but do not invent details that are not visible. If lewd, sketchy, unsafe, or nsfw, explain the concrete visual reason: visible or emphasized body parts, nudity or partial nudity, transparent/tight/revealing garments, lingerie, swimwear, cleavage, underboob, sideboob, pose, framing, explicit acts, and why the safety rating was selected. Do not rely only on suggestive pose. Do not mention sampled frame counts, frame labels, contact sheets, timestamps, or model sampling mechanics.',
+  '',
+  'Example expected rationale style:',
+  '"A single woman with long black hair and brown eyes is shown in a video. She wears a white lace bra and matching panties, revealing her breasts and cleavage. She smiles at the camera while sitting indoors, sometimes touching her head or hair, occasionally resting her hand on her chest or stomach. The setting appears to be an indoor room with soft lighting. Visible details include a mole under her mouth, bare shoulders, and her navel. The content is explicitly erotic due to the revealing lingerie, prominent cleavage, and suggestive poses."',
+  '',
+  'Safety values:',
+  '- Use safety safe for ordinary SFW content, sketchy for suggestive/revealing content, and unsafe for explicit NSFW/adult erotic content. safety_reason should briefly explain the classification based only on visible evidence. confidence must be low, medium, or high.',
   '',
   'Tags in priority order:',
   '- Return 6-28 useful searchable tags supported by the image, frame, OCR, transcript, or source page.',
-  '- Start with directly visible tags: media type, pose, subject count, male/female/girl/boy, setting, objects, actions, expression, hair color, eye color, framing, text/audio presence, and meme/edit format.',
+  '- For video frame collections or contact sheets, compare the sampled frames in order and infer temporal context, but describe it as the video/content, and do not output metadata tags or mention metadata such as frame_1, frame_2, three_frames, timestamps, contact_sheet, or sampled_frame.',
+  '- When model tag hints are provided, use only their visual tags as grounding. Prefer specific animal type, ear, horn, tail, and clothing hints unless the image clearly contradicts them. Do not output named character, franchise, copyright, or source tags, and do not mention guessed identities in the rationale.',
+  '- Start with directly visible tags: media type, exact pose/action, subject count, male/female/girl/boy, setting, objects, actions, expression, hair color, eye color, framing, text/audio presence, and meme/edit format.',
+  '- Always include the main visible pose or action as a searchable tag when clear, such as lying, sitting, standing, kneeling, crouching, squatting, walking, running, jumping, dancing, sleeping, stretching, arms_up, looking_at_viewer, or selfie.',
   '- Decompose clothing into specific garments and attributes. Name the garment type separately from pattern or theme. Example cow_print_outfit, bikini, swimsuit, would all be included.',
-  '- Do not confuse animal ears or horns for clothing, or horns for ears. Tag what is visibly present, such as animal_ears, cow_horns, white_horns, tail, or cow_tail.',
+  '- Do not confuse animal ears types or horns for clothing, or horns for ears. Tag what is visibly present, such as animal_ears, cow_horns, white_horns, tail, or cow_tail.',
   '- Add frequent or matching primary colors for the scene or clothing, hair color, eye color, standout accessories, exact pose, and anything visually distinctive.',
   '- Include screenshot, photo, video, image, or gif when they fit.',
+  '- If lewd or nsfw explain what is erotic about it with concrete visible evidence, not only pose.',
   '- Add semantic/context tags only when supported: political_edit, meme_edit, amv, music_video, captioned, protest, politician, propaganda, music, edit, has_text, text_overlay, has_speech, swastika, sonnenrad, black_sun, national_socialism, hammer_and_sickle, communism.',
 ].join('\n')
 const huggingFaceToken = ref('')
@@ -1492,7 +1529,7 @@ const thresholdHelp = {
   sketchy: 'Confidence required before auto-tagging can promote a post to sketchy. The backend enforces a conservative floor so weak questionable/sensitive evidence does not relabel ordinary posts.',
   maxTags: 'Maximum number of tags kept from model output. Increase for richer search coverage; decrease if posts become cluttered. This limit applies before manual review.',
   videoFrames: 'Number of sampled video frames for WD, Camie, PixAI, and OCR frame-tag merging. 2 frames sample about 33% and 66%; 3 samples 25/50/75%; 4 samples 20/40/60/80%.',
-  qwenVideoFrames: 'Number of sampled video frames Qwen sees in one semantic reasoning prompt. If this matches Visual tagger frames, Qwen and the taggers inspect the same timestamps. Use 1 for fastest middle-frame reasoning.',
+  qwenVideoFrames: 'Maximum frames Qwen can inspect when 2 FPS video sampling is enabled. Off means Qwen sees one middle frame. On means Qwen samples every 0.5 seconds until this cap, then reasons over one contact sheet.',
   lightCutoff: 'Posts with this many tags or fewer count as lightly tagged for bulk jobs. Increase to retag sparse libraries; decrease to only target nearly empty posts.',
 }
 const serverHelp = {
@@ -2462,7 +2499,8 @@ async function loadAutoTags() {
       semanticSearchEnabled: settingsResult.semanticSearchEnabled === true,
       saveSemanticAnalysis: settingsResult.saveSemanticAnalysis === true,
       semanticModelId: settingsResult.semanticModelId || 'qwen',
-      qwenVideoMaxFrames: Number(settingsResult.qwenVideoMaxFrames || 1),
+      qwenVideoUseFps: settingsResult.qwenVideoUseFps === true,
+      qwenVideoMaxFrames: Number(settingsResult.qwenVideoMaxFrames || 20),
     }
     autoTagStatus.value = statusResult
     autoTagJob.value = currentJob
@@ -4115,6 +4153,36 @@ function startYtdlpPolling() {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.75rem;
+}
+
+.qwen-video-sampling {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.sampling-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.6rem;
+}
+
+.sampling-facts span {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.sampling-facts strong {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .field-row {

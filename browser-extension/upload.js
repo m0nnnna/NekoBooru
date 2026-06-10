@@ -107,6 +107,7 @@ const els = {
   submit: document.getElementById('submit'),
   aiModelPicker: document.getElementById('ai-model-picker'),
   aiModelList: document.getElementById('ai-model-list'),
+  qwenVideoControls: document.getElementById('qwen-video-controls'),
   aiPreview: document.getElementById('ai-preview'),
   aiPreviewTiming: document.getElementById('ai-preview-timing'),
   aiPreviewSafety: document.getElementById('ai-preview-safety'),
@@ -1141,6 +1142,7 @@ function evidenceRows(model) {
   }
   if (model.error) rows.push({ label: 'Error', value: model.error })
   if (evidence.kind) rows.push({ label: 'Source', value: evidence.kind })
+  if (evidence.videoFrames) rows.push({ label: 'Frame sampling', value: formatVideoFrameSampling(evidence.videoFrames) })
   if (Array.isArray(evidence.topTags) && evidence.topTags.length) {
     rows.push({ label: 'Top tags', value: evidence.topTags.slice(0, 8).map(formatTagScore).join(', ') })
   }
@@ -1165,6 +1167,24 @@ function evidenceRows(model) {
   }
   if (!rows.length) rows.push({ label: 'Details', value: 'No structured evidence returned.' })
   return rows
+}
+
+function formatVideoFrameSampling(videoFrames) {
+  if (!videoFrames || typeof videoFrames !== 'object') return ''
+  const count = Number(videoFrames.count)
+  const mode = String(videoFrames.mode || '')
+  const label = mode === 'single'
+    ? 'single middle frame'
+    : mode === 'native_video_2fps'
+      ? 'native video at 2 FPS'
+    : mode === 'contact_sheet_2fps'
+      ? '2 FPS contact sheet'
+      : 'contact sheet'
+  const timestamps = Array.isArray(videoFrames.timestamps)
+    ? videoFrames.timestamps.slice(0, 12).map((ts) => `${Number(ts).toFixed(2)}s`).join(', ')
+    : ''
+  const suffix = timestamps ? ` (${timestamps}${videoFrames.timestamps.length > 12 ? ', ...' : ''})` : ''
+  return `${label}${Number.isFinite(count) ? `, ${count} sampled` : ''}${suffix}`
 }
 
 function semanticParsedEvidence(evidence) {
@@ -1249,6 +1269,8 @@ async function _loadAutoTagControls() {
     autoTagSavedSettings.semanticPromptEnabled = autoTagSavedSettings.semanticPromptEnabled !== false
     autoTagSavedSettings.semanticSearchEnabled = autoTagSavedSettings.semanticSearchEnabled === true
     autoTagSavedSettings.semanticModelId = autoTagSavedSettings.semanticModelId || 'qwen'
+    autoTagSavedSettings.qwenVideoUseFps = autoTagSavedSettings.qwenVideoUseFps === true
+    autoTagSavedSettings.qwenVideoMaxFrames = Number(autoTagSavedSettings.qwenVideoMaxFrames || 20)
     autoTagSettings = { ...autoTagSavedSettings, ...autoTagModelOverrides }
     applyExtensionModelDefaults(extensionUploadDefaults.modelDefaults)
     applyAiVisibility(Boolean(autoTagSavedSettings.enabled))
@@ -1266,6 +1288,7 @@ async function _loadAutoTagControls() {
     autoTagStatus = await statusRes.json()
     applyAiVisibility(Boolean(autoTagStatus.enabled))
     renderAiModelPicker()
+    renderQwenVideoControls()
   } catch (e) {
     applyAiVisibility(false)
     els.aiModelList.innerHTML = ''
@@ -1273,6 +1296,7 @@ async function _loadAutoTagControls() {
     note.className = 'picker-note'
     note.textContent = 'AI model status unavailable.'
     els.aiModelList.appendChild(note)
+    if (els.qwenVideoControls) els.qwenVideoControls.classList.add('hidden')
   }
 }
 
@@ -1341,6 +1365,61 @@ function renderAiModelPicker() {
     row.append(enabled, text, load)
     els.aiModelList.appendChild(row)
   })
+  renderQwenVideoControls()
+}
+
+function renderQwenVideoControls() {
+  if (!els.qwenVideoControls) return
+  els.qwenVideoControls.innerHTML = ''
+  els.qwenVideoControls.classList.toggle('hidden', mediaType !== 'video')
+  if (mediaType !== 'video') return
+
+  const enabled = document.createElement('label')
+  enabled.className = 'qwen-video-toggle'
+  const checkbox = document.createElement('input')
+  checkbox.type = 'checkbox'
+  checkbox.checked = autoTagSettings.qwenVideoUseFps === true
+  checkbox.addEventListener('change', () => {
+    autoTagModelOverrides.qwenVideoUseFps = checkbox.checked
+    autoTagSettings.qwenVideoUseFps = checkbox.checked
+    cap.disabled = !checkbox.checked
+    updateFacts()
+    setActiveAiProfile('custom')
+  })
+  const copy = document.createElement('span')
+  copy.innerHTML = '<strong>Use Qwen 2 FPS video sampling</strong><small>Off uses one middle frame. On samples at 2 FPS up to the cap and sends one contact-sheet prompt for temporal reasoning.</small>'
+  enabled.append(checkbox, copy)
+
+  const capRow = document.createElement('label')
+  capRow.className = 'qwen-video-cap'
+  const capLabel = document.createElement('span')
+  capLabel.textContent = 'Qwen frame cap'
+  const cap = document.createElement('input')
+  cap.type = 'number'
+  cap.min = '1'
+  cap.max = '64'
+  cap.value = String(autoTagSettings.qwenVideoMaxFrames || 20)
+  cap.disabled = !checkbox.checked
+  cap.addEventListener('change', () => {
+    const value = Math.max(1, Math.min(64, Number(cap.value || 20)))
+    cap.value = String(value)
+    autoTagModelOverrides.qwenVideoMaxFrames = value
+    autoTagSettings.qwenVideoMaxFrames = value
+    updateFacts()
+    setActiveAiProfile('custom')
+  })
+  capRow.append(capLabel, cap)
+
+  const facts = document.createElement('div')
+  facts.className = 'qwen-video-facts'
+  function updateFacts() {
+    facts.textContent = checkbox.checked
+      ? `2 FPS contact sheet, up to ${cap.value || 20} sampled frames.`
+      : 'Single middle frame, fastest semantic pass.'
+  }
+  updateFacts()
+
+  els.qwenVideoControls.append(enabled, capRow, facts)
 }
 
 function modelSettingKey(id) {
@@ -1430,7 +1509,14 @@ function applyAiTagProfile(profileId) {
   }
   if (mediaType !== 'video') settings.whisperEnabled = false
   if (mediaType === 'video') {
-    settings.qwenVideoMaxFrames = Number(autoTagSavedSettings.qwenVideoMaxFrames || settings.qwenVideoMaxFrames || 1)
+    settings.qwenVideoUseFps = Object.prototype.hasOwnProperty.call(autoTagModelOverrides, 'qwenVideoUseFps')
+      ? autoTagModelOverrides.qwenVideoUseFps === true
+      : autoTagSavedSettings.qwenVideoUseFps === true
+    settings.qwenVideoMaxFrames = Number(
+      Object.prototype.hasOwnProperty.call(autoTagModelOverrides, 'qwenVideoMaxFrames')
+        ? autoTagModelOverrides.qwenVideoMaxFrames
+        : (autoTagSavedSettings.qwenVideoMaxFrames || settings.qwenVideoMaxFrames || 20)
+    )
   }
   Object.entries(settings).forEach(([key, value]) => {
     autoTagSettings[key] = value

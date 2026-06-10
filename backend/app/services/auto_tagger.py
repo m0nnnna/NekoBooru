@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 import gc
+from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
 from importlib.util import find_spec
 from pathlib import Path
@@ -38,6 +39,7 @@ WD_MODEL_ID = "SmilingWolf/wd-eva02-large-tagger-v3"
 WHISPER_MAX_AUDIO_SECONDS = 30
 QWEN_MIN_FREE_VRAM_GB = 18.0
 QWEN_ANALYSIS_MAX_SIDE = 900
+QWEN_VIDEO_FPS = 2.0
 QWEN_MAX_NEW_TOKENS = 512
 QWEN_GGUF_MAX_TOKENS = 512
 QWEN_GGUF_REPO_ID = "Qwen/Qwen3-VL-8B-Instruct-GGUF"
@@ -199,13 +201,17 @@ class DownloadCancelled(RuntimeError):
     pass
 
 DEFAULT_SEMANTIC_PROMPT = (
-    "Return compact JSON only with keys: tags, safety, rationale.\n"
+    "Return compact JSON with keys: tags, safety, rationale, safety_reason, confidence.\n"
     "Use snake_case tags only.\n\n"
     "Semantic description:\n"
-    "- The rationale should describe the visible content in detail, including clothing garments, pose, setting, text, audio/transcript evidence, and if lewd or nsfw explain what is erotic about it. Do not mention sampled frame counts, frame labels, contact sheets, timestamps, or model sampling mechanics.\n\n"
+    "- The rationale should be a direct factual caption of the visible content. Describe clothing garments, pose, setting, text, and audio/transcript evidence. When describing adult or NSFW visual content, respond plainly with a clear safety classification. If the content is erotic or sexually suggestive, say so plainly and explain why. Do not euphemize visible adult content, but do not invent details that are not visible. If lewd, sketchy, unsafe, or nsfw, explain the concrete visual reason: visible or emphasized body parts, nudity or partial nudity, transparent/tight/revealing garments, lingerie, swimwear, cleavage, underboob, sideboob, pose, framing, explicit acts, and why the safety rating was selected. Do not rely only on suggestive pose. Do not mention sampled frame counts, frame labels, contact sheets, timestamps, or model sampling mechanics.\n\n"
+    "Example expected rationale style:\n"
+    "\"A single woman with long black hair and brown eyes is shown in a video. She wears a white lace bra and matching panties, revealing her breasts and cleavage. She smiles at the camera while sitting indoors, sometimes touching her head or hair, occasionally resting her hand on her chest or stomach. The setting appears to be an indoor room with soft lighting. Visible details include a mole under her mouth, bare shoulders, and her navel. The content is explicitly erotic due to the revealing lingerie, prominent cleavage, and suggestive poses.\"\n\n"
+    "Safety values:\n"
+    "- Use safety safe for ordinary SFW content, sketchy for suggestive/revealing content, and unsafe for explicit NSFW/adult erotic content. safety_reason should briefly explain the classification based only on visible evidence. confidence must be low, medium, or high.\n\n"
     "Tags in priority order:\n"
     "- Return 6-28 useful searchable tags supported by the image, frame, OCR, transcript, or source page.\n"
-    "- For video frame collections or contact sheets, compare the sampled frames in order and infer temporal context, but describe it as the video/content. Do not output or mention metadata such as frame_1, frame_2, three_frames, timestamps, contact_sheet, or sampled_frame.\n"
+    "- For video frame collections or contact sheets, compare the sampled frames in order and infer temporal context, but describe it as the video/content, and do not output metadata tags or mention metadata such as frame_1, frame_2, three_frames, timestamps, contact_sheet, or sampled_frame.\n"
     "- When model tag hints are provided, use only their visual tags as grounding. Prefer specific animal type, ear, horn, tail, and clothing hints unless the image clearly contradicts them. Do not output named character, franchise, copyright, or source tags, and do not mention guessed identities in the rationale.\n"
     "- Start with directly visible tags: media type, exact pose/action, subject count, male/female/girl/boy, setting, objects, actions, expression, hair color, eye color, framing, text/audio presence, and meme/edit format.\n"
     "- Always include the main visible pose or action as a searchable tag when clear, such as lying, sitting, standing, kneeling, crouching, squatting, walking, running, jumping, dancing, sleeping, stretching, arms_up, looking_at_viewer, or selfie.\n"
@@ -213,7 +219,7 @@ DEFAULT_SEMANTIC_PROMPT = (
     "- Do not confuse animal ears types or horns for clothing, or horns for ears. Tag what is visibly present, such as animal_ears, cow_horns, white_horns, tail, or cow_tail.\n"
     "- Add frequent or matching primary colors for the scene or clothing, hair color, eye color, standout accessories, exact pose, and anything visually distinctive.\n"
     "- Include screenshot, photo, video, image, or gif when they fit.\n"
-    "- If lewd or nsfw explain what is erotic about it.\n"
+    "- If lewd or nsfw explain what is erotic about it with concrete visible evidence, not only pose.\n"
     "- Add semantic/context tags only when supported: political_edit, meme_edit, amv, music_video, captioned, protest, politician, propaganda, music, edit, has_text, text_overlay, has_speech, swastika, sonnenrad, black_sun, national_socialism, hammer_and_sickle, communism."
 )
 LEGACY_SEMANTIC_PROMPTS = {
@@ -253,7 +259,8 @@ class AutoTagOptions:
     previewByDefault: bool = True
     videoFrameStrategy: str = "multi"
     videoMaxFrames: int = 4
-    qwenVideoMaxFrames: int = 1
+    qwenVideoUseFps: bool = False
+    qwenVideoMaxFrames: int = 20
     videoMaxDurationSeconds: int = 900
     semanticPoliticalEnabled: bool = False
     semanticPrompt: str = DEFAULT_SEMANTIC_PROMPT
@@ -859,7 +866,12 @@ class QwenSemanticTagger:
         image_inputs, video_inputs = process_vision_info(messages)
         inputs = self._processor(text=[text], images=image_inputs, videos=video_inputs, padding=True, return_tensors="pt")
         inputs = inputs.to(self._model.device)
-        generated_ids = self._model.generate(**inputs, max_new_tokens=QWEN_MAX_NEW_TOKENS)
+        generated_ids = self._model.generate(
+            **inputs,
+            max_new_tokens=QWEN_MAX_NEW_TOKENS,
+            repetition_penalty=1.08,
+            no_repeat_ngram_size=6,
+        )
         trimmed = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated_ids)]
         output = self._processor.batch_decode(trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         parsed = _parse_semantic_json(output)
@@ -867,11 +879,81 @@ class QwenSemanticTagger:
         tags = [normalize_tag(tag) for tag in parsed.get("tags", []) if normalize_tag(tag)]
         safety = normalize_safety_label(parsed.get("safety"))
         max_tags = _semantic_tag_limit(opts)
+        tags = tags[:max_tags]
+        parsed["tags"] = tags
+        raw_evidence = _compact_semantic_raw_output(output, parsed)
         return AutoTagResult(
-            tags=tags[:max_tags],
+            tags=tags,
             safety=safety,
-            categories={tag: "general" for tag in tags[:max_tags]},
-            evidence={"kind": "qwen", "raw": output, "parsed": parsed, **_analysis_image_evidence(path)},
+            categories={tag: "general" for tag in tags},
+            evidence={"kind": "qwen", "raw": raw_evidence, "parsed": parsed, **_analysis_image_evidence(path)},
+            model=self.name,
+            enabled=True,
+        )
+
+    def analyze_video(self, path: Path, context: dict | None = None, opts: AutoTagOptions | None = None) -> AutoTagResult:
+        opts = opts or load_options()
+        self.ensure_loaded(opts.torchDevice)
+        from qwen_vl_utils import process_vision_info  # type: ignore
+
+        prompt = _semantic_prompt_with_context(opts, context)
+        frame_cap = max(2, min(64, int(opts.qwenVideoMaxFrames or 20)))
+        messages = [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "video",
+                    "video": str(path),
+                    "fps": QWEN_VIDEO_FPS,
+                    "min_frames": 2,
+                    "max_frames": frame_cap,
+                },
+                {"type": "text", "text": prompt},
+            ],
+        }]
+        text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        image_inputs, video_inputs, video_kwargs = process_vision_info(messages, return_video_kwargs=True)
+        inputs = self._processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+            **(video_kwargs or {}),
+        )
+        inputs = inputs.to(self._model.device)
+        generated_ids = self._model.generate(
+            **inputs,
+            max_new_tokens=QWEN_MAX_NEW_TOKENS,
+            repetition_penalty=1.08,
+            no_repeat_ngram_size=6,
+        )
+        trimmed = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated_ids)]
+        output = self._processor.batch_decode(trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+        parsed = _parse_semantic_json(output)
+        parsed = _sanitize_qwen_semantic_payload(parsed, context)
+        tags = [normalize_tag(tag) for tag in parsed.get("tags", []) if normalize_tag(tag)]
+        safety = normalize_safety_label(parsed.get("safety"))
+        max_tags = _semantic_tag_limit(opts)
+        tags = tags[:max_tags]
+        parsed["tags"] = tags
+        raw_evidence = _compact_semantic_raw_output(output, parsed)
+        frame_count = _video_input_frame_count(video_inputs)
+        return AutoTagResult(
+            tags=tags,
+            safety=safety,
+            categories={tag: "general" for tag in tags},
+            evidence={
+                "kind": "qwen",
+                "raw": raw_evidence,
+                "parsed": parsed,
+                "videoFrames": {
+                    "mode": "native_video_2fps",
+                    "count": frame_count,
+                    "fps": QWEN_VIDEO_FPS,
+                    "maxFrames": frame_cap,
+                },
+            },
             model=self.name,
             enabled=True,
         )
@@ -969,6 +1051,14 @@ class QwenGgufSemanticTagger:
         opts = opts or load_options()
         self.ensure_loaded(opts.torchDevice)
         prompt = _semantic_prompt_with_context(opts, context)
+        if isinstance(context, dict) and context.get("qwenInputMode") == "contact_sheet":
+            prompt += (
+                "\n\nGGUF video frame instruction:\n"
+                "You are an expert video analysis model. These are video frames arranged in a grid only because of the "
+                "runtime input format. Analyze them as a temporal video sequence. Do not mention how the frames are "
+                "presented to you, and do not describe the content as a grid, collage, contact sheet, slideshow, or "
+                "collection of images."
+            )
         image_url = _image_data_url(path)
         output = self._llm.create_chat_completion(
             messages=[{
@@ -980,6 +1070,7 @@ class QwenGgufSemanticTagger:
             }],
             max_tokens=QWEN_GGUF_MAX_TOKENS,
             temperature=0.2,
+            repeat_penalty=1.12,
             response_format={"type": "json_object"},
         )
         text = _chat_completion_text(output)
@@ -988,11 +1079,14 @@ class QwenGgufSemanticTagger:
         tags = [normalize_tag(tag) for tag in parsed.get("tags", []) if normalize_tag(tag)]
         safety = normalize_safety_label(parsed.get("safety"))
         max_tags = _semantic_tag_limit(opts)
+        tags = tags[:max_tags]
+        parsed["tags"] = tags
+        raw_evidence = _compact_semantic_raw_output(text, parsed)
         return AutoTagResult(
-            tags=tags[:max_tags],
+            tags=tags,
             safety=safety,
-            categories={tag: "general" for tag in tags[:max_tags]},
-            evidence={"kind": "qwen_gguf", "raw": text, "parsed": parsed, "modelId": self.model_id, **_analysis_image_evidence(path)},
+            categories={tag: "general" for tag in tags},
+            evidence={"kind": "qwen_gguf", "raw": raw_evidence, "parsed": parsed, "modelId": self.model_id, **_analysis_image_evidence(path)},
             model=self.name,
             enabled=True,
         )
@@ -1263,20 +1357,27 @@ def _analyze_qwen_video_frames(
     frames: list[tuple[float, Path]],
     context: dict | None = None,
     opts: AutoTagOptions | None = None,
+    mode: str = "single",
 ) -> AutoTagResult:
     if not frames:
         return AutoTagResult(enabled=True, model=getattr(tagger, "name", "qwen"), error="no_video_frames")
     if len(frames) == 1:
-        return _analyze_qwen_image(tagger, frames[0][1], context=context, opts=opts)
-    sheet = _qwen_frame_contact_sheet(frames)
-    if context is not None:
-        context["videoFrameTimestamps"] = [round(ts, 3) for ts, _ in frames]
-        context["videoFrameCount"] = len(frames)
-    try:
-        result = _analyze_qwen_image(tagger, sheet, context=context, opts=opts)
+        result = _analyze_qwen_image(tagger, frames[0][1], context=context, opts=opts)
         if isinstance(result.evidence, dict):
             result.evidence["videoFrames"] = {
-                "mode": "contact_sheet",
+                "mode": "single",
+                "count": 1,
+                "timestamps": [round(frames[0][0], 3)],
+            }
+        return result
+    sheet = _qwen_frame_contact_sheet(frames)
+    qwen_context = dict(context or {})
+    qwen_context["qwenInputMode"] = "contact_sheet"
+    try:
+        result = _analyze_qwen_image(tagger, sheet, context=qwen_context, opts=opts)
+        if isinstance(result.evidence, dict):
+            result.evidence["videoFrames"] = {
+                "mode": mode,
                 "count": len(frames),
                 "timestamps": [round(ts, 3) for ts, _ in frames],
             }
@@ -1312,23 +1413,21 @@ def _qwen_frame_contact_sheet(frames: list[tuple[float, Path]]) -> Path:
     rows = max(1, math.ceil(len(frames) / columns))
     cell_w = 420
     cell_h = 420
-    label_h = 30
-    sheet = Image.new("RGB", (columns * cell_w, rows * (cell_h + label_h)), (18, 20, 24))
+    gap = 8
+    sheet = Image.new("RGB", (columns * cell_w + (columns - 1) * gap, rows * cell_h + (rows - 1) * gap), (18, 20, 24))
     draw = ImageDraw.Draw(sheet)
-    for idx, (timestamp, frame_path) in enumerate(frames):
-        x = (idx % columns) * cell_w
-        y = (idx // columns) * (cell_h + label_h)
-        label = f"frame {idx + 1} / {len(frames)}  t={timestamp:.2f}s"
-        draw.text((x + 10, y + 8), label, fill=(235, 235, 235))
+    for idx, (_timestamp, frame_path) in enumerate(frames):
+        x = (idx % columns) * (cell_w + gap)
+        y = (idx // columns) * (cell_h + gap)
         try:
             with Image.open(frame_path) as frame:
                 frame = frame.convert("RGB")
                 frame.thumbnail((cell_w, cell_h), Image.Resampling.LANCZOS)
                 px = x + (cell_w - frame.width) // 2
-                py = y + label_h + (cell_h - frame.height) // 2
+                py = y + (cell_h - frame.height) // 2
                 sheet.paste(frame, (px, py))
         except Exception:
-            draw.text((x + 10, y + label_h + 20), "unreadable frame", fill=(255, 120, 120))
+            draw.rectangle((x, y, x + cell_w - 1, y + cell_h - 1), outline=(80, 88, 96))
     dest = tmpdir / "contact-sheet.jpg"
     sheet.save(dest, "JPEG", quality=92, optimize=True)
     return dest
@@ -1346,6 +1445,21 @@ def _analysis_image_evidence(path: Path) -> dict:
             }
     except Exception:
         return {}
+
+
+def _video_input_frame_count(video_inputs: Any) -> int | None:
+    try:
+        if not video_inputs:
+            return None
+        first = video_inputs[0]
+        shape = getattr(first, "shape", None)
+        if shape and len(shape) >= 1:
+            return int(shape[0])
+        if isinstance(first, (list, tuple)):
+            return len(first)
+    except Exception:
+        return None
+    return None
 
 
 def _chat_completion_text(output: Any) -> str:
@@ -1447,12 +1561,28 @@ def _semantic_tag_limit(opts: AutoTagOptions) -> int:
 
 def _semantic_prompt_with_context(opts: AutoTagOptions, context: dict | None = None) -> str:
     prompt = _semantic_prompt(opts)
+    if isinstance(context, dict) and context.get("mediaType") == "video":
+        prompt += (
+            "\n\nVideo input instruction:\n"
+            "You are an expert video analysis model. The visual input represents a temporal video sequence, even if the "
+            "runtime transports sampled frames internally. Analyze continuity, repeated actions, pose changes, and scene "
+            "changes across time, but keep the output JSON schema unchanged. Focus on the important visible content: how "
+            "the person or main subject looks, body/face/hair/eye attributes, clothing garments and materials, pose/action, "
+            "setting, objects, text, and anything visually distinctive. Describe the media as a video or content, not as frames. "
+            "For lewd, sketchy, unsafe, or nsfw video, explain exactly what is lewd: visible or emphasized body parts, "
+            "nudity or partial nudity, transparent/tight/revealing garments, lingerie, swimwear, cleavage, underboob, "
+            "sideboob, framing, explicit acts, and why the safety rating was selected. Do not rely only on suggestive pose. "
+            "Do not describe the input as a grid, collage, contact sheet, slideshow, collection of images, "
+            "series of frames, or frame set. Do not mention frame counts, timestamps, sampling, frame layout, or processor "
+            "mechanics in tags or rationale."
+        )
     compact = _compact_semantic_context(context)
     if compact:
         prompt += (
             "\n\nModel tag hints:\n"
             "Use these prior tagger results as visual grounding. They may contain noise, but if a specific animal type, "
-            "ear, horn, tail, garment, character, or source tag agrees with the image, prefer it over a generic guess.\n"
+            "ear, horn, tail, garment, clothing, color, pose, or visible object tag agrees with the image, prefer it over a generic guess. "
+            "Do not use these hints to guess named characters, franchises, copyright/source tags, or identities.\n"
             f"{json.dumps(compact, ensure_ascii=False)}"
         )
     return prompt
@@ -1475,10 +1605,6 @@ def _compact_semantic_context(context: dict | None) -> dict:
         compact["ocrText"] = str(context.get("ocrText"))[:500]
     if context.get("transcript"):
         compact["transcript"] = str(context.get("transcript"))[:800]
-    if context.get("videoFrameCount"):
-        compact["videoFrameCount"] = int(context.get("videoFrameCount") or 0)
-    if context.get("videoFrameTimestamps"):
-        compact["videoFrameTimestamps"] = list(context.get("videoFrameTimestamps") or [])[:8]
     return compact
 
 
@@ -1493,6 +1619,44 @@ def _sanitize_qwen_semantic_payload(parsed: dict, context: dict | None = None) -
         if parsed.get(key):
             parsed[key] = _sanitize_semantic_rationale(str(parsed.get(key) or ""), blocked)
     return parsed
+
+
+def _compact_semantic_raw_output(raw: str, parsed: dict) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return text
+    if len(text) <= 1400 and not _semantic_raw_is_repetitive(text):
+        return text
+    compact: dict[str, Any] = {
+        "tags": [tag for tag in (parsed.get("tags") or []) if tag][:40],
+    }
+    safety = normalize_safety_label(parsed.get("safety"))
+    if safety:
+        compact["safety"] = safety
+    rationale = str(
+        parsed.get("rationale")
+        or parsed.get("description")
+        or parsed.get("summary")
+        or ""
+    ).strip()
+    if rationale:
+        compact["rationale"] = rationale[:900]
+    else:
+        compact["rationale"] = "Model output was compacted because it repeated tags or exceeded the preview limit."
+    compact["compacted"] = True
+    return json.dumps(compact, ensure_ascii=False)
+
+
+def _semantic_raw_is_repetitive(text: str) -> bool:
+    tags = [normalize_tag(value) for value in re.findall(r'"((?:\\.|[^"\\])*)"', str(text or ""))]
+    tags = [tag for tag in tags if tag]
+    if len(tags) < 40:
+        return False
+    unique = set(tags)
+    if len(unique) / max(1, len(tags)) < 0.55:
+        return True
+    counts = Counter(tags)
+    return any(count >= 8 for count in counts.values())
 
 
 def _semantic_identity_hint_tags(context: dict | None) -> set[str]:
@@ -1515,9 +1679,58 @@ def _sanitize_semantic_rationale(text: str, blocked_tags: set[str] | None = None
     if not out:
         return out
     out = re.sub(
+        r"\b(?:shown|depicted|presented)\s+in\s+a\s+series\s+of\s+frames\b",
+        "shown in the video",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
+        r"\b(?:the\s+)?video\s+frames?\s+(?:show|shows|depict|depicts)\b",
+        "the video shows",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
+        r"\bthe\s+(?:sampled\s+)?frames?\s+(?:show|shows|depict|depicts)\b",
+        "the video shows",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
+        r"\bacross\s+(?:the\s+)?(?:sampled\s+)?frames?\b",
+        "throughout the video",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
+        r"\bin\s+(?:the\s+)?(?:sampled\s+)?frames?\b",
+        "in the video",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
         r"\b(?:the\s+)?(?:image|video|content)\s+(?:consists\s+of|contains|shows)\s+"
         r"(?:one|two|three|four|five|six|seven|eight|\d+)\s+(?:sampled\s+)?frames?\s+(?:showing|of)\b",
         "The video shows",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
+        r"\b(?:the\s+)?(?:image|video|content)\s+is\s+(?:a\s+)?(?:series|grid|contact\s*sheet|compilation)\s+of\s+"
+        r"(?:one|two|three|four|five|six|seven|eight|\d+)\s+(?:sampled\s+)?frames?\s+(?:showing|of)\b",
+        "The video shows",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
+        r"\b(?:the\s+)?(?:image|content)\s+is\s+a\s+(?:grid|collage|collection|set)\s+of\s+",
+        "The video shows ",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
+        r"\b(?:the\s+)?(?:image|content)\s+is\s+presented\s+as\s+(?:a\s+)?(?:grid|collage|collection|set)\s+of\s+[^.?!]+[.?!]\s*",
+        "",
         out,
         flags=re.IGNORECASE,
     )
@@ -1537,6 +1750,28 @@ def _sanitize_semantic_rationale(text: str, blocked_tags: set[str] | None = None
     for sentence in sentences:
         lower = sentence.lower()
         if identity_pattern.search(sentence):
+            continue
+        if any(
+            marker in lower
+            for marker in (
+                "frames are arranged",
+                "arranged in a grid",
+                "contact sheet",
+                "sampled frame",
+                "sampled frames",
+                "frame labels",
+                "series of frames",
+                "frame set",
+                "frame layout",
+                "timestamp",
+                "timestamps",
+                "grid format",
+                "slideshow format",
+                "grid of",
+                "collage of",
+                "collection of selfies",
+            )
+        ):
             continue
         if blocked_labels and any(label and label in lower for label in blocked_labels):
             continue
@@ -1583,7 +1818,8 @@ def validate_options(raw: dict) -> AutoTagOptions:
         data[key] = min(1.0, max(0.0, float(data[key])))
     data["maxTags"] = min(200, max(1, int(data["maxTags"])))
     data["videoMaxFrames"] = min(8, max(1, int(data["videoMaxFrames"])))
-    data["qwenVideoMaxFrames"] = min(8, max(1, int(data["qwenVideoMaxFrames"])))
+    data["qwenVideoUseFps"] = bool(data.get("qwenVideoUseFps"))
+    data["qwenVideoMaxFrames"] = min(64, max(1, int(data["qwenVideoMaxFrames"])))
     data["videoMaxDurationSeconds"] = min(7200, max(1, int(data["videoMaxDurationSeconds"])))
     data["lightlyTaggedMaxTags"] = min(50, max(0, int(data["lightlyTaggedMaxTags"])))
     if data["mergeMode"] not in {"append_new", "replace_auto_tags", "preview_only"}:
@@ -2697,7 +2933,7 @@ def _optional_image_results(
 def _tag_video_with_enrichers(path: Path, opts: AutoTagOptions) -> AutoTagResult:
     base = _time_result("wd", lambda: _tag_video(path, opts)) if opts.wdEnabled else _tag_video(path, opts)
     results = [base]
-    context: dict = {}
+    context: dict = {"mediaType": "video"}
     _add_visual_tag_hints(context, [base])
     if opts.whisperEnabled:
         whisper = _unavailable_model_result("whisper") or _run_optional("whisper", lambda: _whisper_tagger.transcribe_video(path, opts))
@@ -2721,11 +2957,13 @@ def _tag_video_with_enrichers(path: Path, opts: AutoTagOptions) -> AutoTagResult
         unavailable = _unavailable_model_result(model_id)
         if unavailable:
             results.append(unavailable)
+        elif opts.qwenVideoUseFps and hasattr(tagger, "analyze_video"):
+            results.append(_run_optional(model_id, lambda: tagger.analyze_video(path, context=context, opts=opts)))
         else:
-            frames = _sample_video_frames(path, opts, frame_count=opts.qwenVideoMaxFrames, prefix="qwen-video-frames-")
+            frames, qwen_mode = _sample_qwen_video_frames(path, opts)
             if frames:
                 try:
-                    results.append(_run_optional(model_id, lambda: _analyze_qwen_video_frames(tagger, frames, context=context, opts=opts)))
+                    results.append(_run_optional(model_id, lambda: _analyze_qwen_video_frames(tagger, frames, context=context, opts=opts, mode=qwen_mode)))
                 finally:
                     shutil.rmtree(frames[0][1].parent, ignore_errors=True)
             else:
@@ -2869,6 +3107,7 @@ def normalize_safety_label(value: Any) -> str | None:
         "questionable",
         "sensitive",
         "suggestive",
+        "sexually_suggestive",
         "partial_nudity",
         "partial_nude",
         "revealing",
@@ -2885,6 +3124,9 @@ def normalize_safety_label(value: Any) -> str | None:
         "porn",
         "pornographic",
         "adult",
+        "adult_erotic",
+        "explicit_sexual",
+        "explicit_nsfw_content",
     }:
         return "unsafe"
     return None
@@ -2910,7 +3152,7 @@ def _dedupe_tags(tags: list[str]) -> list[str]:
 
 def _is_frame_metadata_tag(tag: str) -> bool:
     normalized = normalize_tag(tag)
-    if normalized in {"frame", "frames", "sampled_frame", "sampled_frames", "timestamp", "timestamps"}:
+    if normalized in {"frame", "frames", "sampled_frame", "sampled_frames", "timestamp", "timestamps", "grid", "collage", "contact_sheet", "photo_collage", "image_grid"}:
         return True
     if re.fullmatch(r"frame_\d+", normalized):
         return True
@@ -3188,6 +3430,12 @@ def _parse_semantic_json(raw: str) -> dict:
         return _semantic_fallback_payload(raw)
     if not isinstance(data, dict):
         return _semantic_fallback_payload(raw)
+    if not data.get("rationale") and data.get("description"):
+        data["rationale"] = data.get("description")
+    if not data.get("safety") and data.get("safety_classification"):
+        safety = normalize_safety_label(data.get("safety_classification"))
+        if safety:
+            data["safety"] = safety
     tags = data.get("tags") or data.get("keywords") or data.get("search_tags") or []
     if isinstance(tags, str):
         tags = [tags]
@@ -3201,6 +3449,7 @@ def _parse_semantic_json(raw: str) -> dict:
             data.get("caption"),
             data.get("summary"),
             data.get("scene"),
+            data.get("safety_reason"),
             data.get("raw"),
         )
     )
@@ -3236,7 +3485,7 @@ def _semantic_tag_list_from_text(text: str) -> list[str]:
 
 
 def _semantic_safety_from_text(text: str) -> str | None:
-    match = re.search(r'"safety"\s*:\s*"([^"]+)"', str(text or ""), flags=re.IGNORECASE)
+    match = re.search(r'"(?:safety|safety_classification)"\s*:\s*"([^"]+)"', str(text or ""), flags=re.IGNORECASE)
     return normalize_safety_label(match.group(1)) if match else None
 
 
@@ -3411,6 +3660,36 @@ def _sample_video_frames(path: Path, opts: AutoTagOptions, *, frame_count: int, 
         duration = float(opts.videoMaxDurationSeconds)
     sample_opts = replace(opts, videoMaxFrames=max(1, min(8, int(frame_count or 1))))
     timestamps = _timestamps(duration, sample_opts)
+    return _extract_video_frames_at_timestamps(path, timestamps, prefix=prefix)
+
+
+def _sample_qwen_video_frames(path: Path, opts: AutoTagOptions) -> tuple[list[tuple[float, Path]], str]:
+    if not opts.qwenVideoUseFps:
+        return _sample_video_frames(path, opts, frame_count=1, prefix="qwen-video-single-"), "single"
+    if not check_ffmpeg_available():
+        return [], "contact_sheet_2fps"
+    duration = _probe_duration(path)
+    if duration and duration > opts.videoMaxDurationSeconds:
+        duration = float(opts.videoMaxDurationSeconds)
+    timestamps = _fps_timestamps(duration, fps=2.0, max_frames=opts.qwenVideoMaxFrames)
+    return _extract_video_frames_at_timestamps(path, timestamps, prefix="qwen-video-2fps-"), "contact_sheet_2fps"
+
+
+def _fps_timestamps(duration: float | None, *, fps: float, max_frames: int) -> list[float]:
+    if not duration or duration <= 0 or fps <= 0:
+        return []
+    limit = max(1, min(64, int(max_frames or 1)))
+    step = 1.0 / fps
+    start = min(max(duration / 2.0, 0.0), step / 2.0)
+    timestamps: list[float] = []
+    current = start
+    while current < duration and len(timestamps) < limit:
+        timestamps.append(max(0.0, min(duration - 0.05, current)))
+        current += step
+    return sorted({round(ts, 3) for ts in timestamps})
+
+
+def _extract_video_frames_at_timestamps(path: Path, timestamps: list[float], *, prefix: str) -> list[tuple[float, Path]]:
     if not timestamps:
         return []
     cache_root = settings.cache_dir / "auto-tags"

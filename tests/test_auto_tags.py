@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 import sys
 import tempfile
@@ -1182,12 +1183,75 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertEqual(opts.torchDevice, "auto")
 
     def test_qwen_video_frame_count_validates_separately(self):
-        from app.services.auto_tagger import validate_options
+        from app.services.auto_tagger import default_options, validate_options
 
-        opts = validate_options({"videoMaxFrames": 3, "qwenVideoMaxFrames": 9})
+        defaults = default_options()
+        self.assertFalse(defaults.qwenVideoUseFps)
+
+        opts = validate_options({"videoMaxFrames": 3, "qwenVideoUseFps": True, "qwenVideoMaxFrames": 99})
 
         self.assertEqual(opts.videoMaxFrames, 3)
-        self.assertEqual(opts.qwenVideoMaxFrames, 8)
+        self.assertTrue(opts.qwenVideoUseFps)
+        self.assertEqual(opts.qwenVideoMaxFrames, 64)
+
+    def test_qwen_two_fps_timestamps_are_capped(self):
+        from app.services.auto_tagger import _fps_timestamps
+
+        self.assertEqual(_fps_timestamps(2.0, fps=2.0, max_frames=20), [0.25, 0.75, 1.25, 1.75])
+        self.assertEqual(_fps_timestamps(10.0, fps=2.0, max_frames=3), [0.25, 0.75, 1.25])
+
+    def test_video_semantic_prompt_instructs_temporal_reasoning(self):
+        from app.services.auto_tagger import _semantic_prompt_with_context, default_options
+
+        prompt = _semantic_prompt_with_context(default_options(), {"mediaType": "video"})
+
+        self.assertIn("temporal video sequence", prompt)
+        self.assertIn("Do not describe the input as a grid", prompt)
+        self.assertIn("Do not mention frame counts", prompt)
+        self.assertIn("explain exactly what is lewd", prompt)
+        self.assertIn("Do not rely only on suggestive pose", prompt)
+
+    def test_gguf_contact_sheet_prompt_explains_grid_transport(self):
+        from app.services.auto_tagger import AutoTagOptions, QwenGgufSemanticTagger
+
+        tagger = QwenGgufSemanticTagger("qwen_gguf_q4")
+
+        with patch.object(tagger, "ensure_loaded", return_value=True), \
+             patch("app.services.auto_tagger._image_data_url", return_value="data:image/jpeg;base64,abc"), \
+             patch("app.services.auto_tagger._parse_semantic_json", return_value={"tags": ["video"], "safety": "safe", "rationale": "A video."}), \
+             patch("app.services.auto_tagger._sanitize_qwen_semantic_payload", side_effect=lambda parsed, context: parsed):
+            captured = {}
+
+            class FakeLlama:
+                def create_chat_completion(self, **kwargs):
+                    captured.update(kwargs)
+                    return {"choices": [{"message": {"content": "{\"tags\":[\"video\"],\"safety\":\"safe\",\"rationale\":\"A video.\"}"}}]}
+
+            tagger._llm = FakeLlama()
+            tagger._loaded = True
+            tagger.analyze_image(Path("frame-grid.jpg"), context={"mediaType": "video", "qwenInputMode": "contact_sheet"}, opts=AutoTagOptions())
+
+        prompt = captured["messages"][0]["content"][0]["text"]
+        self.assertIn("You are an expert video analysis model", prompt)
+        self.assertIn("arranged in a grid only because of the runtime input format", prompt)
+        self.assertIn("Do not mention how the frames are presented", prompt)
+
+    def test_repetitive_qwen_raw_output_is_compacted(self):
+        from app.services.auto_tagger import _compact_semantic_raw_output
+
+        raw = '{"tags": [' + ", ".join(['"cow_horn"', '"cow_tail"', '"animal_ears"', '"white_horn"'] * 16)
+        parsed = {
+            "tags": ["cow_horn", "cow_tail", "animal_ears", "white_horn"],
+            "safety": "safe",
+            "rationale": "A video shows a subject in a cow-themed outfit.",
+        }
+
+        compact = _compact_semantic_raw_output(raw, parsed)
+        data = json.loads(compact)
+
+        self.assertTrue(data["compacted"])
+        self.assertEqual(data["tags"], parsed["tags"])
+        self.assertLess(len(compact), 400)
 
     def test_semantic_prompt_can_be_customized_and_validated(self):
         from app.services.auto_tagger import DEFAULT_SEMANTIC_PROMPT, validate_options
@@ -1210,7 +1274,13 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertIn("bikini", DEFAULT_SEMANTIC_PROMPT)
         self.assertIn("exact pose/action", DEFAULT_SEMANTIC_PROMPT)
         self.assertIn("lying", DEFAULT_SEMANTIC_PROMPT)
-        self.assertIn("if lewd or nsfw explain what is erotic about it", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("If lewd, sketchy, unsafe, or nsfw", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("If lewd or nsfw explain what is erotic about it", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("concrete visible evidence", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("Do not rely only on suggestive pose", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("Example expected rationale style:", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("safety_reason", DEFAULT_SEMANTIC_PROMPT)
+        self.assertIn("adult erotic content", DEFAULT_SEMANTIC_PROMPT)
         self.assertIn("do not output metadata tags", DEFAULT_SEMANTIC_PROMPT)
 
         capped = validate_options({"semanticPrompt": "x" * 5000})
@@ -1329,6 +1399,21 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertIn("lying", parsed["tags"])
         self.assertIn("looking_at_viewer", parsed["tags"])
 
+    def test_semantic_json_accepts_description_safety_classification_shape(self):
+        from app.services.auto_tagger import _parse_semantic_json
+
+        parsed = _parse_semantic_json(
+            '{"tags":["photo","lingerie"],'
+            '"description":"A woman is sitting indoors in lingerie with visible cleavage.",'
+            '"safety_classification":"adult_erotic",'
+            '"safety_reason":"Revealing lingerie and visible cleavage.",'
+            '"confidence":"high"}'
+        )
+
+        self.assertEqual(parsed["safety"], "unsafe")
+        self.assertIn("visible cleavage", parsed["rationale"])
+        self.assertIn("lingerie", parsed["tags"])
+
     def test_frame_metadata_tags_are_filtered_from_semantic_output(self):
         from app.services.auto_tagger import _parse_semantic_json
 
@@ -1370,6 +1455,74 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertNotIn("final_fantasy_vii", clean["tags"])
         self.assertNotIn("three frames", clean["rationale"].lower())
         self.assertNotIn("tifa", clean["rationale"].lower())
+
+    def test_qwen_semantic_payload_removes_contact_sheet_language(self):
+        from app.services.auto_tagger import _sanitize_qwen_semantic_payload
+
+        parsed = {
+            "tags": ["video", "selfie", "frame_1", "t_2.51s", "grid", "photo_collage"],
+            "rationale": (
+                "The image is a series of 8 frames showing a woman smiling. "
+                "The frames are arranged in a grid, indicating a video or slideshow format. "
+                "The image is a grid of selfies featuring one subject indoors. "
+                "The setting is indoors."
+            ),
+        }
+
+        clean = _sanitize_qwen_semantic_payload(parsed, {})
+
+        self.assertIn("video", clean["tags"])
+        self.assertIn("selfie", clean["tags"])
+        self.assertNotIn("frame_1", clean["tags"])
+        self.assertNotIn("t_2.51s", clean["tags"])
+        self.assertNotIn("grid", clean["tags"])
+        self.assertNotIn("photo_collage", clean["tags"])
+        rationale = clean["rationale"].lower()
+        self.assertNotIn("8 frames", rationale)
+        self.assertNotIn("arranged in a grid", rationale)
+        self.assertNotIn("grid of", rationale)
+        self.assertNotIn("slideshow", rationale)
+        self.assertIn("one subject", rationale)
+
+    def test_qwen_semantic_payload_rewrites_frame_rationale_to_video(self):
+        from app.services.auto_tagger import _sanitize_qwen_semantic_payload
+
+        parsed = {
+            "tags": ["video", "sitting"],
+            "rationale": (
+                "A single woman is shown in a series of frames, posing indoors. "
+                "The poses vary across the frames, including touching her hair. "
+                "The frames show long black hair and lingerie."
+            ),
+        }
+
+        clean = _sanitize_qwen_semantic_payload(parsed, {"mediaType": "video"})
+        rationale = clean["rationale"].lower()
+
+        self.assertIn("shown in the video", rationale)
+        self.assertIn("throughout the video", rationale)
+        self.assertIn("the video shows", rationale)
+        self.assertNotIn("series of frames", rationale)
+        self.assertNotIn("across the frames", rationale)
+
+    def test_qwen_semantic_payload_rewrites_video_frames_to_video(self):
+        from app.services.auto_tagger import _sanitize_qwen_semantic_payload
+
+        parsed = {
+            "tags": ["video", "lingerie", "cleavage"],
+            "rationale": (
+                "The video frames show a woman posing indoors in lingerie. "
+                "The content is lewd because the lingerie exposes cleavage and emphasizes the chest."
+            ),
+        }
+
+        clean = _sanitize_qwen_semantic_payload(parsed, {"mediaType": "video"})
+        rationale = clean["rationale"].lower()
+
+        self.assertIn("the video shows", rationale)
+        self.assertIn("exposes cleavage", rationale)
+        self.assertIn("emphasizes the chest", rationale)
+        self.assertNotIn("video frames show", rationale)
 
     def test_semantic_malformed_json_recovers_declared_tag_list(self):
         from app.services.auto_tagger import _parse_semantic_json

@@ -456,6 +456,73 @@ select:focus {
   padding: 0 0.75rem 0.75rem;
 }
 
+.qwen-video-controls {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0 0.75rem 0.75rem;
+}
+
+.qwen-video-toggle,
+.qwen-video-cap,
+.qwen-video-facts {
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--bg-secondary);
+}
+
+.qwen-video-toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.65rem;
+}
+
+.qwen-video-toggle input {
+  margin-top: 0.2rem;
+}
+
+.qwen-video-toggle strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+}
+
+.qwen-video-toggle small {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.qwen-video-cap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.55rem 0.65rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.qwen-video-cap input {
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.qwen-video-facts {
+  padding: 0.55rem 0.65rem;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+}
+
 .ai-model-row {
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr) auto;
