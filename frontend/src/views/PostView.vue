@@ -1478,7 +1478,8 @@ function selectedMissingBackendPackages() {
 function dependenciesForModel(model) {
   if (!model) return []
   if (model.id === 'wd' || model.id === 'pixai' || model.id === 'camie') return ['onnxruntime', 'numpy', 'pillow']
-  if (model.id === 'ocr' || model.id === 'whisper') return ['transformers', 'torch']
+  if (model.id === 'ocr') return ['transformers', 'torch']
+  if (model.id === 'whisper') return ['transformers', 'transformers_pipeline', 'torch']
   if (model.id === 'qwen') return ['transformers', 'torch', 'qwen_vl_utils']
   if (model.id === 'qwen_gguf_q4' || model.id === 'qwen_gguf_q8') return ['llama_cpp']
   return []

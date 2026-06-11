@@ -169,6 +169,13 @@
         </span>
       </label>
       <label class="toggle-card">
+        <input type="checkbox" v-model="extensionSettings.saveTweetUsername" />
+        <span>
+          <strong>Save tweet username as tag</strong>
+          <small>Adds tags like <code>twitter_user_username</code> when uploading from X/Twitter.</small>
+        </span>
+      </label>
+      <label class="toggle-card">
         <input type="checkbox" v-model="extensionSettings.saveSourcePageUrl" />
         <span>
           <strong>Save source page URL</strong>
@@ -1379,6 +1386,7 @@ const searchPredictionEnabled = ref(false)
 const namePartAutocompleteEnabled = ref(false)
 const extensionSettings = ref({
   saveTweetTag: true,
+  saveTweetUsername: false,
   saveSourcePageUrl: true,
   saveMediaUrl: false,
   saveSemanticAnalysis: false,
@@ -1614,6 +1622,7 @@ async function loadExtensionSettings() {
     const result = await api.getExtensionSettings()
     extensionSettings.value = {
       saveTweetTag: result.saveTweetTag !== false,
+      saveTweetUsername: result.saveTweetUsername === true,
       saveSourcePageUrl: result.saveSourcePageUrl !== false,
       saveMediaUrl: result.saveMediaUrl === true,
       saveSemanticAnalysis: result.saveSemanticAnalysis === true,
@@ -1644,6 +1653,7 @@ async function saveExtensionSettings() {
   try {
     extensionSettings.value = await api.updateExtensionSettings({
       saveTweetTag: extensionSettings.value.saveTweetTag !== false,
+      saveTweetUsername: extensionSettings.value.saveTweetUsername === true,
       saveSourcePageUrl: extensionSettings.value.saveSourcePageUrl !== false,
       saveMediaUrl: extensionSettings.value.saveMediaUrl === true,
       saveSemanticAnalysis: extensionSettings.value.saveSemanticAnalysis === true,

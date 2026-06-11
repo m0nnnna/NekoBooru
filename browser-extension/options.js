@@ -1,5 +1,6 @@
 const instanceInput = document.getElementById('instance')
 const saveTweetTagInput = document.getElementById('save-tweet-tag')
+const saveTweetUsernameInput = document.getElementById('save-tweet-username')
 const saveSourcePageUrlInput = document.getElementById('save-source-page-url')
 const saveMediaUrlInput = document.getElementById('save-media-url')
 const saveBtn = document.getElementById('save')
@@ -12,11 +13,13 @@ async function init() {
   const stored = await chrome.storage.sync.get([
     'instanceUrl',
     'saveTweetTag',
+    'saveTweetUsername',
     'saveSourcePageUrl',
     'saveMediaUrl',
   ])
   if (stored.instanceUrl) instanceInput.value = stored.instanceUrl
   saveTweetTagInput.checked = stored.saveTweetTag !== false
+  saveTweetUsernameInput.checked = stored.saveTweetUsername === true
   saveSourcePageUrlInput.checked = stored.saveSourcePageUrl !== false
   saveMediaUrlInput.checked = stored.saveMediaUrl === true
 
@@ -47,6 +50,7 @@ async function save() {
   await chrome.storage.sync.set({
     instanceUrl: url,
     saveTweetTag: saveTweetTagInput.checked,
+    saveTweetUsername: saveTweetUsernameInput.checked,
     saveSourcePageUrl: saveSourcePageUrlInput.checked,
     saveMediaUrl: saveMediaUrlInput.checked,
   })

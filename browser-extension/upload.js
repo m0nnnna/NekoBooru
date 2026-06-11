@@ -6,6 +6,7 @@ const srcUrl = normalizeUploadSrcUrl(params.get('src') || '')
 const pageUrl = params.get('page') || ''
 const mediaType = params.get('type') || 'image'
 const xTweetId = params.get('xTweetId') || tweetIdFromUrl(pageUrl) || tweetIdFromUrl(srcUrl)
+const xTweetUsername = params.get('xTweetUsername') || tweetUsernameFromUrl(pageUrl) || tweetUsernameFromUrl(srcUrl)
 const xMediaIndex = parseXMediaIndex(params.get('xMediaIndex')) ?? xPhotoIndexFromUrl(pageUrl) ?? xPhotoIndexFromUrl(srcUrl)
 // 'link' when src is a page URL the server should fetch (yt-dlp), not direct
 // media to preview inline (e.g. an X tweet whose <video> is a blob URL).
@@ -101,6 +102,7 @@ const els = {
   safety: document.getElementById('safety'),
   includeSource: document.getElementById('include-source'),
   includeTweetTag: document.getElementById('include-tweet-tag'),
+  includeTweetUsername: document.getElementById('include-tweet-username'),
   includeMediaUrl: document.getElementById('include-media-url'),
   saveSemanticAnalysis: document.getElementById('save-semantic-analysis'),
   aiTag: document.getElementById('ai-tag'),
@@ -162,6 +164,7 @@ async function init() {
     'instanceUrl',
     'lastSafety',
     'saveTweetTag',
+    'saveTweetUsername',
     'saveSourcePageUrl',
     'saveMediaUrl',
     'saveSemanticAnalysis',
@@ -231,6 +234,7 @@ async function startLocalApp() {
 function applyExtensionUploadDefaults(defaults = {}) {
   extensionUploadDefaults = defaults || {}
   els.includeTweetTag.checked = defaults.saveTweetTag !== false
+  els.includeTweetUsername.checked = defaults.saveTweetUsername === true
   els.includeSource.checked = defaults.saveSourcePageUrl !== false
   els.includeMediaUrl.checked = defaults.saveMediaUrl === true
   els.saveSemanticAnalysis.checked = defaults.saveSemanticAnalysis === true
@@ -638,8 +642,12 @@ function parseTags() {
   const tweetTag = twitterPostTag()
   if (els.includeTweetTag.checked && tweetTag && !tags.includes(tweetTag)) {
     tags.push(tweetTag)
-    renderPills()
   }
+  const usernameTag = twitterUsernameTag()
+  if (els.includeTweetUsername.checked && usernameTag && !tags.includes(usernameTag)) {
+    tags.push(usernameTag)
+  }
+  renderPills()
   return [...tags]
 }
 
@@ -722,6 +730,21 @@ function tweetIdFromUrl(raw) {
   }
 }
 
+function tweetUsernameFromUrl(raw) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    if (!/(^|\.)x\.com$|(^|\.)twitter\.com$/.test(host)) return ''
+    const match = url.pathname.match(/^\/([^/]+)\/status\/\d+/)
+    const username = match?.[1] || ''
+    if (!username || username.toLowerCase() === 'i') return ''
+    return username
+  } catch {
+    return ''
+  }
+}
+
 function parseXMediaIndex(value) {
   if (value == null || value === '') return null
   const index = Number.parseInt(String(value), 10)
@@ -745,6 +768,11 @@ function xPhotoIndexFromUrl(raw) {
 
 function twitterPostTag() {
   return xTweetId ? `twitter_${xTweetId}` : ''
+}
+
+function twitterUsernameTag() {
+  const username = normalizeTag(xTweetUsername).replace(/[^a-z0-9_]/g, '')
+  return username ? `twitter_user_${username}` : ''
 }
 
 function selectedSourceUrl() {
@@ -1479,7 +1507,8 @@ function selectedMissingBackendPackages() {
 function dependenciesForModel(model) {
   if (!model) return []
   if (model.id === 'wd' || model.id === 'pixai' || model.id === 'camie') return ['onnxruntime', 'numpy', 'pillow']
-  if (model.id === 'ocr' || model.id === 'whisper') return ['transformers', 'torch']
+  if (model.id === 'ocr') return ['transformers', 'torch']
+  if (model.id === 'whisper') return ['transformers', 'transformers_pipeline', 'torch']
   if (model.id === 'qwen') return ['transformers', 'torch', 'qwen_vl_utils']
   if (model.id === 'qwen_gguf_q4' || model.id === 'qwen_gguf_q8') return ['llama_cpp']
   return []

@@ -121,6 +121,18 @@ function tweetIdFromUrl(raw) {
   }
 }
 
+function tweetUsernameFromUrl(raw) {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase()
+    if (!/(^|\.)x\.com$|(^|\.)twitter\.com$/.test(host)) return ''
+    return url.pathname.match(/^\/([^/]+)\/status\/\d+/)?.[1] || ''
+  } catch {
+    return ''
+  }
+}
+
 function xPhotoIndexFromUrl(raw) {
   if (!raw) return null
   try {
@@ -247,6 +259,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })
     const xTweetId = msg.xTweetId || tweetIdFromUrl(msg.page || target)
     if (xTweetId) params.set('xTweetId', xTweetId)
+    const xTweetUsername = msg.xTweetUsername || tweetUsernameFromUrl(msg.page || target)
+    if (xTweetUsername) params.set('xTweetUsername', xTweetUsername)
     const xMediaIndex = Number.isInteger(msg.xMediaIndex)
       ? msg.xMediaIndex
       : xPhotoIndexFromUrl(msg.page || target)
@@ -557,6 +571,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     })
     const xTweetId = tweetIdFromUrl(target)
     if (xTweetId) params.set('xTweetId', xTweetId)
+    const xTweetUsername = tweetUsernameFromUrl(target)
+    if (xTweetUsername) params.set('xTweetUsername', xTweetUsername)
     const xMediaIndex = xPhotoIndexFromUrl(target)
     if (Number.isInteger(xMediaIndex)) params.set('xMediaIndex', String(xMediaIndex))
     openPopup('upload.html', params, tab)
@@ -575,6 +591,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   })
   const xTweetId = tweetIdFromUrl(sourcePageUrl)
   if (xTweetId) params.set('xTweetId', xTweetId)
+  const xTweetUsername = tweetUsernameFromUrl(sourcePageUrl)
+  if (xTweetUsername) params.set('xTweetUsername', xTweetUsername)
   const xMediaIndex = xPhotoIndexFromUrl(sourcePageUrl)
   if (Number.isInteger(xMediaIndex)) params.set('xMediaIndex', String(xMediaIndex))
   openPopup('upload.html', params, tab)

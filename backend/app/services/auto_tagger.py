@@ -755,7 +755,7 @@ class WhisperTagger:
         with self._lock:
             if self._loaded:
                 return True
-            from transformers import pipeline  # type: ignore
+            pipeline = _transformers_pipeline()
 
             self._pipeline = pipeline(
                 "automatic-speech-recognition",
@@ -1882,6 +1882,31 @@ def _remote_worker_status(opts: AutoTagOptions) -> dict:
     return info
 
 
+def _transformers_pipeline():
+    try:
+        from transformers.pipelines import pipeline as hf_pipeline  # type: ignore
+
+        return hf_pipeline
+    except Exception as direct_exc:  # noqa: BLE001
+        try:
+            from transformers import pipeline as hf_pipeline  # type: ignore
+
+            return hf_pipeline
+        except Exception as lazy_exc:  # noqa: BLE001
+            raise ImportError(
+                "transformers pipeline is unavailable. Reinstall the AI runtime so transformers, torch, "
+                f"torchvision, and torchaudio are compatible. direct import: {direct_exc}; lazy import: {lazy_exc}"
+            ) from lazy_exc
+
+
+def _transformers_pipeline_available() -> bool:
+    try:
+        _transformers_pipeline()
+        return True
+    except Exception:
+        return False
+
+
 def status() -> dict:
     model_cache = model_cache_status()
     opts = load_options()
@@ -1908,6 +1933,7 @@ def status() -> dict:
             "numpy": find_spec("numpy") is not None,
             "pillow": find_spec("PIL") is not None,
             "transformers": find_spec("transformers") is not None,
+            "transformers_pipeline": _transformers_pipeline_available(),
             "torch": find_spec("torch") is not None,
             "qwen_vl_utils": find_spec("qwen_vl_utils") is not None,
             "llama_cpp": _llama_cpp_importable(),

@@ -56,6 +56,7 @@ class ServerSettingsRequest(BaseModel):
 
 class ExtensionSettingsRequest(BaseModel):
     saveTweetTag: bool = True
+    saveTweetUsername: bool = False
     saveSourcePageUrl: bool = True
     saveMediaUrl: bool = False
     saveSemanticAnalysis: bool = False
@@ -142,6 +143,7 @@ def _extension_settings_payload(raw: dict | None = None) -> dict:
     raw = raw or SettingsManager(settings.config_file).get_extension_settings()
     return {
         "saveTweetTag": raw.get("saveTweetTag", True) is not False,
+        "saveTweetUsername": raw.get("saveTweetUsername") is True,
         "saveSourcePageUrl": raw.get("saveSourcePageUrl", True) is not False,
         "saveMediaUrl": raw.get("saveMediaUrl") is True,
         "saveSemanticAnalysis": raw.get("saveSemanticAnalysis") is True,
@@ -224,6 +226,7 @@ async def update_extension_settings(request: ExtensionSettingsRequest):
         SettingsManager(settings.config_file).set_ai_model_defaults(payload["modelDefaults"])
     SettingsManager(settings.config_file).set_extension_settings({
         "saveTweetTag": payload["saveTweetTag"],
+        "saveTweetUsername": payload["saveTweetUsername"],
         "saveSourcePageUrl": payload["saveSourcePageUrl"],
         "saveMediaUrl": payload["saveMediaUrl"],
         "saveSemanticAnalysis": payload["saveSemanticAnalysis"],

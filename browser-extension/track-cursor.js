@@ -187,6 +187,11 @@ function tweetIdFromUrl(raw) {
   return url.match(/\/status\/(\d+)/)?.[1] || ''
 }
 
+function tweetUsernameFromUrl(raw) {
+  const url = normalizedStatusUrl(raw)
+  return url.match(/\/([^/]+)\/status\/\d+/)?.[1] || ''
+}
+
 function xPhotoIndexFromUrl(raw) {
   const url = normalizedStatusUrl(raw)
   const match = url.match(/\/photo\/(\d+)/)
@@ -378,6 +383,7 @@ function uploadTargetFromArticle(article) {
       mediaType: 'video',
       fetch: 'link',
       xTweetId: tweetIdFromUrl(video.statusUrl),
+      xTweetUsername: tweetUsernameFromUrl(video.statusUrl),
     }
   }
 
@@ -389,6 +395,7 @@ function uploadTargetFromArticle(article) {
       mediaType: 'image',
       fetch: 'direct',
       xTweetId: tweetIdFromUrl(image.statusUrl || statusUrl),
+      xTweetUsername: tweetUsernameFromUrl(image.statusUrl || statusUrl),
       xMediaIndex: xPhotoIndexFromUrl(image.statusUrl || statusUrl),
     }
   }
@@ -486,6 +493,7 @@ function openUploadForTarget(target) {
       mediaType: target.mediaType || 'image',
       fetch: target.fetch || 'direct',
       xTweetId: target.xTweetId || tweetIdFromUrl(target.page || target.src),
+      xTweetUsername: target.xTweetUsername || tweetUsernameFromUrl(target.page || target.src),
     }
     const xMediaIndex = Number.isInteger(target.xMediaIndex)
       ? target.xMediaIndex
