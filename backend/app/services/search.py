@@ -127,16 +127,18 @@ def build_conditions(query: str) -> list:
 
     for token in tokens:
         if token.type == TokenType.TAG:
-            subq = select(PostTag.c.post_id).join(Tag).where(Tag.name == token.value)
-            condition = Post.id.in_(subq)
+            condition = _post_has_tag_name_like(token.value)
+            if condition is None:
+                continue
             if current_or_group:
                 current_or_group.append(condition)
             else:
                 and_conditions.append(condition)
 
         elif token.type == TokenType.NEGATED_TAG:
-            subq = select(PostTag.c.post_id).join(Tag).where(Tag.name == token.value)
-            and_conditions.append(not_(Post.id.in_(subq)))
+            condition = _post_has_tag_name_like(token.value)
+            if condition is not None:
+                and_conditions.append(not_(condition))
 
         elif token.type == TokenType.OR:
             if and_conditions:
@@ -189,6 +191,10 @@ def _escape_like(value: str) -> str:
     )
 
 
+def _normalize_tag_query(value: str) -> str:
+    return re.sub(r"\s+", "_", str(value or "").strip().lower()).strip("_")
+
+
 def _semantic_tag_name_condition(normalized: str):
     escaped = _escape_like(normalized)
     name = func.lower(Tag.name)
@@ -198,6 +204,21 @@ def _semantic_tag_name_condition(normalized: str):
         name.like(f"%\\_{escaped}", escape="\\"),
         name.like(f"%\\_{escaped}\\_%", escape="\\"),
     )
+
+
+def _tag_name_condition(value: str):
+    normalized = _normalize_tag_query(value)
+    if not normalized:
+        return None
+    return _semantic_tag_name_condition(normalized)
+
+
+def _post_has_tag_name_like(value: str):
+    condition = _tag_name_condition(value)
+    if condition is None:
+        return None
+    subq = select(PostTag.c.post_id).join(Tag).where(condition)
+    return Post.id.in_(subq)
 
 
 async def _semantic_expansion_conditions(session: AsyncSession, query: str) -> list:

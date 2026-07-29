@@ -1,4 +1,5 @@
 from typing import Optional
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, case
@@ -19,6 +20,46 @@ def _escape_like(value: str) -> str:
         .replace("%", "\\%")
         .replace("_", "\\_")
     )
+
+
+def _normalize_tag_query(value: str) -> str:
+    return re.sub(r"\s+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def _tag_name_search_condition(q: str):
+    normalized = _normalize_tag_query(q)
+    if not normalized:
+        return None
+    pattern = _escape_like(normalized)
+    name = func.lower(Tag.name)
+    return name.like(f"%{pattern}%", escape="\\")
+
+
+def _tag_name_autocomplete_condition(q: str, name_parts: bool = False):
+    normalized = _normalize_tag_query(q)
+    if not normalized:
+        return None, None
+
+    pattern = _escape_like(normalized)
+    name = func.lower(Tag.name)
+    if name_parts:
+        match_condition = name.like(f"%{pattern}%", escape="\\")
+    else:
+        match_condition = (
+            (name == normalized)
+            | name.like(f"{pattern}%", escape="\\")
+            | name.like(f"%\\_{pattern}", escape="\\")
+            | name.like(f"%\\_{pattern}\\_%", escape="\\")
+        )
+    rank = case(
+        (name == normalized, 0),
+        (name.like(f"{pattern}\\_%", escape="\\"), 1),
+        (name.like(f"%\\_{pattern}", escape="\\"), 2),
+        (name.like(f"%\\_{pattern}\\_%", escape="\\"), 3),
+        (name.like(f"{pattern}%", escape="\\"), 4),
+        else_=5,
+    )
+    return match_condition, rank
 
 
 class CreateTagRequest(BaseModel):
@@ -55,12 +96,20 @@ async def list_tags(
 
     # Apply search filter
     if q:
-        stmt = stmt.where(Tag.name.ilike(f"%{q}%"))
+        condition = _tag_name_search_condition(q)
+        if condition is not None:
+            stmt = stmt.where(condition)
+        else:
+            stmt = stmt.where(False)
 
     # Get total count
     count_stmt = select(func.count(Tag.id))
     if q:
-        count_stmt = count_stmt.where(Tag.name.ilike(f"%{q}%"))
+        condition = _tag_name_search_condition(q)
+        if condition is not None:
+            count_stmt = count_stmt.where(condition)
+        else:
+            count_stmt = count_stmt.where(False)
     total_result = await db.execute(count_stmt)
     total = total_result.scalar() or 0
 
@@ -99,26 +148,9 @@ async def autocomplete_tags(
     db: AsyncSession = Depends(get_db),
 ):
     """Get tag suggestions for autocomplete."""
-    needle = q.lower()
-    pattern = _escape_like(q)
-    needle_pattern = _escape_like(needle)
-    name = func.lower(Tag.name)
-    if name_parts:
-        match_condition = Tag.name.ilike(f"%{pattern}%", escape="\\")
-        rank = case(
-            (name.like(f"%\\_{needle_pattern}", escape="\\"), 0),
-            (name.like(f"%\\_{needle_pattern}\\_%", escape="\\"), 1),
-            (name.like(f"{needle_pattern}\\_%", escape="\\"), 2),
-            (name == needle, 3),
-            else_=4,
-        )
-    else:
-        match_condition = Tag.name.ilike(f"{pattern}%", escape="\\")
-        rank = case(
-            (name == needle, 0),
-            (name.like(f"{needle_pattern}\\_%", escape="\\"), 1),
-            else_=2,
-        )
+    match_condition, rank = _tag_name_autocomplete_condition(q, name_parts=name_parts)
+    if match_condition is None:
+        return []
 
     stmt = (
         select(Tag)
