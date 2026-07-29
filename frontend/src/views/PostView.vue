@@ -222,6 +222,183 @@
       </div>
 
       <div class="sidebar-section actions">
+        <details class="post-optimize-menu" open>
+          <summary class="post-optimize-summary">
+            <span>
+              <strong>Media Optimizer</strong>
+              <small>Quality-controlled, review-first replacement</small>
+            </span>
+            <span class="optimize-state-badge" :class="postOptimizeState">
+              {{ postOptimizeStateLabel }}
+            </span>
+          </summary>
+
+          <div class="post-optimize-body">
+            <section class="optimize-section">
+              <div class="optimize-section-head">
+                <div>
+                  <strong>Optimization profile</strong>
+                  <small>{{ postOptimizeProfileName }} settings</small>
+                </div>
+                <span v-if="postOptimizeProfile === 'custom'" class="optimize-custom-badge">Custom</span>
+              </div>
+              <MediaOptimizeProfiles
+                :profiles="mediaOptimizeProfiles"
+                :active-profile="postOptimizeProfile"
+                compact
+                @select="applyPostOptimizeProfile"
+              />
+            </section>
+
+            <div class="optimize-context-grid">
+              <div class="optimize-context-card">
+                <span>Source</span>
+                <strong>{{ postOptimizeSourceResolution }}</strong>
+                <small>{{ formatFileSize(post.fileSize) }}{{ postOptimizeIsVideo && postCurrentVideoBitrate ? ` · ~${postCurrentVideoBitrate.toLocaleString()} kbps` : '' }}</small>
+              </div>
+              <div class="optimize-context-card target">
+                <span>Target policy</span>
+                <strong>{{ postOptimizeTargetResolution }}</strong>
+                <small>{{ postOptimizeTargetDetail }}</small>
+              </div>
+            </div>
+
+            <details class="optimize-advanced">
+              <summary>
+                <span>Advanced controls</span>
+                <small>Fine-tune dimensions and quality budgets</small>
+              </summary>
+              <div class="post-optimize-grid">
+                <label v-if="postOptimizeIsImage">
+                  Image target
+                  <select v-model="postImagePreset" @change="applyPostImagePreset">
+                    <option v-for="option in postImagePresetOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <label v-if="postOptimizeIsImage">
+                  Image quality
+                  <input type="number" min="1" max="100" step="1" v-model.number="postImageQuality" @input="markPostOptimizeCustom" />
+                </label>
+                <label v-if="postOptimizeIsVideo">
+                  Video target
+                  <select v-model="postVideoPreset" @change="applyPostVideoPreset">
+                    <option v-for="option in postVideoPresetOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <label v-if="postOptimizeIsVideo">
+                  Video quality budget
+                  <select v-model="postVideoBitratePreset" @change="applyPostVideoBitratePreset">
+                    <option v-for="option in postVideoBitratePresetOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <label v-if="postOptimizeIsImage && postImagePreset === 'custom'">
+                  Custom image max side
+                  <input type="number" min="64" max="8192" step="16" v-model.number="postImageMaxDimension" @input="markPostOptimizeCustom" />
+                </label>
+                <label v-if="postOptimizeIsVideo && postVideoPreset === 'custom'">
+                  Custom video max side
+                  <input type="number" min="64" max="8192" step="16" v-model.number="postVideoMaxDimension" @input="markPostOptimizeCustom" />
+                </label>
+                <label v-if="postOptimizeIsVideo && postVideoBitratePreset === 'custom'">
+                  Custom video budget (kbps)
+                  <input type="number" min="64" max="50000" step="64" v-model.number="postVideoBitrateKbps" @input="markPostOptimizeCustom" />
+                </label>
+              </div>
+            </details>
+
+            <div class="optimize-guardrail">
+              <span class="optimize-guardrail-icon" aria-hidden="true">✓</span>
+              <div>
+                <strong>Quality and replacement guardrails</strong>
+                <small>
+                  <template v-if="postOptimizeIsSocial">
+                    Social mode preserves accepted source dimensions, creates an H.264/AAC MP4, and may increase
+                    file size to avoid visible generational loss. X account duration and file-size limits still apply.
+                  </template>
+                  <template v-else>
+                    Motion can burst above the selected video budget. The original is replaced only after a valid,
+                    smaller output passes media inspection and duplicate checks.
+                  </template>
+                </small>
+              </div>
+            </div>
+
+            <div
+              v-if="optimizePreview"
+              class="optimize-review-card"
+              :class="{ growth: optimizePreviewSavings.increaseBytes > 0 }"
+            >
+              <div class="optimize-review-head">
+                <div>
+                  <span>Preview assessment</span>
+                  <strong>{{ optimizePreviewAssessment }}</strong>
+                </div>
+                <span class="optimize-ready-pill">{{ optimizePreviewCanApply ? 'Ready to set' : 'Current retained' }}</span>
+              </div>
+              <div class="optimize-review-metrics">
+                <div>
+                  <span>Original</span>
+                  <strong>{{ formatFileSize(optimizePreviewSavings.before) }}</strong>
+                </div>
+                <div>
+                  <span>{{ optimizePreviewCanApply ? 'Optimized' : 'Reviewed' }}</span>
+                  <strong>{{ formatFileSize(optimizePreviewSavings.after) }}</strong>
+                </div>
+                <div>
+                  <span>{{ optimizePreviewStorageLabel }}</span>
+                  <strong>{{ formatFileSize(optimizePreviewStorageBytes) }}</strong>
+                </div>
+              </div>
+              <small>{{ optimizePreviewDimensionSummary }}</small>
+              <small v-if="optimizePreviewGrowthExplanation" class="optimize-growth-explanation">
+                {{ optimizePreviewGrowthExplanation }}
+              </small>
+            </div>
+
+            <div v-if="showOptimizeJobCard" class="optimize-job-card" :class="{ error: optimizeStatusKind === 'error' }">
+              <div class="optimize-job-head">
+                <div>
+                  <strong>{{ optimizeBusy ? 'Optimization job running' : 'Optimization job' }}</strong>
+                  <small>{{ optimizeStatus || optimizeJob.message }}</small>
+                </div>
+                <span>{{ optimizeJobProgress }}%</span>
+              </div>
+              <div class="post-optimize-progress" role="progressbar" :aria-valuenow="optimizeJobProgress" aria-valuemin="0" aria-valuemax="100">
+                <div class="post-optimize-progress-fill" :style="{ width: optimizeJobProgress + '%' }"></div>
+              </div>
+            </div>
+
+            <div class="optimize-action-bar">
+              <button
+                type="button"
+                class="btn"
+                :disabled="optimizeBusy"
+                @click="openOrCreateOptimizePreview"
+              >
+                {{ optimizeBusy ? 'Processing...' : 'Preview' }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-danger"
+                :disabled="optimizeBusy || !optimizePreviewCanApply"
+                :title="optimizePreviewCanApply ? 'Set the exact reviewed file as the stored original' : 'Preview a valid result before setting it'"
+                @click="requestSetOptimizePreview"
+              >
+                Set
+              </button>
+            </div>
+
+            <small v-if="optimizeStatus && !optimizeJob" class="post-optimize-status" :class="{ error: optimizeStatusKind === 'error' }">
+              {{ optimizeStatus }}
+            </small>
+          </div>
+        </details>
         <button
           class="btn"
           :class="{ 'btn-danger': post.isFavorited }"
@@ -249,6 +426,92 @@
         {{ modelTooltip.text }}
       </div>
     </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="optimizePreviewOpen && optimizePreview?.previewUrl"
+        class="optimize-preview-fullscreen"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Optimized media preview"
+      >
+        <MediaViewer
+          :src="optimizePreview.previewUrl"
+          :alt="`Optimized preview of ${post.filename}`"
+          :type="optimizePreviewMediaType"
+          @close="closeOptimizePreview"
+        />
+        <div class="optimize-preview-banner">
+          <span>{{ optimizePreviewIsSocial ? 'Social-compatible MP4 preview' : optimizePreviewCanApply ? 'Temporary optimized preview' : 'Current file preview' }}</span>
+          <strong>{{ optimizePreviewAssessment }} · {{ optimizePreviewDimensionSummary }}</strong>
+        </div>
+      </div>
+    </Teleport>
+
+    <div v-if="showOptimizeConfirm" class="modal-overlay" @click.self="showOptimizeConfirm = false">
+      <div class="modal optimize-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="optimize-confirm-title">
+        <div class="optimize-confirm-heading">
+          <span class="optimize-confirm-mark" aria-hidden="true">!</span>
+          <div>
+            <h2 id="optimize-confirm-title">
+              {{ postOptimizeApplyMode === 'create' ? 'Create a new post?' : 'Replace the stored original?' }}
+            </h2>
+            <p>
+              The exact preview you reviewed will be used. No second encode is performed.
+            </p>
+          </div>
+        </div>
+        <div class="optimize-apply-mode" role="radiogroup" aria-label="Reviewed media destination">
+          <label :class="{ active: postOptimizeApplyMode === 'replace' }">
+            <input v-model="postOptimizeApplyMode" type="radio" value="replace" />
+            <span>
+              <strong>Replace this post</strong>
+              <small>Updates the existing media while retaining this post’s metadata and relationships.</small>
+            </span>
+          </label>
+          <label :class="{ active: postOptimizeApplyMode === 'create' }">
+            <input v-model="postOptimizeApplyMode" type="radio" value="create" />
+            <span>
+              <strong>Create new post</strong>
+              <small>Keeps this post untouched and copies its {{ post.tags.length }} tag{{ post.tags.length === 1 ? '' : 's' }}, safety, and source.</small>
+            </span>
+          </label>
+        </div>
+        <div class="optimize-confirm-impact">
+          <div>
+            <span>Current file</span>
+            <strong>{{ formatFileSize(optimizePreviewSavings.before) }}</strong>
+          </div>
+          <div>
+            <span>Reviewed output</span>
+            <strong>{{ formatFileSize(optimizePreviewSavings.after) }}</strong>
+          </div>
+          <div class="positive">
+            <span>{{ optimizePreviewIsSocial ? 'Storage change' : 'Storage reduction' }}</span>
+            <strong>{{ optimizeConfirmStorageChange }}</strong>
+          </div>
+        </div>
+        <div class="optimize-confirm-note">
+          <template v-if="postOptimizeApplyMode === 'create'">
+            NekoBooru creates a separate post after revalidating the reviewed bytes. The current post remains unchanged.
+          </template>
+          <template v-else>
+            NekoBooru revalidates the reviewed bytes, content hash, and source version before replacing the original.
+          </template>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" @click="showOptimizeConfirm = false" :disabled="optimizeBusy">Cancel</button>
+          <button
+            class="btn"
+            :class="{ 'btn-danger': postOptimizeApplyMode === 'replace' }"
+            @click="confirmOptimizeCurrentPost"
+            :disabled="optimizeBusy"
+          >
+            {{ optimizeBusy ? 'Applying...' : postOptimizeApplyMode === 'create' ? 'Create New Post' : 'Replace Original' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Tag Editor Modal -->
     <div v-if="showTagEditor" class="modal-overlay" @click.self="showTagEditor = false">
@@ -475,6 +738,14 @@ import MediaViewer from '../components/MediaViewer.vue'
 import TagList from '../components/TagList.vue'
 import TagInput from '../components/TagInput.vue'
 import CommentSection from '../components/CommentSection.vue'
+import MediaOptimizeProfiles from '../components/MediaOptimizeProfiles.vue'
+import {
+  MEDIA_OPTIMIZE_PROFILES,
+  MEDIA_OPTIMIZE_STORAGE_KEY,
+  mediaOptimizeProfileLabel,
+  mediaOptimizeProfileSettings,
+  mediaOptimizeSavings,
+} from '../utils/mediaOptimize'
 
 const route = useRoute()
 const router = useRouter()
@@ -594,6 +865,27 @@ let autoTagTickTimer = null
 let rawTagDebounceTimer = null
 const pools = ref([])
 const selectedPool = ref('')
+const BATCH_MEDIA_OPTIMIZE_KEY = MEDIA_OPTIMIZE_STORAGE_KEY
+const postMediaOptimizeDefaults = loadPostMediaOptimizeSettings()
+const postImageMaxDimension = ref(postMediaOptimizeDefaults.imageMaxDimension)
+const postImageQuality = ref(postMediaOptimizeDefaults.imageQuality)
+const postVideoMaxDimension = ref(postMediaOptimizeDefaults.videoMaxDimension)
+const postVideoBitrateKbps = ref(postMediaOptimizeDefaults.videoBitrateKbps)
+const postOptimizeProfile = ref(postMediaOptimizeDefaults.profile)
+const postImagePreset = ref('custom')
+const postVideoPreset = ref('custom')
+const postVideoBitratePreset = ref('custom')
+const optimizeBusy = ref(false)
+const optimizeStatus = ref('')
+const optimizeStatusKind = ref('success')
+const optimizePreview = ref(null)
+const optimizePreviewOpen = ref(false)
+const showOptimizeConfirm = ref(false)
+const postOptimizeApplyMode = ref('replace')
+const optimizeJob = ref(null)
+const optimizeJobProgress = computed(() => Math.max(0, Math.min(100, Number(optimizeJob.value?.progress || 0))))
+let optimizePollTimer = null
+const mediaOptimizeProfiles = MEDIA_OPTIMIZE_PROFILES
 
 const mediaType = computed(() => {
   if (!post.value) return 'image'
@@ -606,6 +898,125 @@ const mediaType = computed(() => {
 const tweetUrl = computed(() => {
   const id = tweetIdFromPost(post.value)
   return id ? `https://x.com/i/status/${id}` : ''
+})
+const postCurrentMaxSide = computed(() => Math.max(Number(post.value?.width || 0), Number(post.value?.height || 0)))
+const postCurrentVideoBitrate = computed(() => estimatedVideoBitrateKbps(post.value))
+const postOptimizeExtension = computed(() => String(post.value?.extension || '').toLowerCase())
+const postOptimizeIsVideo = computed(() => ['.mp4', '.webm'].includes(postOptimizeExtension.value))
+const postOptimizeIsImage = computed(() => ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(postOptimizeExtension.value))
+const postImagePresetOptions = computed(() => mediaOptimizePresetOptions(postCurrentMaxSide.value, 'image'))
+const postVideoPresetOptions = computed(() => mediaOptimizePresetOptions(postCurrentMaxSide.value, 'video'))
+const postVideoBitratePresetOptions = computed(() => videoBitratePresetOptions(postCurrentVideoBitrate.value))
+const postOptimizeProfileName = computed(() => mediaOptimizeProfileLabel(postOptimizeProfile.value))
+const postOptimizeIsSocial = computed(() => postOptimizeProfile.value === 'social')
+const postOptimizeSourceResolution = computed(() => (
+  post.value?.width && post.value?.height
+    ? `${Number(post.value.width).toLocaleString()} × ${Number(post.value.height).toLocaleString()}`
+    : 'Unknown dimensions'
+))
+const postOptimizeTargetResolution = computed(() => {
+  if (postOptimizeIsSocial.value) return 'Source dimensions within X limits'
+  if (postOptimizeIsVideo.value) return `${Number(postVideoMaxDimension.value || 0).toLocaleString()}px maximum side`
+  return `${Number(postImageMaxDimension.value || 0).toLocaleString()}px maximum side`
+})
+const postOptimizeTargetDetail = computed(() => {
+  if (postOptimizeIsVideo.value) {
+    if (postOptimizeIsSocial.value) return 'MP4 · H.264 High · AAC-LC · ≤40 FPS'
+    return `Quality-first encode · ${Number(postVideoBitrateKbps.value || 0).toLocaleString()} kbps budget`
+  }
+  return `Image quality ${Number(postImageQuality.value || 0)} · metadata preserved where supported`
+})
+const optimizePreviewSavings = computed(() => mediaOptimizeSavings(
+  optimizePreview.value?.oldSize,
+  optimizePreview.value?.newSize,
+))
+const optimizePreviewIsSocial = computed(() => (
+  postOptimizeIsVideo.value &&
+  (
+    optimizePreview.value?.compatibility === 'social' ||
+    (postOptimizeIsSocial.value && Boolean(optimizePreview.value))
+  )
+))
+const optimizePreviewCanApply = computed(() => (
+  optimizePreview.value?.status === 'preview' &&
+  Boolean(optimizePreview.value?.previewUrl) &&
+  optimizePreviewSavings.value.after > 0 &&
+  (
+    optimizePreviewSavings.value.after < optimizePreviewSavings.value.before ||
+    optimizePreviewIsSocial.value
+  )
+))
+const optimizePreviewAssessment = computed(() => {
+  if (optimizePreviewIsSocial.value) {
+    if (optimizePreview.value?.status !== 'preview') return 'Already X-compatible'
+    if (optimizePreviewSavings.value.increaseBytes > 0) {
+      return `X-compatible MP4 · ${formatFileSize(optimizePreviewSavings.value.increaseBytes)} larger`
+    }
+    if (optimizePreviewSavings.value.bytes > 0) {
+      return `X-compatible MP4 · ${optimizePreviewSavings.value.percent}% smaller`
+    }
+    return 'X-compatible MP4 · same storage size'
+  }
+  return optimizePreviewCanApply.value
+    ? `${optimizePreviewSavings.value.percent}% smaller`
+    : 'Original is already more efficient'
+})
+const optimizePreviewGrowthExplanation = computed(() => {
+  if (!optimizePreviewIsSocial.value || optimizePreviewSavings.value.increaseBytes <= 0) return ''
+  const codec = String(optimizePreview.value?.sourceCodec || '').toLowerCase()
+  const codecLabel = ({
+    av1: 'AV1',
+    vp9: 'VP9',
+    hevc: 'HEVC',
+    h265: 'HEVC',
+  })[codec]
+  if (codecLabel) {
+    return `${codecLabel} stores video more efficiently than X’s H.264 target. This copy prioritizes visual quality, so some size growth is expected.`
+  }
+  return 'The X-compatible copy prioritizes visual quality. Review the storage increase before setting it.'
+})
+const optimizePreviewStorageLabel = computed(() => (
+  optimizePreviewSavings.value.increaseBytes > 0 ? 'Size increase' : 'Space saved'
+))
+const optimizePreviewStorageBytes = computed(() => (
+  optimizePreviewSavings.value.increaseBytes || optimizePreviewSavings.value.bytes
+))
+const optimizeConfirmStorageChange = computed(() => {
+  if (optimizePreviewSavings.value.increaseBytes > 0) {
+    return `+${optimizePreviewSavings.value.increasePercent}%`
+  }
+  return `-${optimizePreviewSavings.value.percent}%`
+})
+const optimizePreviewDimensionSummary = computed(() => {
+  if (!optimizePreview.value) return ''
+  const oldDimensions = optimizePreview.value.oldWidth && optimizePreview.value.oldHeight
+    ? `${optimizePreview.value.oldWidth} × ${optimizePreview.value.oldHeight}`
+    : 'source dimensions'
+  const newDimensions = optimizePreview.value.width && optimizePreview.value.height
+    ? `${optimizePreview.value.width} × ${optimizePreview.value.height}`
+    : 'optimized dimensions'
+  return `${oldDimensions} → ${newDimensions}`
+})
+const postOptimizeState = computed(() => {
+  if (optimizeStatusKind.value === 'error') return 'error'
+  if (optimizeBusy.value) return 'running'
+  if (optimizePreview.value) return 'ready'
+  return 'idle'
+})
+const postOptimizeStateLabel = computed(() => ({
+  error: 'Needs attention',
+  running: 'Processing',
+  ready: optimizePreviewCanApply.value ? 'Ready to set' : 'Preview ready',
+  idle: 'Quality-first',
+}[postOptimizeState.value]))
+const showOptimizeJobCard = computed(() => Boolean(
+  optimizeJob.value && (optimizeBusy.value || optimizeStatusKind.value === 'error')
+))
+const optimizePreviewMediaType = computed(() => {
+  const extension = String(optimizePreview.value?.extension || postOptimizeExtension.value).toLowerCase()
+  if (['.mp4', '.webm'].includes(extension)) return 'video'
+  if (extension === '.gif') return 'gif'
+  return 'image'
 })
 
 const safetyOptions = [
@@ -784,6 +1195,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopAutoLoadPolling()
   stopAutoTagTimer()
+  stopOptimizePolling()
   window.removeEventListener('keydown', onKeydown)
 })
 
@@ -792,7 +1204,31 @@ watch(() => route.params.id, async () => {
   loadNeighbors()
   similar.value = []
   similarLoaded.value = false
+  optimizeStatus.value = ''
+  optimizePreview.value = null
+  optimizePreviewOpen.value = false
+  showOptimizeConfirm.value = false
+  optimizeJob.value = null
+  stopOptimizePolling()
 })
+
+watch(
+  [
+    postImageMaxDimension,
+    postImageQuality,
+    postVideoMaxDimension,
+    postVideoBitrateKbps,
+    postOptimizeProfile,
+    postImagePreset,
+    postVideoPreset,
+    postVideoBitratePreset,
+  ],
+  () => {
+    optimizePreview.value = null
+    optimizePreviewOpen.value = false
+    savePostMediaOptimizeSettings()
+  },
+)
 
 async function loadSimilar() {
   similarLoading.value = true
@@ -1094,6 +1530,9 @@ async function loadPost() {
   try {
     post.value = await api.getPost(route.params.id)
     editedTags.value = [...post.value.tags]
+    if (postOptimizeProfile.value !== 'custom') {
+      applyPostOptimizeProfile(postOptimizeProfile.value)
+    }
     loadPostAiAnalysis()
   } catch (e) {
     post.value = null
@@ -1668,6 +2107,307 @@ async function deletePost() {
   } catch (e) {
     alert('Failed to delete post: ' + e.message)
   }
+}
+
+function loadPostMediaOptimizeSettings() {
+  const fallback = {
+    profile: 'balanced',
+    imageMaxDimension: 1600,
+    imageQuality: 88,
+    videoMaxDimension: 1080,
+    videoBitrateKbps: 6000,
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem(BATCH_MEDIA_OPTIMIZE_KEY) || '{}')
+    return {
+      profile: ['fidelity', 'balanced', 'compact', 'social', 'custom'].includes(saved.profile) ? saved.profile : fallback.profile,
+      imageMaxDimension: Number.isFinite(Number(saved.imageMaxDimension)) ? Number(saved.imageMaxDimension) : fallback.imageMaxDimension,
+      imageQuality: Number.isFinite(Number(saved.imageQuality)) ? Number(saved.imageQuality) : fallback.imageQuality,
+      videoMaxDimension: Number.isFinite(Number(saved.videoMaxDimension)) ? Number(saved.videoMaxDimension) : fallback.videoMaxDimension,
+      videoBitrateKbps: Number.isFinite(Number(saved.videoBitrateKbps)) ? Number(saved.videoBitrateKbps) : fallback.videoBitrateKbps,
+    }
+  } catch {
+    return fallback
+  }
+}
+
+function mediaOptimizePresetOptions(currentMaxSide, label) {
+  const current = Number(currentMaxSide || 0)
+  const options = [{ value: 'custom', label: 'Custom' }]
+  if (current >= 64) {
+    options.unshift({ value: String(current), label: `Current ${label} max (${current}px)` })
+  }
+  for (const target of [2160, 1440, 1080, 720, 480]) {
+    if (current && target >= current) continue
+    options.splice(options.length - 1, 0, { value: String(target), label: `${target}px max side` })
+  }
+  return options
+}
+
+function videoBitratePresetOptions(currentKbps) {
+  const current = Math.round(Number(currentKbps || 0))
+  const options = [{ value: 'custom', label: 'Custom' }]
+  if (current >= 64) {
+    options.unshift({ value: String(current), label: `Current estimated bitrate (${current} kbps)` })
+  }
+  for (const target of [8000, 6000, 4000, 2500, 1500, 1000, 750, 500]) {
+    if (current && target >= current) continue
+    options.splice(options.length - 1, 0, { value: String(target), label: `${target} kbps` })
+  }
+  return options
+}
+
+function applyPresetValue(value, targetRef) {
+  if (value === 'custom') return
+  const parsed = Number(value)
+  if (Number.isFinite(parsed) && parsed >= 64) targetRef.value = Math.round(parsed)
+}
+
+function applyPostImagePreset() {
+  applyPresetValue(postImagePreset.value, postImageMaxDimension)
+  markPostOptimizeCustom()
+}
+
+function applyPostVideoPreset() {
+  applyPresetValue(postVideoPreset.value, postVideoMaxDimension)
+  markPostOptimizeCustom()
+}
+
+function applyPostVideoBitratePreset() {
+  applyPresetValue(postVideoBitratePreset.value, postVideoBitrateKbps)
+  markPostOptimizeCustom()
+}
+
+function applyPostOptimizeProfile(profileId) {
+  const settings = mediaOptimizeProfileSettings(profileId, {
+    imageMaxSide: postOptimizeIsImage.value ? postCurrentMaxSide.value : 0,
+    videoMaxSide: postOptimizeIsVideo.value ? postCurrentMaxSide.value : 0,
+    videoBitrateKbps: postCurrentVideoBitrate.value,
+  })
+  postOptimizeProfile.value = profileId
+  postImagePreset.value = 'custom'
+  postVideoPreset.value = 'custom'
+  postVideoBitratePreset.value = 'custom'
+  postImageMaxDimension.value = settings.imageMaxDimension
+  postImageQuality.value = settings.imageQuality
+  postVideoMaxDimension.value = settings.videoMaxDimension
+  postVideoBitrateKbps.value = settings.videoBitrateKbps
+}
+
+function markPostOptimizeCustom() {
+  postOptimizeProfile.value = 'custom'
+}
+
+function savePostMediaOptimizeSettings() {
+  try {
+    localStorage.setItem(BATCH_MEDIA_OPTIMIZE_KEY, JSON.stringify({
+      profile: postOptimizeProfile.value,
+      imageMaxDimension: postImageMaxDimension.value,
+      imageQuality: postImageQuality.value,
+      videoMaxDimension: postVideoMaxDimension.value,
+      videoBitrateKbps: postVideoBitrateKbps.value,
+    }))
+  } catch {
+    // localStorage unavailable
+  }
+}
+
+function currentPostOptimizePayload() {
+  const imageMax = Number(postImageMaxDimension.value || 0)
+  const imageQuality = Number(postImageQuality.value || 85)
+  const videoMax = Number(postVideoMaxDimension.value || 0)
+  const videoBitrate = Number(postVideoBitrateKbps.value || 0)
+  return {
+    postIds: [post.value.id],
+    imageMaxDimension: imageMax >= 64 ? Math.round(imageMax) : null,
+    imageQuality: Math.max(1, Math.min(100, Math.round(imageQuality || 85))),
+    videoMaxDimension: videoMax >= 64 ? Math.round(videoMax) : null,
+    videoBitrateKbps: videoBitrate >= 64 ? Math.round(videoBitrate) : null,
+    socialCompatible: postOptimizeIsSocial.value,
+  }
+}
+
+function estimatedVideoBitrateKbps(value) {
+  const duration = Number(value?.duration || 0)
+  const bytes = Number(value?.fileSize || 0)
+  return duration > 0 && bytes > 0 ? Math.round((bytes * 8) / duration / 1000) : 0
+}
+
+async function optimizeCurrentPost() {
+  if (!post.value?.id || optimizeBusy.value) return
+  const payload = {
+    ...currentPostOptimizePayload(),
+    applyMode: postOptimizeApplyMode.value,
+    previewIds: {
+      [post.value.id]: optimizePreview.value?.previewId,
+    },
+  }
+  if (!payload.socialCompatible && !payload.imageMaxDimension && !payload.videoMaxDimension && !payload.videoBitrateKbps) {
+    optimizeStatus.value = 'Set an image size, video size, or video bitrate first.'
+    optimizeStatusKind.value = 'error'
+    return
+  }
+  if (!optimizePreviewCanApply.value) {
+    optimizeStatus.value = 'Preview must produce a valid reviewed output before Set can replace the original.'
+    optimizeStatusKind.value = 'error'
+    return
+  }
+  optimizeBusy.value = true
+  optimizeStatus.value = postOptimizeApplyMode.value === 'create'
+    ? 'Creating a new post from the exact reviewed preview...'
+    : 'Applying the exact reviewed preview...'
+  optimizeStatusKind.value = 'success'
+  try {
+    const result = await runOptimizeJob(payload)
+    optimizePreview.value = null
+    optimizePreviewOpen.value = false
+    showOptimizeConfirm.value = false
+    const item = result.results?.[0]
+    if (result.optimized) {
+      if (item?.status === 'created' && item?.newPostId) {
+        await router.push({ name: 'post', params: { id: item.newPostId } })
+        return
+      }
+      await loadPost()
+      optimizeStatus.value = item?.compatibility === 'social'
+        ? `Set X-compatible MP4 (${formatFileSize(item.newSize)}).`
+        : item?.oldSize && item?.newSize
+          ? `Optimized from ${formatFileSize(item.oldSize)} to ${formatFileSize(item.newSize)}.`
+          : 'Post optimized.'
+      optimizeStatusKind.value = 'success'
+    } else if (result.skipped) {
+      optimizeStatus.value = item?.message || 'Post was already within the requested limits.'
+      optimizeStatusKind.value = 'success'
+    } else {
+      optimizeStatus.value = item?.message || 'Optimization failed.'
+      optimizeStatusKind.value = 'error'
+    }
+  } catch (e) {
+    optimizeStatus.value = e.message || 'Optimization failed.'
+    optimizeStatusKind.value = 'error'
+  } finally {
+    optimizeBusy.value = false
+  }
+}
+
+async function confirmOptimizeCurrentPost() {
+  showOptimizeConfirm.value = false
+  await optimizeCurrentPost()
+}
+
+function sourcePreviewFallback(item = null) {
+  return {
+    ...(item || {}),
+    postId: post.value.id,
+    status: 'source',
+    previewUrl: post.value.contentUrl,
+    extension: post.value.extension,
+    oldSize: Number(post.value.fileSize || 0),
+    newSize: Number(post.value.fileSize || 0),
+    oldWidth: post.value.width,
+    oldHeight: post.value.height,
+    width: post.value.width,
+    height: post.value.height,
+  }
+}
+
+async function previewCurrentPostOptimize() {
+  if (!post.value?.id || optimizeBusy.value) return
+  const payload = { ...currentPostOptimizePayload(), preview: true }
+  if (!payload.socialCompatible && !payload.imageMaxDimension && !payload.videoMaxDimension && !payload.videoBitrateKbps) {
+    optimizeStatus.value = 'Set an image size, video size, or video bitrate first.'
+    optimizeStatusKind.value = 'error'
+    return
+  }
+  optimizeBusy.value = true
+  optimizeStatus.value = 'Starting preview...'
+  optimizeStatusKind.value = 'success'
+  optimizePreview.value = null
+  showOptimizeConfirm.value = false
+  try {
+    const result = await runOptimizeJob(payload)
+    const item = result.results?.[0]
+    if (result.optimized && item) {
+      optimizePreview.value = item
+      optimizePreviewOpen.value = true
+      const dimensions = item.width && item.height
+        ? `, ${item.oldWidth || '?'} x ${item.oldHeight || '?'} -> ${item.width} x ${item.height}`
+        : ''
+      optimizeStatus.value = `Preview: ${formatFileSize(item.oldSize)} -> ${formatFileSize(item.newSize)}${dimensions}.`
+      optimizeStatusKind.value = 'success'
+    } else if (result.skipped) {
+      optimizePreview.value = sourcePreviewFallback(item)
+      optimizePreviewOpen.value = true
+      optimizeStatus.value = `${item?.message || 'No smaller quality-preserving output was produced.'} Showing the current file; Preview will reopen it without processing again.`
+      optimizeStatusKind.value = 'success'
+    } else {
+      optimizeStatus.value = item?.message || 'Preview failed.'
+      optimizeStatusKind.value = 'error'
+    }
+  } catch (e) {
+    optimizeStatus.value = e.message || 'Preview failed.'
+    optimizeStatusKind.value = 'error'
+  } finally {
+    optimizeBusy.value = false
+    optimizeJob.value = null
+  }
+}
+
+function openOrCreateOptimizePreview() {
+  if (optimizePreview.value?.previewUrl) {
+    optimizePreviewOpen.value = true
+    return
+  }
+  previewCurrentPostOptimize()
+}
+
+function closeOptimizePreview() {
+  optimizePreviewOpen.value = false
+}
+
+function requestSetOptimizePreview() {
+  if (!optimizePreviewCanApply.value) {
+    optimizeStatus.value = 'Set becomes available when Preview produces a smaller reviewed output.'
+    optimizeStatusKind.value = 'error'
+    return
+  }
+  showOptimizeConfirm.value = true
+}
+
+function stopOptimizePolling() {
+  if (optimizePollTimer) {
+    clearInterval(optimizePollTimer)
+    optimizePollTimer = null
+  }
+}
+
+function runOptimizeJob(payload) {
+  stopOptimizePolling()
+  return new Promise(async (resolve, reject) => {
+    try {
+      optimizeJob.value = await api.createOptimizeJob(payload)
+      optimizeStatus.value = optimizeJob.value.message || 'Queued media optimization...'
+      optimizePollTimer = setInterval(async () => {
+        try {
+          const job = await api.getOptimizeJob(optimizeJob.value.id)
+          optimizeJob.value = job
+          optimizeStatus.value = job.message || optimizeStatus.value
+          if (job.status === 'completed') {
+            stopOptimizePolling()
+            resolve(job)
+          } else if (job.status === 'failed') {
+            stopOptimizePolling()
+            reject(new Error(job.error || job.message || 'Optimization failed'))
+          }
+        } catch (error) {
+          stopOptimizePolling()
+          reject(error)
+        }
+      }, 750)
+    } catch (error) {
+      reject(error)
+    }
+  })
 }
 
 function handleClose() {
@@ -2275,6 +3015,535 @@ function tweetIdFromUrl(raw) {
   gap: 0.5rem;
 }
 
+.post-optimize-menu {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, var(--bg-primary), var(--bg-tertiary));
+  overflow: hidden;
+}
+
+.post-optimize-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  color: var(--text-primary);
+}
+
+.post-optimize-summary::-webkit-details-marker {
+  display: none;
+}
+
+.post-optimize-summary > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.post-optimize-summary strong {
+  font-size: 0.92rem;
+}
+
+.post-optimize-summary small {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.optimize-state-badge,
+.optimize-custom-badge,
+.optimize-ready-pill {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.optimize-state-badge.running {
+  border-color: rgba(96, 165, 250, 0.55);
+  color: var(--accent);
+}
+
+.optimize-state-badge.ready,
+.optimize-ready-pill {
+  border-color: rgba(129, 178, 154, 0.65);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.optimize-state-badge.error {
+  border-color: rgba(224, 122, 95, 0.65);
+  background: var(--coral-soft);
+  color: var(--coral);
+}
+
+.post-optimize-body {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0 0.85rem 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.optimize-section {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.75rem;
+}
+
+.optimize-section-head,
+.optimize-review-head,
+.optimize-job-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.optimize-section-head > div,
+.optimize-review-head > div,
+.optimize-job-head > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.optimize-section-head strong,
+.optimize-review-head strong,
+.optimize-job-head strong {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.optimize-section-head small,
+.optimize-job-head small {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.optimize-context-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.55rem;
+}
+
+.optimize-context-card {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.optimize-context-card.target {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--accent-soft);
+}
+
+.optimize-context-card span,
+.optimize-review-metrics span,
+.optimize-confirm-impact span {
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.optimize-context-card strong {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.optimize-context-card small {
+  color: var(--text-secondary);
+  font-size: 0.66rem;
+  line-height: 1.35;
+}
+
+.optimize-advanced {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.optimize-advanced > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  padding: 0.65rem;
+}
+
+.optimize-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.optimize-advanced > summary span {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.optimize-advanced > summary small {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+}
+
+.post-optimize-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.55rem;
+  padding: 0 0.65rem 0.65rem;
+}
+
+.post-optimize-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.post-optimize-grid input,
+.post-optimize-grid select {
+  min-width: 0;
+  width: 100%;
+  color: var(--text-primary);
+}
+
+.optimize-guardrail {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.6rem;
+  padding: 0.65rem;
+  border: 1px solid rgba(129, 178, 154, 0.45);
+  border-radius: 0.6rem;
+  background: var(--success-soft);
+}
+
+.optimize-guardrail-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--success);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.optimize-guardrail > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.optimize-guardrail strong {
+  color: var(--text-primary);
+  font-size: 0.76rem;
+}
+
+.optimize-guardrail small {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.optimize-review-card,
+.optimize-job-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(129, 178, 154, 0.55);
+  border-radius: 0.65rem;
+  background: linear-gradient(135deg, var(--success-soft), rgba(0, 0, 0, 0.05));
+}
+
+.optimize-review-head span:first-child {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+}
+
+.optimize-review-head strong {
+  font-size: 1rem;
+}
+
+.optimize-review-metrics,
+.optimize-confirm-impact {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.optimize-review-metrics > div,
+.optimize-confirm-impact > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+}
+
+.optimize-review-metrics strong,
+.optimize-confirm-impact strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.77rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optimize-review-card > small {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+}
+
+.optimize-review-card.growth {
+  border-color: color-mix(in srgb, var(--warning, #f2c14e) 68%, var(--border));
+  background: linear-gradient(135deg, rgba(242, 193, 78, 0.12), rgba(0, 0, 0, 0.05));
+}
+
+.optimize-review-card .optimize-growth-explanation {
+  padding: 0.55rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--warning, #f2c14e) 40%, var(--border));
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--warning, #f2c14e) 8%, transparent);
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.optimize-job-card {
+  border-color: rgba(96, 165, 250, 0.45);
+  background: var(--accent-soft);
+}
+
+.optimize-job-card.error {
+  border-color: rgba(224, 122, 95, 0.55);
+  background: var(--coral-soft);
+}
+
+.optimize-job-head > span {
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.optimize-action-bar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.optimize-action-bar .btn {
+  min-width: 0;
+  padding-inline: 0.7rem;
+  font-size: 0.78rem;
+}
+
+.optimize-action-bar .btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.post-optimize-status {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.post-optimize-progress {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.post-optimize-progress-fill {
+  height: 100%;
+  min-width: 4px;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.post-optimize-status.error {
+  color: var(--coral, #f87171);
+}
+
+.optimize-preview-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: #000;
+}
+
+.optimize-preview-fullscreen :deep(.media-viewer) {
+  border-radius: 0;
+  background: #000;
+}
+
+.optimize-preview-banner {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 3010;
+  display: grid;
+  max-width: min(420px, calc(100vw - 6rem));
+  gap: 0.1rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.6rem;
+  background: rgba(8, 12, 18, 0.82);
+  color: white;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+
+.optimize-preview-banner span {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.optimize-preview-banner strong {
+  font-size: 0.78rem;
+}
+
+.optimize-confirm-modal {
+  width: min(560px, calc(100vw - 2rem));
+}
+
+.optimize-confirm-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+
+.optimize-confirm-heading h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.optimize-confirm-heading p {
+  margin-top: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.optimize-confirm-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--coral-soft);
+  color: var(--coral);
+  font-weight: 900;
+}
+
+.optimize-confirm-impact {
+  margin-top: 1rem;
+}
+
+.optimize-apply-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.optimize-apply-mode label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+
+.optimize-apply-mode label.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.optimize-apply-mode input {
+  margin-top: 0.2rem;
+}
+
+.optimize-apply-mode span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.optimize-apply-mode strong {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.optimize-apply-mode small {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.optimize-confirm-impact .positive {
+  border-color: rgba(129, 178, 154, 0.55);
+  background: var(--success-soft);
+}
+
+.optimize-confirm-impact .positive strong {
+  color: var(--success);
+}
+
+.optimize-confirm-note {
+  margin-top: 0.8rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.optimize-confirm-modal .modal-actions {
+  margin-top: 1rem;
+}
+
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -2874,6 +4143,21 @@ function tweetIdFromUrl(raw) {
   .actions .btn {
     flex: 1;
     min-width: 100px;
+  }
+
+  .post-optimize-menu {
+    flex: 1 1 100%;
+  }
+
+  .optimize-context-grid,
+  .optimize-review-metrics,
+  .optimize-confirm-impact,
+  .optimize-apply-mode {
+    grid-template-columns: 1fr;
+  }
+
+  .optimize-action-bar {
+    grid-template-columns: 1fr;
   }
 
   .modal {

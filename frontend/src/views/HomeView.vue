@@ -329,6 +329,203 @@
           </div>
         </details>
 
+        <details class="batch-card media-optimize-card" open>
+          <summary>
+            <span>Media Optimizer</span>
+            <small>Preview quality-controlled outputs, inspect impact, then replace originals.</small>
+          </summary>
+
+          <div class="batch-optimize-body">
+            <div class="batch-optimize-topline">
+              <div>
+                <strong>Optimization profile</strong>
+                <small>{{ batchOptimizeProfileName }} settings</small>
+              </div>
+              <span class="batch-optimize-state" :class="batchOptimizeState">{{ batchOptimizeStateLabel }}</span>
+            </div>
+
+            <MediaOptimizeProfiles
+              :profiles="mediaOptimizeProfiles"
+              :active-profile="batchOptimizeProfile"
+              :compact="batchDock === 'right'"
+              @select="applyBatchOptimizeProfile"
+            />
+
+            <div class="batch-optimize-inventory">
+              <div>
+                <span>Selected</span>
+                <strong>{{ batchOptimizeInventory.total }}</strong>
+              </div>
+              <div>
+                <span>Images</span>
+                <strong>{{ batchOptimizeInventory.images }}</strong>
+              </div>
+              <div>
+                <span>Videos</span>
+                <strong>{{ batchOptimizeInventory.videos }}</strong>
+              </div>
+              <div>
+                <span>Source storage</span>
+                <strong>{{ formatFileSize(batchOptimizeInventory.bytes) }}</strong>
+              </div>
+            </div>
+
+            <div class="batch-optimize-policy">
+              <div>
+                <span>Image policy</span>
+                <strong>{{ Number(batchImageMaxDimension || 0).toLocaleString() }}px · quality {{ batchImageQuality }}</strong>
+              </div>
+              <div>
+                <span>Video policy</span>
+                <strong>
+                  {{ batchOptimizeIsSocial
+                    ? 'MP4 · H.264 High · AAC-LC · ≤40 FPS'
+                    : `${Number(batchVideoMaxDimension || 0).toLocaleString()}px · ${Number(batchVideoBitrateKbps || 0).toLocaleString()} kbps`
+                  }}
+                </strong>
+              </div>
+            </div>
+
+            <details class="batch-optimize-advanced">
+              <summary>
+                <span>Advanced controls</span>
+                <small>Override dimensions and quality budgets</small>
+              </summary>
+              <div class="batch-field-grid compact">
+                <label>
+                  Image target
+                  <select v-model="batchImagePreset" @change="applyBatchImagePreset">
+                    <option v-for="option in batchImagePresetOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  Image quality
+                  <input type="number" min="1" max="100" step="1" v-model.number="batchImageQuality" @input="markBatchOptimizeCustom" />
+                </label>
+                <label>
+                  Video target
+                  <select v-model="batchVideoPreset" @change="applyBatchVideoPreset">
+                    <option v-for="option in batchVideoPresetOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  Video quality budget
+                  <select v-model="batchVideoBitratePreset" @change="applyBatchVideoBitratePreset">
+                    <option v-for="option in batchVideoBitratePresetOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <label v-if="batchImagePreset === 'custom'">
+                  Custom image max side
+                  <input type="number" min="64" max="8192" step="16" v-model.number="batchImageMaxDimension" @input="markBatchOptimizeCustom" />
+                </label>
+                <label v-if="batchVideoPreset === 'custom'">
+                  Custom video max side
+                  <input type="number" min="64" max="8192" step="16" v-model.number="batchVideoMaxDimension" @input="markBatchOptimizeCustom" />
+                </label>
+                <label v-if="batchVideoBitratePreset === 'custom'">
+                  Custom video budget (kbps)
+                  <input type="number" min="64" max="50000" step="64" v-model.number="batchVideoBitrateKbps" @input="markBatchOptimizeCustom" />
+                </label>
+              </div>
+            </details>
+
+            <div class="batch-optimize-guardrail">
+              <strong>Protected replacement workflow</strong>
+              <span>
+                <template v-if="batchOptimizeIsSocial">
+                  Social mode preserves accepted source dimensions and creates H.264/AAC MP4 files. Outputs may be
+                  larger when that is required to avoid visible generational loss. Account duration and file-size
+                  limits still apply on X.
+                </template>
+                <template v-else>
+                  Quality-first encodes may burst during complex scenes. Originals are changed only when the output is
+                  valid, unique, and smaller than the current file.
+                </template>
+              </span>
+            </div>
+
+            <div v-if="batchOptimizePreview" class="batch-optimize-review">
+              <div class="batch-optimize-review-head">
+                <div>
+                  <span>Preview assessment</span>
+                  <strong>{{ batchOptimizePreviewAssessment }}</strong>
+                </div>
+                <span>{{ batchOptimizeCanApply ? 'Ready to set' : 'Current retained' }}</span>
+              </div>
+              <div class="batch-optimize-review-metrics">
+                <div>
+                  <span>Original</span>
+                  <strong>{{ formatFileSize(batchOptimizePreviewSavings.before) }}</strong>
+                </div>
+                <div>
+                  <span>{{ batchOptimizeIsSocial ? 'Compatible' : batchOptimizeCanApply ? 'Optimized' : 'Reviewed' }}</span>
+                  <strong>{{ formatFileSize(batchOptimizePreviewSavings.after) }}</strong>
+                </div>
+                <div>
+                  <span>Would change</span>
+                  <strong>{{ batchOptimizePreview.optimized || 0 }}</strong>
+                </div>
+                <div>
+                  <span>Skipped</span>
+                  <strong>{{ batchOptimizePreview.skipped || 0 }}</strong>
+                </div>
+                <div>
+                  <span>Failed</span>
+                  <strong :class="{ danger: batchOptimizePreview.failed }">{{ batchOptimizePreview.failed || 0 }}</strong>
+                </div>
+              </div>
+
+              <div v-if="batchOptimizePreviewChanges.length" class="batch-optimize-results">
+                <div
+                  v-for="item in batchOptimizePreviewChanges"
+                  :key="item.postId"
+                  class="batch-optimize-result-row"
+                >
+                  <div>
+                    <strong>Post #{{ item.postId }}</strong>
+                    <small>
+                      {{ formatFileSize(item.oldSize) }} → {{ formatFileSize(item.newSize) }}
+                      <template v-if="item.width && item.height"> · {{ item.width }} × {{ item.height }}</template>
+                    </small>
+                    <small v-if="batchOptimizeGrowthExplanation(item)" class="batch-optimize-growth-note">
+                      {{ batchOptimizeGrowthExplanation(item) }}
+                    </small>
+                  </div>
+                  <button
+                    v-if="item.previewUrl"
+                    type="button"
+                    class="link-btn"
+                    @click="openBatchOptimizePreview(item)"
+                  >
+                    Open preview
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="batch-actions-row batch-optimize-actions">
+              <button type="button" class="btn" :disabled="!selectedIds.length || busy" @click="openOrCreateBatchOptimizePreview">
+                {{ busy ? 'Processing...' : 'Preview' }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-danger"
+                :disabled="!selectedIds.length || busy || !batchOptimizeCanApply"
+                :title="batchOptimizeCanApply ? 'Set the exact reviewed files as the stored originals' : 'Preview valid results before setting them'"
+                @click="batchOptimizeConfirmOpen = true"
+              >
+                Set
+              </button>
+            </div>
+          </div>
+        </details>
+
         <details class="batch-card">
           <summary>
             <span>Organize & Cleanup</span>
@@ -379,6 +576,99 @@
         </div>
       </div>
     </div>
+
+    <div v-if="batchOptimizeConfirmOpen" class="modal-overlay" @click.self="batchOptimizeConfirmOpen = false">
+      <div class="modal batch-optimize-confirm" role="dialog" aria-modal="true" aria-labelledby="batch-optimize-confirm-title">
+        <div class="batch-optimize-confirm-head">
+          <span aria-hidden="true">!</span>
+          <div>
+            <h3 id="batch-optimize-confirm-title">
+              {{ batchOptimizeApplyMode === 'create' ? 'Create new posts from reviewed media?' : 'Apply reviewed media replacements?' }}
+            </h3>
+            <p>
+              The exact {{ batchOptimizePreview?.optimized || 0 }} preview file{{ batchOptimizePreview?.optimized === 1 ? '' : 's' }}
+              you reviewed will be used. No second encode is performed.
+            </p>
+          </div>
+        </div>
+        <div class="batch-optimize-apply-mode" role="radiogroup" aria-label="Reviewed media destination">
+          <label :class="{ active: batchOptimizeApplyMode === 'replace' }">
+            <input v-model="batchOptimizeApplyMode" type="radio" value="replace" />
+            <span>
+              <strong>Replace selected posts</strong>
+              <small>Updates each original post with its exact reviewed preview.</small>
+            </span>
+          </label>
+          <label :class="{ active: batchOptimizeApplyMode === 'create' }">
+            <input v-model="batchOptimizeApplyMode" type="radio" value="create" />
+            <span>
+              <strong>Create new posts</strong>
+              <small>Keeps originals untouched and copies each post’s tags, safety, and source.</small>
+            </span>
+          </label>
+        </div>
+        <div class="batch-optimize-confirm-metrics">
+          <div>
+            <span>Before</span>
+            <strong>{{ formatFileSize(batchOptimizePreviewSavings.before) }}</strong>
+          </div>
+          <div>
+            <span>After</span>
+            <strong>{{ formatFileSize(batchOptimizePreviewSavings.after) }}</strong>
+          </div>
+          <div>
+            <span>{{ batchOptimizeIsSocial ? 'Storage change' : 'Reduction' }}</span>
+            <strong>{{ batchOptimizeConfirmStorageChange }}</strong>
+          </div>
+        </div>
+        <p class="batch-optimize-confirm-note">
+          <template v-if="batchOptimizeApplyMode === 'create'">
+            Each reviewed artifact becomes a separate post after its source version and content hash are revalidated.
+          </template>
+          <template v-else>
+            Each reviewed artifact is revalidated against its source post and content hash before replacement.
+          </template>
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="batchOptimizeConfirmOpen = false" :disabled="busy">Cancel</button>
+          <button
+            type="button"
+            class="btn"
+            :class="{ 'btn-danger': batchOptimizeApplyMode === 'replace' }"
+            @click="confirmBatchMediaOptimize"
+            :disabled="busy"
+          >
+            {{ busy ? 'Applying...' : batchOptimizeApplyMode === 'create' ? 'Create New Posts' : 'Replace Reviewed Originals' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <Teleport to="body">
+      <div
+        v-if="batchOptimizePreviewItem?.previewUrl"
+        class="batch-optimize-fullscreen"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Batch optimized media preview"
+      >
+        <MediaViewer
+          :src="batchOptimizePreviewItem.previewUrl"
+          :alt="`Optimized preview of post ${batchOptimizePreviewItem.postId}`"
+          :type="batchOptimizePreviewMediaType"
+          @close="batchOptimizePreviewItem = null"
+        />
+        <div class="batch-optimize-preview-banner">
+          <span>
+            {{ batchOptimizePreviewItem.status === 'preview' ? 'Optimized preview' : 'Current file retained' }}
+            · Post #{{ batchOptimizePreviewItem.postId }}
+          </span>
+          <strong>
+            {{ formatFileSize(batchOptimizePreviewItem.oldSize) }} → {{ formatFileSize(batchOptimizePreviewItem.newSize) }}
+          </strong>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -389,6 +679,15 @@ import { usePostsStore } from '../stores/posts'
 import { api } from '../api/client'
 import PostGrid from '../components/PostGrid.vue'
 import Pagination from '../components/Pagination.vue'
+import MediaViewer from '../components/MediaViewer.vue'
+import MediaOptimizeProfiles from '../components/MediaOptimizeProfiles.vue'
+import {
+  MEDIA_OPTIMIZE_PROFILES,
+  MEDIA_OPTIMIZE_STORAGE_KEY,
+  mediaOptimizeProfileLabel,
+  mediaOptimizeProfileSettings,
+  mediaOptimizeSavings,
+} from '../utils/mediaOptimize'
 
 const route = useRoute()
 const router = useRouter()
@@ -464,13 +763,30 @@ const defaultSemanticPrompt = [
 const batchTagMode = ref('add')
 const batchTagText = ref('')
 const batchSafety = ref('')
+const BATCH_MEDIA_OPTIMIZE_KEY = MEDIA_OPTIMIZE_STORAGE_KEY
+const batchMediaOptimizeDefaults = loadBatchMediaOptimizeSettings()
+const batchImageMaxDimension = ref(batchMediaOptimizeDefaults.imageMaxDimension)
+const batchImageQuality = ref(batchMediaOptimizeDefaults.imageQuality)
+const batchVideoMaxDimension = ref(batchMediaOptimizeDefaults.videoMaxDimension)
+const batchVideoBitrateKbps = ref(batchMediaOptimizeDefaults.videoBitrateKbps)
+const batchOptimizeProfile = ref(batchMediaOptimizeDefaults.profile)
+const batchImagePreset = ref('custom')
+const batchVideoPreset = ref('custom')
+const batchVideoBitratePreset = ref('custom')
 const savedAutoTagSettings = ref({})
 const savedAutoTagProfileDefaults = ref({ custom: {}, anime: {}, realistic: {} })
 const batchAiProfile = ref('default')
 const batchAiSettings = ref(defaultBatchAiSettings())
 const batchAutoJob = ref(null)
 const batchOperation = ref(null)
+const batchOptimizePreview = ref(null)
+const batchOptimizeJob = ref(null)
+const batchOptimizeConfirmOpen = ref(false)
+const batchOptimizeApplyMode = ref('replace')
+const batchOptimizePreviewItem = ref(null)
 let batchAutoPollTimer = null
+let batchOptimizePollTimer = null
+const mediaOptimizeProfiles = MEDIA_OPTIMIZE_PROFILES
 
 const aiModelDefaultKeys = ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']
 const batchAiProfiles = computed(() => [
@@ -572,6 +888,79 @@ const inspectedSemanticAnalysis = computed(() => {
   if (id == null) return null
   return inspectedSemanticCache.value[id] || null
 })
+const batchImageCurrentMaxSide = computed(() => largestSelectedMaxSide(['.jpg', '.jpeg', '.png', '.webp', '.gif']))
+const batchVideoCurrentMaxSide = computed(() => largestSelectedMaxSide(['.mp4', '.webm']))
+const batchVideoCurrentBitrate = computed(() => largestSelectedVideoBitrate())
+const batchImagePresetOptions = computed(() => mediaOptimizePresetOptions(batchImageCurrentMaxSide.value, 'images'))
+const batchVideoPresetOptions = computed(() => mediaOptimizePresetOptions(batchVideoCurrentMaxSide.value, 'videos'))
+const batchVideoBitratePresetOptions = computed(() => videoBitratePresetOptions(batchVideoCurrentBitrate.value))
+const batchOptimizeProfileName = computed(() => mediaOptimizeProfileLabel(batchOptimizeProfile.value))
+const batchOptimizeIsSocial = computed(() => (
+  batchOptimizeProfile.value === 'social' ||
+  batchOptimizePreview.value?.socialCompatible === true
+))
+const batchOptimizeInventory = computed(() => {
+  const selected = selectedPostsInCurrentView()
+  return selected.reduce((summary, post) => {
+    const extension = String(post.extension || '').toLowerCase()
+    summary.total += 1
+    summary.bytes += Number(post.fileSize || 0)
+    if (['.mp4', '.webm'].includes(extension)) summary.videos += 1
+    else if (['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(extension)) summary.images += 1
+    return summary
+  }, { total: 0, images: 0, videos: 0, bytes: 0 })
+})
+const batchOptimizePreviewSavings = computed(() => {
+  const totals = (batchOptimizePreview.value?.results || []).reduce((summary, item) => {
+    summary.before += Number(item.oldSize || 0)
+    summary.after += Number(item.newSize || 0)
+    return summary
+  }, { before: 0, after: 0 })
+  return mediaOptimizeSavings(totals.before, totals.after)
+})
+const batchOptimizePreviewChanges = computed(() => (
+  (batchOptimizePreview.value?.results || []).filter((item) => item.status === 'preview')
+))
+const batchOptimizeCanApply = computed(() => Number(batchOptimizePreview.value?.optimized || 0) > 0)
+const batchOptimizePreviewAssessment = computed(() => {
+  if (batchOptimizeIsSocial.value) {
+    if (!batchOptimizeCanApply.value) return 'No selected video required conversion'
+    if (batchOptimizePreviewSavings.value.increaseBytes > 0) {
+      return `X-compatible MP4 · ${formatFileSize(batchOptimizePreviewSavings.value.increaseBytes)} larger`
+    }
+    if (batchOptimizePreviewSavings.value.bytes > 0) {
+      return `X-compatible MP4 · ${batchOptimizePreviewSavings.value.percent}% smaller`
+    }
+    return 'X-compatible MP4 · same storage size'
+  }
+  return batchOptimizeCanApply.value
+    ? `${batchOptimizePreviewSavings.value.percent}% storage reduction`
+    : 'Originals are already more efficient'
+})
+const batchOptimizeConfirmStorageChange = computed(() => {
+  if (batchOptimizePreviewSavings.value.increaseBytes > 0) {
+    return `+${batchOptimizePreviewSavings.value.increasePercent}%`
+  }
+  return `-${batchOptimizePreviewSavings.value.percent}%`
+})
+const batchOptimizeState = computed(() => {
+  if (batchOperation.value?.status === 'failed') return 'error'
+  if (busy.value && batchOptimizeJob.value) return 'running'
+  if (batchOptimizePreview.value) return 'ready'
+  return 'idle'
+})
+const batchOptimizeStateLabel = computed(() => ({
+  error: 'Needs attention',
+  running: 'Processing',
+  ready: 'Review ready',
+  idle: 'Protected workflow',
+}[batchOptimizeState.value]))
+const batchOptimizePreviewMediaType = computed(() => {
+  const extension = String(batchOptimizePreviewItem.value?.extension || '').toLowerCase()
+  if (['.mp4', '.webm'].includes(extension)) return 'video'
+  if (extension === '.gif') return 'gif'
+  return 'image'
+})
 const batchPanelStyle = computed(() => (
   batchDock.value === 'right'
     ? { width: `${batchRightWidth.value}px` }
@@ -600,6 +989,109 @@ function loadBatchSize(key, fallback, min, max) {
     // localStorage unavailable
   }
   return fallback
+}
+
+function loadBatchMediaOptimizeSettings() {
+  const fallback = {
+    profile: 'balanced',
+    imageMaxDimension: 1600,
+    imageQuality: 88,
+    videoMaxDimension: 1080,
+    videoBitrateKbps: 6000,
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem(BATCH_MEDIA_OPTIMIZE_KEY) || '{}')
+    return {
+      profile: ['fidelity', 'balanced', 'compact', 'social', 'custom'].includes(saved.profile) ? saved.profile : fallback.profile,
+      imageMaxDimension: Number.isFinite(Number(saved.imageMaxDimension)) ? Number(saved.imageMaxDimension) : fallback.imageMaxDimension,
+      imageQuality: Number.isFinite(Number(saved.imageQuality)) ? Number(saved.imageQuality) : fallback.imageQuality,
+      videoMaxDimension: Number.isFinite(Number(saved.videoMaxDimension)) ? Number(saved.videoMaxDimension) : fallback.videoMaxDimension,
+      videoBitrateKbps: Number.isFinite(Number(saved.videoBitrateKbps)) ? Number(saved.videoBitrateKbps) : fallback.videoBitrateKbps,
+    }
+  } catch {
+    return fallback
+  }
+}
+
+function mediaOptimizePresetOptions(currentMaxSide, label) {
+  const current = Number(currentMaxSide || 0)
+  const options = [{ value: 'custom', label: 'Custom' }]
+  if (current >= 64) {
+    options.unshift({ value: String(current), label: `Current ${label} max (${current}px)` })
+  }
+  for (const target of [2160, 1440, 1080, 720, 480]) {
+    if (current && target >= current) continue
+    options.splice(options.length - 1, 0, { value: String(target), label: `${target}px max side` })
+  }
+  return options
+}
+
+function videoBitratePresetOptions(currentKbps) {
+  const current = Math.round(Number(currentKbps || 0))
+  const options = [{ value: 'custom', label: 'Custom' }]
+  if (current >= 64) {
+    options.unshift({ value: String(current), label: `Current estimated bitrate (${current} kbps)` })
+  }
+  for (const target of [8000, 6000, 4000, 2500, 1500, 1000, 750, 500]) {
+    if (current && target >= current) continue
+    options.splice(options.length - 1, 0, { value: String(target), label: `${target} kbps` })
+  }
+  return options
+}
+
+function applyPresetValue(value, targetRef) {
+  if (value === 'custom') return
+  const parsed = Number(value)
+  if (Number.isFinite(parsed) && parsed >= 64) targetRef.value = Math.round(parsed)
+}
+
+function applyBatchImagePreset() {
+  applyPresetValue(batchImagePreset.value, batchImageMaxDimension)
+  markBatchOptimizeCustom()
+}
+
+function applyBatchVideoPreset() {
+  applyPresetValue(batchVideoPreset.value, batchVideoMaxDimension)
+  markBatchOptimizeCustom()
+}
+
+function applyBatchVideoBitratePreset() {
+  applyPresetValue(batchVideoBitratePreset.value, batchVideoBitrateKbps)
+  markBatchOptimizeCustom()
+}
+
+function applyBatchOptimizeProfile(profileId) {
+  const settings = mediaOptimizeProfileSettings(profileId, {
+    imageMaxSide: batchImageCurrentMaxSide.value,
+    videoMaxSide: batchVideoCurrentMaxSide.value,
+    videoBitrateKbps: batchVideoCurrentBitrate.value,
+  })
+  batchOptimizeProfile.value = profileId
+  batchImagePreset.value = 'custom'
+  batchVideoPreset.value = 'custom'
+  batchVideoBitratePreset.value = 'custom'
+  batchImageMaxDimension.value = settings.imageMaxDimension
+  batchImageQuality.value = settings.imageQuality
+  batchVideoMaxDimension.value = settings.videoMaxDimension
+  batchVideoBitrateKbps.value = settings.videoBitrateKbps
+}
+
+function markBatchOptimizeCustom() {
+  batchOptimizeProfile.value = 'custom'
+}
+
+function saveBatchMediaOptimizeSettings() {
+  try {
+    localStorage.setItem(BATCH_MEDIA_OPTIMIZE_KEY, JSON.stringify({
+      profile: batchOptimizeProfile.value,
+      imageMaxDimension: batchImageMaxDimension.value,
+      imageQuality: batchImageQuality.value,
+      videoMaxDimension: batchVideoMaxDimension.value,
+      videoBitrateKbps: batchVideoBitrateKbps.value,
+    }))
+  } catch {
+    // localStorage unavailable
+  }
 }
 
 function setBatchDock(value) {
@@ -872,6 +1364,28 @@ async function loadInspectedSemanticAnalysis(postId) {
 function selectedPostsInCurrentView() {
   const selected = new Set(selectedIds.value)
   return posts.value.filter((post) => selected.has(post.id))
+}
+
+function largestSelectedMaxSide(extensions) {
+  const allowed = new Set(extensions)
+  return selectedPostsInCurrentView().reduce((maxSide, post) => {
+    if (!allowed.has(String(post.extension || '').toLowerCase())) return maxSide
+    const side = Math.max(Number(post.width || 0), Number(post.height || 0))
+    return Math.max(maxSide, side)
+  }, 0)
+}
+
+function estimatedVideoBitrateKbps(post) {
+  const duration = Number(post?.duration || 0)
+  const bytes = Number(post?.fileSize || 0)
+  return duration > 0 && bytes > 0 ? Math.round((bytes * 8) / duration / 1000) : 0
+}
+
+function largestSelectedVideoBitrate() {
+  return selectedPostsInCurrentView().reduce((maxBitrate, post) => {
+    if (!['.mp4', '.webm'].includes(String(post.extension || '').toLowerCase())) return maxBitrate
+    return Math.max(maxBitrate, estimatedVideoBitrateKbps(post))
+  }, 0)
 }
 
 function batchTagsForPost(post, tags) {
@@ -1254,6 +1768,196 @@ async function clearTagsSelected() {
   batchTagMode.value = previousMode
 }
 
+function optimizePayload() {
+  const imageMax = Number(batchImageMaxDimension.value || 0)
+  const imageQuality = Number(batchImageQuality.value || 85)
+  const videoMax = Number(batchVideoMaxDimension.value || 0)
+  const videoBitrate = Number(batchVideoBitrateKbps.value || 0)
+  return {
+    postIds: [...selectedIds.value],
+    imageMaxDimension: imageMax >= 64 ? Math.round(imageMax) : null,
+    imageQuality: Math.max(1, Math.min(100, Math.round(imageQuality || 85))),
+    videoMaxDimension: videoMax >= 64 ? Math.round(videoMax) : null,
+    videoBitrateKbps: videoBitrate >= 64 ? Math.round(videoBitrate) : null,
+    socialCompatible: batchOptimizeProfile.value === 'social',
+  }
+}
+
+async function applyBatchMediaOptimize() {
+  if (!selectedIds.value.length || busy.value) return
+  const reviewedChanges = batchOptimizePreviewChanges.value
+  const payload = {
+    ...optimizePayload(),
+    applyMode: batchOptimizeApplyMode.value,
+    postIds: reviewedChanges.map((item) => item.postId),
+    previewIds: Object.fromEntries(reviewedChanges.map((item) => [item.postId, item.previewId])),
+  }
+  if (!payload.socialCompatible && !payload.imageMaxDimension && !payload.videoMaxDimension && !payload.videoBitrateKbps) {
+    showMessage('Set an image size, video size, or video bitrate before optimizing.', 'error')
+    return
+  }
+  if (!batchOptimizeCanApply.value) {
+    showMessage('Preview must produce valid reviewed output before Set can replace original media.', 'error')
+    return
+  }
+  batchOptimizeConfirmOpen.value = false
+  busy.value = true
+  try {
+    beginBatchOperation(
+      batchOptimizeApplyMode.value === 'create' ? 'Creating reviewed post copies' : 'Setting reviewed media',
+      batchOptimizeApplyMode.value === 'create'
+        ? 'Creating new posts with copied tags, safety, and source metadata.'
+        : 'Promoting exact preview files and regenerating thumbnails.',
+      payload.postIds.length,
+    )
+    const result = await runBatchOptimizeJob(payload)
+    batchOptimizePreview.value = null
+    batchOptimizePreviewItem.value = null
+    updateBatchOperation('Refreshing the current page with optimized media metadata.', 86)
+    await fetchPosts()
+    completeBatchOperation(
+      batchOptimizeApplyMode.value === 'create'
+        ? `Created ${result.optimized} post copy/copies, skipped ${result.skipped}, failed ${result.failed}.`
+        : `Optimized ${result.optimized} post(s), skipped ${result.skipped}, failed ${result.failed}.`,
+      result.processed,
+    )
+    showMessage(
+      batchOptimizeApplyMode.value === 'create'
+        ? `Created ${result.optimized} post copy/copies, skipped ${result.skipped}, failed ${result.failed}.`
+        : `Optimized ${result.optimized} post(s), skipped ${result.skipped}, failed ${result.failed}.`,
+      result.failed ? 'error' : 'success',
+    )
+  } catch (e) {
+    failBatchOperation(e.message)
+    showMessage(`Media optimize failed: ${e.message}`, 'error')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function confirmBatchMediaOptimize() {
+  batchOptimizeConfirmOpen.value = false
+  await applyBatchMediaOptimize()
+}
+
+function openBatchOptimizePreview(item) {
+  if (!item?.previewUrl) return
+  batchOptimizePreviewItem.value = item
+}
+
+function batchOptimizeGrowthExplanation(item) {
+  const oldSize = Number(item?.oldSize || 0)
+  const newSize = Number(item?.newSize || 0)
+  if (item?.compatibility !== 'social' || newSize <= oldSize) return ''
+  const codec = String(item?.sourceCodec || '').toLowerCase()
+  const codecLabel = ({
+    av1: 'AV1',
+    vp9: 'VP9',
+    hevc: 'HEVC',
+    h265: 'HEVC',
+  })[codec]
+  return codecLabel
+    ? `${codecLabel} is more efficient than H.264; this X-compatible copy favors visual quality.`
+    : 'The X-compatible copy favors visual quality, so storage may increase.'
+}
+
+function batchSourcePreviewFallback() {
+  const first = selectedPostsInCurrentView().find((item) => item?.contentUrl)
+  if (!first) return null
+  return {
+    postId: first.id,
+    status: 'source',
+    previewUrl: first.contentUrl,
+    extension: first.extension,
+    oldSize: Number(first.fileSize || 0),
+    newSize: Number(first.fileSize || 0),
+    oldWidth: first.width,
+    oldHeight: first.height,
+    width: first.width,
+    height: first.height,
+    compatibility: batchOptimizeIsSocial.value ? 'social' : null,
+  }
+}
+
+function openOrCreateBatchOptimizePreview() {
+  if (batchOptimizePreview.value) {
+    const firstPreview = batchOptimizePreviewChanges.value[0] || batchSourcePreviewFallback()
+    if (firstPreview?.previewUrl) {
+      batchOptimizePreviewItem.value = firstPreview
+      return
+    }
+  }
+  previewBatchMediaOptimize()
+}
+
+async function previewBatchMediaOptimize() {
+  if (!selectedIds.value.length || busy.value) return
+  const payload = { ...optimizePayload(), preview: true }
+  if (!payload.socialCompatible && !payload.imageMaxDimension && !payload.videoMaxDimension && !payload.videoBitrateKbps) {
+    showMessage('Set an image size, video size, or video bitrate before previewing.', 'error')
+    return
+  }
+  busy.value = true
+  batchOptimizePreview.value = null
+  batchOptimizeConfirmOpen.value = false
+  batchOptimizePreviewItem.value = null
+  try {
+    beginBatchOperation('Previewing selected media optimization', 'Creating temporary optimized copies for review.', selectedIds.value.length)
+    const result = await runBatchOptimizeJob(payload)
+    batchOptimizePreview.value = result
+    batchOptimizePreviewItem.value = batchOptimizePreviewChanges.value[0] || batchSourcePreviewFallback()
+    const oldBytes = (result.results || []).reduce((sum, item) => sum + Number(item.oldSize || 0), 0)
+    const newBytes = (result.results || []).reduce((sum, item) => sum + Number(item.newSize || 0), 0)
+    const sizeDetail = oldBytes && newBytes ? ` Estimated ${formatFileSize(oldBytes)} -> ${formatFileSize(newBytes)}.` : ''
+    completeBatchOperation(
+      `Preview ready: ${result.optimized} would change, ${result.skipped} skipped, ${result.failed} failed.${sizeDetail}`,
+      result.processed,
+    )
+    showMessage(`Preview ready: ${result.optimized} would change, ${result.skipped} skipped, ${result.failed} failed.`)
+  } catch (e) {
+    failBatchOperation(e.message)
+    showMessage(`Media optimize preview failed: ${e.message}`, 'error')
+  } finally {
+    busy.value = false
+  }
+}
+
+function stopBatchOptimizePolling() {
+  if (batchOptimizePollTimer) {
+    clearInterval(batchOptimizePollTimer)
+    batchOptimizePollTimer = null
+  }
+}
+
+function runBatchOptimizeJob(payload) {
+  stopBatchOptimizePolling()
+  return new Promise(async (resolve, reject) => {
+    try {
+      batchOptimizeJob.value = await api.createOptimizeJob(payload)
+      updateBatchOperation(batchOptimizeJob.value.message || 'Queued media optimization.', batchOptimizeJob.value.progress || 2)
+      batchOptimizePollTimer = setInterval(async () => {
+        try {
+          const job = await api.getOptimizeJob(batchOptimizeJob.value.id)
+          batchOptimizeJob.value = job
+          updateBatchOperation(job.message || 'Optimizing media.', job.progress || 2)
+          if (job.status === 'completed') {
+            stopBatchOptimizePolling()
+            resolve(job)
+          } else if (job.status === 'failed') {
+            stopBatchOptimizePolling()
+            reject(new Error(job.error || job.message || 'Optimization failed'))
+          }
+        } catch (error) {
+          stopBatchOptimizePolling()
+          reject(error)
+        }
+      }, 750)
+    } catch (error) {
+      reject(error)
+    }
+  })
+}
+
 async function openPoolModal() {
   if (!selectedIds.value.length) return
   chosenPoolId.value = ''
@@ -1338,9 +2042,39 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopBatchAutoPolling()
+  stopBatchOptimizePolling()
   stopBatchResize()
   if (actionMessageTimer) clearTimeout(actionMessageTimer)
 })
+
+watch(
+  () => selectedIds.value.join(','),
+  () => {
+    if (batchOptimizeProfile.value !== 'custom') {
+      applyBatchOptimizeProfile(batchOptimizeProfile.value)
+    }
+  },
+)
+
+watch(
+  [
+    batchImageMaxDimension,
+    batchImageQuality,
+    batchVideoMaxDimension,
+    batchVideoBitrateKbps,
+    batchOptimizeProfile,
+    batchImagePreset,
+    batchVideoPreset,
+    batchVideoBitratePreset,
+    () => selectedIds.value.join(','),
+  ],
+  () => {
+    batchOptimizePreview.value = null
+    batchOptimizeConfirmOpen.value = false
+    batchOptimizePreviewItem.value = null
+    saveBatchMediaOptimizeSettings()
+  },
+)
 
 watch(
   () => route.query,
@@ -1812,6 +2546,416 @@ function scrollToTop() {
   padding: 0.8rem;
 }
 
+.media-optimize-card {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.06), var(--bg-tertiary));
+}
+
+.batch-optimize-body {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.8rem;
+}
+
+.batch-optimize-topline,
+.batch-optimize-review-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.batch-optimize-topline > div,
+.batch-optimize-review-head > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.batch-optimize-topline strong,
+.batch-optimize-review-head strong {
+  color: var(--text-primary);
+  font-size: 0.86rem;
+}
+
+.batch-optimize-topline small {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.batch-optimize-state,
+.batch-optimize-review-head > span {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.batch-optimize-state.running {
+  border-color: rgba(96, 165, 250, 0.55);
+  color: var(--accent);
+}
+
+.batch-optimize-state.ready,
+.batch-optimize-review-head > span {
+  border-color: rgba(129, 178, 154, 0.6);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.batch-optimize-state.error {
+  border-color: rgba(224, 122, 95, 0.6);
+  background: var(--coral-soft);
+  color: var(--coral);
+}
+
+.batch-optimize-inventory,
+.batch-optimize-review-metrics,
+.batch-optimize-confirm-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.batch-optimize-inventory > div,
+.batch-optimize-review-metrics > div,
+.batch-optimize-confirm-metrics > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+}
+
+.batch-optimize-inventory span,
+.batch-optimize-policy span,
+.batch-optimize-review-metrics span,
+.batch-optimize-review-head span:first-child,
+.batch-optimize-confirm-metrics span {
+  color: var(--text-secondary);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.batch-optimize-inventory strong,
+.batch-optimize-policy strong,
+.batch-optimize-review-metrics strong,
+.batch-optimize-confirm-metrics strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-optimize-policy {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.batch-optimize-policy > div {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 0.55rem;
+  background: var(--accent-soft);
+}
+
+.batch-optimize-advanced {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.batch-optimize-advanced > summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  padding: 0.65rem;
+}
+
+.batch-optimize-advanced > summary span {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.batch-optimize-advanced > summary small {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+}
+
+.batch-optimize-advanced summary span::before {
+  content: none !important;
+}
+
+.batch-optimize-advanced .batch-field-grid {
+  margin-top: 0;
+  padding: 0 0.65rem 0.65rem;
+}
+
+.batch-optimize-guardrail {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(129, 178, 154, 0.5);
+  border-radius: 0.6rem;
+  background: var(--success-soft);
+}
+
+.batch-optimize-guardrail strong {
+  color: var(--text-primary);
+  font-size: 0.78rem;
+}
+
+.batch-optimize-guardrail span {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.batch-optimize-review {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(129, 178, 154, 0.55);
+  border-radius: 0.65rem;
+  background: linear-gradient(135deg, var(--success-soft), rgba(0, 0, 0, 0.04));
+}
+
+.batch-optimize-review-head strong {
+  font-size: 1rem;
+}
+
+.batch-optimize-review-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.batch-optimize-review-metrics .danger {
+  color: var(--coral);
+}
+
+.batch-optimize-results {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.batch-optimize-result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+}
+
+.batch-optimize-result-row + .batch-optimize-result-row {
+  border-top: 1px solid var(--border);
+}
+
+.batch-optimize-result-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.batch-optimize-result-row strong {
+  color: var(--text-primary);
+  font-size: 0.76rem;
+}
+
+.batch-optimize-result-row small {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+}
+
+.batch-optimize-result-row .batch-optimize-growth-note {
+  color: var(--warning, #f2c14e);
+  line-height: 1.35;
+}
+
+.batch-optimize-result-row .link-btn {
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+
+.batch-optimize-actions {
+  margin-top: 0;
+}
+
+.batch-optimize-actions .btn {
+  flex: 1 1 180px;
+}
+
+.batch-optimize-confirm {
+  width: min(590px, calc(100vw - 2rem));
+}
+
+.batch-optimize-confirm-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 0.8rem;
+}
+
+.batch-optimize-confirm-head > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--coral-soft);
+  color: var(--coral);
+  font-weight: 900;
+}
+
+.batch-optimize-confirm-head h3 {
+  color: var(--text-primary);
+}
+
+.batch-optimize-confirm-head p,
+.batch-optimize-confirm-note {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.batch-optimize-confirm-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.batch-optimize-apply-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.batch-optimize-apply-mode label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+
+.batch-optimize-apply-mode label.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.batch-optimize-apply-mode input {
+  margin-top: 0.2rem;
+}
+
+.batch-optimize-apply-mode span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.batch-optimize-apply-mode strong {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.batch-optimize-apply-mode small {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.batch-optimize-confirm-metrics > div:last-child {
+  border-color: rgba(129, 178, 154, 0.55);
+  background: var(--success-soft);
+}
+
+.batch-optimize-confirm-metrics > div:last-child strong {
+  color: var(--success);
+}
+
+.batch-optimize-confirm-note {
+  margin-top: 0.8rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: var(--bg-secondary);
+}
+
+.batch-optimize-confirm .modal-actions {
+  margin-top: 1rem;
+}
+
+.batch-optimize-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: #000;
+}
+
+.batch-optimize-fullscreen :deep(.media-viewer) {
+  border-radius: 0;
+  background: #000;
+}
+
+.batch-optimize-preview-banner {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 3010;
+  display: grid;
+  max-width: min(420px, calc(100vw - 6rem));
+  gap: 0.1rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.6rem;
+  background: rgba(8, 12, 18, 0.82);
+  color: white;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+
+.batch-optimize-preview-banner span {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.batch-optimize-preview-banner strong {
+  font-size: 0.78rem;
+}
+
+.batch-panel.dock-right .media-optimize-card :deep(.media-optimize-profiles) {
+  grid-template-columns: 1fr;
+}
+
 .ai-batch-card {
   grid-row: span 2;
 }
@@ -2202,6 +3346,17 @@ function scrollToTop() {
 
   .ai-batch-card {
     grid-row: auto;
+  }
+
+  .batch-optimize-inventory,
+  .batch-optimize-review-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .batch-optimize-policy,
+  .batch-optimize-confirm-metrics,
+  .batch-optimize-apply-mode {
+    grid-template-columns: 1fr;
   }
 
   .inspector-body {

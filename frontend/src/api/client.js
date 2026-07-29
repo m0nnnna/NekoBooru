@@ -92,6 +92,24 @@ export const api = {
     })
   },
 
+  async bulkOptimizePosts(data) {
+    return request('/posts/bulk-optimize', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async createOptimizeJob(data) {
+    return request('/posts/optimize-jobs', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async getOptimizeJob(id) {
+    return request(`/posts/optimize-jobs/${id}`)
+  },
+
   async toggleFavorite(id) {
     return request(`/posts/${id}/favorite`, { method: 'POST' })
   },
