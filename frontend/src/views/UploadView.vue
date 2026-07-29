@@ -2,6 +2,8 @@
   <div class="upload-view">
     <h1>Upload</h1>
 
+    <RemoteClipEditor ref="remoteClipEditor" />
+
     <div
       class="drop-zone"
       :class="{ dragging: isDragging, fetching: fetchingUrl || fetchingVideo || fetchingFediverse }"
@@ -132,6 +134,15 @@
                 {{ upload.aiStatus }}
               </div>
             </div>
+            <UploadJobProgress
+              v-if="upload.job"
+              :job="upload.job"
+              compact
+              actions
+              @cancel="cancelQueueJob(upload)"
+              @retry="retryQueueJob(upload)"
+              @remove="removeQueueJob(upload)"
+            />
           </div>
           <div class="upload-status">
             <div v-if="upload.uploading" class="status uploading">
@@ -141,6 +152,7 @@
             <div v-else-if="upload.completed" class="status completed">
               <span class="checkmark">&#10003;</span>
               Done!
+              <router-link v-if="upload.postId" :to="`/post/${upload.postId}`">Open post</router-link>
             </div>
             <div v-else-if="upload.error" class="status error">
               <span class="error-icon">&#10007;</span>
@@ -175,8 +187,11 @@ import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api/client'
 import TagInput from '../components/TagInput.vue'
+import RemoteClipEditor from '../components/RemoteClipEditor.vue'
+import UploadJobProgress from '../components/UploadJobProgress.vue'
 
 const router = useRouter()
+const remoteClipEditor = ref(null)
 
 const isDragging = ref(false)
 const uploads = ref([])
@@ -325,7 +340,11 @@ async function handlePaste(e) {
 
 // Route a pasted/clipboard string to the right fetcher. Returns true if handled.
 async function processPastedText(text) {
-  if (isVideoUrl(text)) {
+  if (isClipEditorUrl(text)) {
+    remoteClipEditor.value?.setUrl(text)
+    showToast('Video link added to the clip editor.')
+    return true
+  } else if (isVideoUrl(text)) {
     await fetchFromYtdlp(text)
     return true
   } else if (isFediverseUrl(text)) {
@@ -336,6 +355,25 @@ async function processPastedText(text) {
     return true
   }
   return false
+}
+
+function isClipEditorUrl(text) {
+  try {
+    const url = new URL(text)
+    if (!['http:', 'https:'].includes(url.protocol)) return false
+    const host = url.hostname.toLowerCase()
+    return host === 'youtu.be'
+      || host === 'youtube.com'
+      || host.endsWith('.youtube.com')
+      || host === 'rumble.com'
+      || host.endsWith('.rumble.com')
+      || host === 'odysee.com'
+      || host.endsWith('.odysee.com')
+      || host === 'lbry.tv'
+      || host.endsWith('.lbry.tv')
+  } catch {
+    return false
+  }
 }
 
 // Read the clipboard on demand (button press). Needed on mobile where the
@@ -390,6 +428,8 @@ function isVideoUrl(text) {
     const videoPlatforms = [
       'twitter.com', 'x.com',
       'youtube.com', 'youtu.be', 'www.youtube.com',
+      'rumble.com', 'www.rumble.com',
+      'odysee.com', 'www.odysee.com', 'lbry.tv',
       'tiktok.com', 'www.tiktok.com',
       'instagram.com', 'www.instagram.com',
       'reddit.com', 'www.reddit.com', 'old.reddit.com',
@@ -468,34 +508,24 @@ function isImageUrl(text) {
 async function fetchFromUrl(url) {
   fetchingUrl.value = true
   showToast('Fetching image from URL...')
-
+  const upload = createQueueUpload({ name: new URL(url).pathname.split('/').pop() || 'remote-media', size: 0, type: 'application/octet-stream' })
+  uploads.value.push(upload)
   try {
-    const result = await api.uploadFromUrl(url)
-
-    // Create a pseudo-upload entry
-    const upload = reactive({
-      id: ++uploadIdCounter,
-      file: { name: result.filename, size: result.size, type: 'image/*' },
-      tags: [],
-      safety: 'safe',
-      preview: url, // Use URL as preview
-      previewObjectUrl: false,
-      uploading: false,
-      completed: false,
-      error: null,
-      aiTagging: false,
-      aiProfile: '',
-      aiStatus: '',
-      aiError: false,
-      aiPreviewed: false,
-      token: result.token, // Pre-uploaded token
-    })
-
-    uploads.value.push(upload)
+    upload.job = await api.createUploadJob({ kind: 'direct_url', sourceUrl: url }, crypto.randomUUID())
+    upload.uploading = true
+    upload.job = await waitForReady(upload, upload.job.id)
+    const artifact = upload.job.artifacts.find(item => item.role === 'source')
+    if (!artifact) throw new Error('Remote download completed without an artifact.')
+    upload.file = { name: artifact.filename, size: artifact.fileSize, type: artifact.mimeType }
+    upload.preview = artifact.contentUrl
+    upload.artifactId = artifact.id
+    upload.source = upload.job.source?.canonicalUrl || url
     showToast('Image fetched successfully!')
   } catch (e) {
-    showToast('Failed to fetch image: ' + e.message)
+    upload.error = e.message
+    showToast('Failed to fetch media: ' + e.message)
   } finally {
+    upload.uploading = false
     fetchingUrl.value = false
   }
 }
@@ -546,37 +576,31 @@ async function fetchFromYtdlp(url) {
 async function fetchFromFediverse(url) {
   fetchingFediverse.value = true
   showToast('Fetching from fediverse post...')
-
+  const placeholder = createQueueUpload({ name: 'Fediverse import', size: 0, type: 'application/octet-stream' })
+  uploads.value.push(placeholder)
   try {
-    const result = await api.uploadFromFediverse(url)
-
-    for (const att of result.uploads) {
-      const upload = reactive({
-        id: ++uploadIdCounter,
-        file: { name: att.filename, size: att.size, type: 'image/*' },
-        tags: [...(result.tags || [])],
-        safety: 'safe',
-        preview: att.thumbnail || null,
-        previewObjectUrl: false,
-        uploading: false,
-        completed: false,
-        error: null,
-        aiTagging: false,
-        aiProfile: '',
-        aiStatus: '',
-        aiError: false,
-        aiPreviewed: false,
-        token: att.token,
-        source: result.source,
-      })
+    placeholder.job = await api.createUploadJob({ kind: 'fediverse', sourceUrl: url }, crypto.randomUUID())
+    placeholder.uploading = true
+    const ready = await waitForReady(placeholder, placeholder.job.id)
+    const placeholderIndex = uploads.value.findIndex(item => item.id === placeholder.id)
+    if (placeholderIndex !== -1) uploads.value.splice(placeholderIndex, 1)
+    const artifacts = ready.artifacts.filter(item => item.role === 'source')
+    for (const artifact of artifacts) {
+      const upload = createQueueUpload({ name: artifact.filename, size: artifact.fileSize, type: artifact.mimeType })
+      upload.tags = [...(ready.source?.tags || [])]
+      upload.preview = artifact.contentUrl
+      upload.artifactId = artifact.id
+      upload.source = ready.source?.canonicalUrl || url
+      upload.job = ready
       uploads.value.push(upload)
     }
-
-    const count = result.uploads.length
-    showToast(`Fetched ${count} attachment${count !== 1 ? 's' : ''} from ${result.platform} post!`)
+    const count = artifacts.length
+    showToast(`Fetched ${count} attachment${count !== 1 ? 's' : ''} from ${ready.source?.platform || 'Fediverse'} post!`)
   } catch (e) {
+    placeholder.error = e.message
     showToast('Failed to fetch fediverse post: ' + e.message)
   } finally {
+    placeholder.uploading = false
     fetchingFediverse.value = false
   }
 }
@@ -619,24 +643,73 @@ function onFileSelect(e) {
   e.target.value = ''
 }
 
+function createQueueUpload(file) {
+  return reactive({
+    id: ++uploadIdCounter,
+    file,
+    tags: [],
+    safety: 'safe',
+    preview: null,
+    previewObjectUrl: false,
+    uploading: false,
+    completed: false,
+    error: null,
+    aiTagging: false,
+    aiProfile: '',
+    aiStatus: '',
+    aiError: false,
+    aiPreviewed: false,
+    job: null,
+    artifactId: null,
+    postId: null,
+  })
+}
+
+async function waitForReady(upload, jobId) {
+  while (true) {
+    const current = await api.getUploadJob(jobId)
+    upload.job = current
+    if (['content_ready', 'sample_ready', 'render_ready', 'completed'].includes(current.status)) return current
+    if (['failed', 'cancelled', 'interrupted'].includes(current.status)) {
+      throw new Error(current.error?.message || current.message)
+    }
+    await new Promise(resolve => setTimeout(resolve, 500))
+  }
+}
+
+async function waitForPublished(upload, jobId, artifactId) {
+  while (true) {
+    const current = await api.getUploadJob(jobId)
+    upload.job = current
+    const artifact = current.artifacts?.find(item => item.id === artifactId)
+    if (artifact?.metadata?.resultPostId) return artifact.metadata.resultPostId
+    if (current.status === 'completed' && current.resultPostId) return current.resultPostId
+    if (['failed', 'cancelled', 'interrupted'].includes(current.status)) {
+      throw new Error(current.error?.message || current.message)
+    }
+    await new Promise(resolve => setTimeout(resolve, 500))
+  }
+}
+
+async function cancelQueueJob(upload) {
+  if (upload.job?.id) upload.job = await api.cancelUploadJob(upload.job.id)
+}
+
+async function retryQueueJob(upload) {
+  if (!upload.job?.id) return
+  upload.error = null
+  upload.job = await api.retryUploadJob(upload.job.id)
+}
+
+async function removeQueueJob(upload) {
+  if (upload.job?.id) await api.deleteUploadJob(upload.job.id)
+  const index = uploads.value.findIndex(item => item.id === upload.id)
+  if (index !== -1) removeUpload(index)
+}
+
 function addFiles(files) {
   for (const file of files) {
-    const upload = reactive({
-      id: ++uploadIdCounter,
-      file,
-      tags: [],
-      safety: 'safe',
-      preview: null,
-      previewObjectUrl: false,
-      uploading: false,
-      completed: false,
-      error: null,
-      aiTagging: false,
-      aiProfile: '',
-      aiStatus: '',
-      aiError: false,
-      aiPreviewed: false,
-    })
+    const upload = createQueueUpload(file)
 
     // Generate preview for images and videos.
     if (file.type.startsWith('image/')) {
@@ -809,35 +882,63 @@ async function uploadAll() {
     uploadProgress.current++
 
     try {
-      let token = upload.token // May already have token from URL fetch
-
-      // Step 1: Upload file (skip if already has token from URL fetch)
-      if (!token) {
-        const result = await api.uploadFile(upload.file)
-        token = result.token
+      let created = null
+      if (upload.artifactId && upload.job?.id) {
+        upload.job = await api.publishUploadJob(upload.job.id, {
+          artifactId: upload.artifactId,
+          revision: upload.job.revision,
+          tags: upload.tags,
+          safety: upload.safety,
+          source: upload.source || upload.job.source?.canonicalUrl || null,
+          autoTag: autoTagUploads.value && !upload.aiPreviewed,
+        }, crypto.randomUUID())
+        upload.postId = await waitForPublished(upload, upload.job.id, upload.artifactId)
+      } else if (!upload.token) {
+        upload.job = await api.createUploadJob({
+          kind: 'local',
+          filename: upload.file.name,
+          size: upload.file.size,
+          mimeType: upload.file.type,
+        }, crypto.randomUUID())
+        upload.job = await api.uploadJobContent(upload.job.id, upload.file, (loaded, total) => {
+          const percent = total ? Math.min(99, Math.round(loaded / total * 100)) : 1
+          upload.job = {
+            ...upload.job,
+            status: 'uploading',
+            message: 'Uploading local file',
+            overallProgress: 10 + Math.round(percent * .8),
+            metrics: { downloadedBytes: loaded, totalBytes: total || null },
+            stages: (upload.job.stages || []).map(stage => stage.id === 'transfer'
+              ? { ...stage, state: 'running', progress: percent, detail: 'Uploading local file' }
+              : stage.id === 'validate' ? { ...stage, state: 'completed', progress: 100 } : stage),
+          }
+        })
+        const artifact = upload.job.artifacts.find(item => item.role === 'source')
+        if (!artifact) throw new Error('Local upload completed without an artifact.')
+        upload.artifactId = artifact.id
+        upload.job = await api.publishUploadJob(upload.job.id, {
+          artifactId: artifact.id,
+          revision: upload.job.revision,
+          tags: upload.tags,
+          safety: upload.safety,
+          source: upload.source || null,
+          autoTag: autoTagUploads.value && !upload.aiPreviewed,
+        }, crypto.randomUUID())
+        upload.postId = await waitForPublished(upload, upload.job.id, artifact.id)
+      } else {
+        created = await api.createPost({
+          contentToken: upload.token,
+          tags: upload.tags,
+          safety: upload.safety,
+          source: upload.source || null,
+          autoTag: autoTagUploads.value && !upload.aiPreviewed,
+        })
+        upload.postId = created?.id
       }
-
-      // Step 2: Create post
-      const created = await api.createPost({
-        contentToken: token,
-        tags: upload.tags,
-        safety: upload.safety,
-        source: upload.source || null,
-        autoTag: autoTagUploads.value && !upload.aiPreviewed,
-      })
       if (created?.autoTagWarning) autoTagWarnings++
 
       upload.completed = true
       successCount++
-
-      // Auto-remove completed after a short delay
-      setTimeout(() => {
-        const idx = uploads.value.findIndex(u => u.id === upload.id)
-        if (idx !== -1 && uploads.value[idx].completed) {
-          const [removed] = uploads.value.splice(idx, 1)
-          revokeUploadPreviews([removed])
-        }
-      }, 1500)
 
     } catch (e) {
       upload.error = e.message
