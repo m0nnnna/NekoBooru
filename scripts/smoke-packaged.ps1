@@ -51,6 +51,15 @@ try {
   }
   Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/runtime/status" -TimeoutSec 5 | Out-Null
   Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/settings" -TimeoutSec 5 | Out-Null
+  $uploadJob = Invoke-RestMethod `
+    -Uri "http://127.0.0.1:$Port/api/upload-jobs" `
+    -Method Post `
+    -ContentType "application/json" `
+    -Body '{"kind":"local","filename":"smoke.png","size":8,"mimeType":"image/png"}' `
+    -TimeoutSec 5
+  if ($uploadJob.kind -ne "local" -or $uploadJob.readyFor -ne "content") {
+    throw "Packaged upload-job API did not return a content-ready local job."
+  }
   if ($TestShutdownEvent) {
     $event = [System.Threading.EventWaitHandle]::OpenExisting('Local\NekoBooruShutdown')
     try {
