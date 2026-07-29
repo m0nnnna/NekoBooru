@@ -124,6 +124,31 @@ class AutoTagApiTests(unittest.TestCase):
             enabled=True,
         )
 
+    def test_jfif_upload_is_normalized_to_jpg(self):
+        from PIL import Image
+        from app.routers.uploads import get_upload_path, remove_upload_token
+
+        image_path = Path(self.tmp.name) / f"sample-{time.time_ns()}.jfif"
+        Image.new("RGB", (32, 32), (120, 80, 200)).save(image_path, format="JPEG")
+
+        with image_path.open("rb") as fh:
+            upload = self.client.post(
+                "/api/uploads",
+                files={"content": (image_path.name, fh, "image/jpeg")},
+            )
+
+        self.assertEqual(upload.status_code, 200, upload.text)
+        token = upload.json()["token"]
+        temp_path = get_upload_path(token)
+        try:
+            self.assertIsNotNone(temp_path)
+            self.assertEqual(temp_path.suffix, ".jpg")
+            self.assertTrue(temp_path.exists())
+        finally:
+            if temp_path:
+                temp_path.unlink(missing_ok=True)
+            remove_upload_token(token)
+
     def test_disabled_preview_preserves_tags_without_provenance(self):
         self._disable_auto_tags()
         post = self._upload_image_post(tags=["manual_tag"])
@@ -446,6 +471,39 @@ class AutoTagApiTests(unittest.TestCase):
         names = [tag["name"] for tag in response.json()]
         self.assertGreaterEqual(names.index(compound_tag), 1)
         self.assertEqual(names[0], boundary_tag)
+
+    def test_post_search_matches_underscore_tag_parts_with_type_filter(self):
+        suffix = f"partmatch_{time.time_ns()}"
+        tag = f"{suffix}_final_fantasy"
+        post = self._upload_image_post(tags=[tag])
+
+        response = self.client.get("/api/posts", params={"q": f"type:image {suffix} final fantasy"})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["total"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], post["id"])
+
+    def test_tag_search_treats_spaces_as_underscores(self):
+        suffix = f"tagspace_{time.time_ns()}"
+        tag = f"{suffix}_large_breasts"
+        self._upload_image_post(tags=[tag])
+
+        response = self.client.get("/api/tags", params={"q": f"{suffix} large breasts"})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        names = [item["name"] for item in response.json()["results"]]
+        self.assertIn(tag, names)
+
+    def test_autocomplete_matches_last_underscore_part(self):
+        suffix = f"lockhart_{time.time_ns()}"
+        tag = f"tifa_{suffix}"
+        self._upload_image_post(tags=[tag])
+
+        response = self.client.get("/api/tags/autocomplete", params={"q": suffix, "limit": 10})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        names = [item["name"] for item in response.json()]
+        self.assertIn(tag, names)
 
     def test_duplicate_post_response_includes_existing_post_link_data(self):
         from PIL import Image
