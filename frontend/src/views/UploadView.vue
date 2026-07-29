@@ -25,7 +25,7 @@
         <p v-else-if="fetchingFediverse">Fetching from fediverse post...</p>
         <p v-else-if="fetchingUrl">Fetching image from URL...</p>
         <p v-else>Drop files here, click to browse, or paste images/URLs</p>
-        <p class="hint">Supported: JPG, PNG, GIF, WebP, WebM, MP4 + video links (X, YouTube, TikTok, etc.) + Pleroma/Misskey posts</p>
+        <p class="hint">Supported: JPG/JFIF, PNG, GIF, WebP, WebM, MP4 + video links (X, YouTube, TikTok, etc.) + Pleroma/Misskey posts</p>
       </div>
     </div>
 
@@ -445,7 +445,7 @@ function isImageUrl(text) {
 
     // Check common image/video extensions (direct file links)
     const ext = url.pathname.split('.').pop()?.toLowerCase()
-    const mediaExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'webm', 'mp4']
+    const mediaExts = ['jpg', 'jpeg', 'jfif', 'png', 'gif', 'webp', 'webm', 'mp4']
     if (mediaExts.includes(ext)) return true
 
     // Check common image hosting domains (direct image links)

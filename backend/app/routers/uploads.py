@@ -43,6 +43,14 @@ router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 upload_tokens: dict[str, Path] = {}
 
 
+def normalize_upload_extension(extension: str) -> str:
+    """Map browser/OS JPEG variants to the app's canonical stored extension."""
+    ext = (extension or "").lower()
+    if ext == ".jfif":
+        return ".jpg"
+    return ext
+
+
 @router.post("")
 async def upload_file(content: UploadFile = File(...)):
     """
@@ -51,7 +59,7 @@ async def upload_file(content: UploadFile = File(...)):
     """
     # Validate file extension
     filename = content.filename or "unknown"
-    extension = Path(filename).suffix.lower()
+    extension = normalize_upload_extension(Path(filename).suffix.lower())
 
     if extension not in settings.allowed_extensions:
         raise HTTPException(
@@ -227,6 +235,7 @@ async def get_preview_auto_tags_job(job_id: str):
 # Mapping of content-type to extension
 MIME_TO_EXT = {
     'image/jpeg': '.jpg',
+    'image/jfif': '.jpg',
     'image/png': '.png',
     'image/gif': '.gif',
     'image/webp': '.webp',
@@ -275,8 +284,9 @@ async def upload_from_url(request: UrlFetchRequest):
 
             if not extension:
                 # Try to get from URL path
-                if url_path.suffix.lower() in settings.allowed_extensions:
-                    extension = url_path.suffix.lower()
+                url_extension = normalize_upload_extension(url_path.suffix.lower())
+                if url_extension in settings.allowed_extensions:
+                    extension = url_extension
                 else:
                     raise HTTPException(
                         status_code=400,
@@ -300,6 +310,8 @@ async def upload_from_url(request: UrlFetchRequest):
 
             # Generate a filename from the URL
             filename = url_path.name if url_path.name else f"image{extension}"
+            if Path(filename).suffix.lower() != extension:
+                filename = f"{Path(filename).stem}{extension}"
 
             return {
                 "token": token,
@@ -556,7 +568,7 @@ async def _fetch_misskey_attachments(host: str, path: str, client: httpx.AsyncCl
         mime = f.get("type", "")
         ext = MIME_TO_EXT.get(mime)
         if not ext:
-            ext_from_url = Path(urlparse(media_url).path).suffix.lower()
+            ext_from_url = normalize_upload_extension(Path(urlparse(media_url).path).suffix.lower())
             ext = ext_from_url if ext_from_url in settings.allowed_extensions else ".jpg"
         attachments.append({"url": media_url, "type": mime, "ext": ext})
 
@@ -594,7 +606,7 @@ async def _fetch_pleroma_attachments(host: str, path: str, client: httpx.AsyncCl
             }.get(ext_from_url, "")
         ext = MIME_TO_EXT.get(mime)
         if not ext:
-            ext_from_url = Path(urlparse(media_url).path).suffix.lower()
+            ext_from_url = normalize_upload_extension(Path(urlparse(media_url).path).suffix.lower())
             ext = ext_from_url if ext_from_url in settings.allowed_extensions else ".jpg"
         attachments.append({"url": media_url, "type": mime, "ext": ext})
 
@@ -678,6 +690,8 @@ async def upload_from_fediverse(request: FediverseRequest):
                 upload_tokens[token] = temp_path
                 url_path = Path(urlparse(media_url).path)
                 filename = url_path.name if url_path.name else f"media{actual_ext}"
+                if Path(filename).suffix.lower() != actual_ext:
+                    filename = f"{Path(filename).stem}{actual_ext}"
 
                 uploads_result.append({
                     "token": token,
