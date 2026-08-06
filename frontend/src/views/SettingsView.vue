@@ -1,9 +1,19 @@
 <template>
   <div class="settings-view">
-    <h1>Settings</h1>
+    <div class="settings-header">
+      <h1>Settings</h1>
+      <div class="settings-header-actions">
+        <span class="settings-header-count">{{ openSectionCount }} of {{ settingsSectionIds.length }} open</span>
+        <button class="btn btn-secondary btn-small" @click="setAllSections(true)">Expand all</button>
+        <button class="btn btn-secondary btn-small" @click="setAllSections(false)">Collapse all</button>
+      </div>
+    </div>
 
-    <div class="settings-section">
-      <h2>Data Storage</h2>
+    <CollapsibleSection
+      title="Data Storage"
+      :open="isSectionOpen('data-storage')"
+      @toggle="toggleSection('data-storage')"
+    >
       <p class="section-description">
         Configure where NekoBooru stores your data (posts, thumbnails, database).
         Changing this location will migrate your existing data.
@@ -66,10 +76,13 @@
         </button>
         <button class="btn btn-secondary" @click="resetForm">Reset</button>
       </div>
-    </div>
+    </CollapsibleSection>
 
-    <div class="settings-section">
-      <h2>Search</h2>
+    <CollapsibleSection
+      title="Search"
+      :open="isSectionOpen('search')"
+      @toggle="toggleSection('search')"
+    >
       <p class="section-description">
         Configure how tag search behaves in the main navigation bar.
       </p>
@@ -102,10 +115,13 @@
           </small>
         </span>
       </label>
-    </div>
+    </CollapsibleSection>
 
-    <div class="settings-section">
-      <h2>AI Model Defaults</h2>
+    <CollapsibleSection
+      title="AI Model Defaults"
+      :open="isSectionOpen('ai-model-defaults')"
+      @toggle="toggleSection('ai-model-defaults')"
+    >
       <p class="section-description">
         Default model checkboxes used by per-post AI Tag, the upload form, browser extension previews, and custom profile starts.
         You can still override them per run.
@@ -153,10 +169,13 @@
           {{ savingAiModelDefaults ? 'Saving...' : 'Save AI Model Defaults' }}
         </button>
       </div>
-    </div>
+    </CollapsibleSection>
 
-    <div class="settings-section">
-      <h2>Browser Extension</h2>
+    <CollapsibleSection
+      title="Browser Extension"
+      :open="isSectionOpen('browser-extension')"
+      @toggle="toggleSection('browser-extension')"
+    >
       <p class="section-description">
         Defaults used by the upload popup. You can still override these per upload in the extension window.
       </p>
@@ -206,10 +225,13 @@
           {{ savingExtension ? 'Saving...' : 'Save Extension Defaults' }}
         </button>
       </div>
-    </div>
+    </CollapsibleSection>
 
-    <div class="settings-section">
-      <h2>Server</h2>
+    <CollapsibleSection
+      title="Server"
+      :open="isSectionOpen('server')"
+      @toggle="toggleSection('server')"
+    >
       <p class="section-description">
         Configure the local address NekoBooru binds to. Host and port changes take effect after restart.
       </p>
@@ -259,10 +281,13 @@
           Dev/CORS port: http://127.0.0.1:{{ currentSettings.frontend_port || 5173 }}
         </span>
       </div>
-    </div>
+    </CollapsibleSection>
 
-    <div class="settings-section">
-      <h2>Video Downloads (yt-dlp)</h2>
+    <CollapsibleSection
+      title="Video Downloads (yt-dlp)"
+      :open="isSectionOpen('video-downloads-yt-dlp')"
+      @toggle="toggleSection('video-downloads-yt-dlp')"
+    >
       <p class="section-description">
         Configure cookies for downloading age-restricted or login-required videos from platforms like X/Twitter.
         Export cookies from your browser using an extension like "Get cookies.txt LOCALLY" and upload the file here.
@@ -386,10 +411,13 @@
           </button>
         </div>
       </div>
-    </div>
+    </CollapsibleSection>
 
-    <div class="settings-section">
-      <h2>Directory Information</h2>
+    <CollapsibleSection
+      title="Directory Information"
+      :open="isSectionOpen('directory-information')"
+      @toggle="toggleSection('directory-information')"
+    >
       <div class="info-grid">
         <div class="info-item">
           <label>Database</label>
@@ -408,10 +436,13 @@
           <code>{{ currentSettings.uploads_dir || 'N/A' }}</code>
         </div>
       </div>
-    </div>
+    </CollapsibleSection>
 
-    <div class="settings-section">
-      <h2>Runtime & Packaging</h2>
+    <CollapsibleSection
+      title="Runtime & Packaging"
+      :open="isSectionOpen('runtime-packaging')"
+      @toggle="toggleSection('runtime-packaging')"
+    >
       <p class="section-description">
         Installer-facing diagnostics for packaged paths, native host registration, tools, and optional AI runtime.
       </p>
@@ -476,10 +507,13 @@
       <div class="form-actions">
         <button class="btn btn-secondary" @click="loadRuntimeStatus">Refresh Runtime Status</button>
       </div>
-    </div>
+    </CollapsibleSection>
 
-    <div class="settings-section">
-      <h2>App Updates</h2>
+    <CollapsibleSection
+      title="App Updates"
+      :open="isSectionOpen('app-updates')"
+      @toggle="toggleSection('app-updates')"
+    >
       <p class="section-description">
         Check GitHub Releases for installer builds. Upstream releases are the default; point this at your fork when testing your own builds.
       </p>
@@ -563,10 +597,13 @@
           </a>
         </div>
       </div>
-    </div>
+    </CollapsibleSection>
 
-    <div class="settings-section">
-      <h2>Auto Tagging</h2>
+    <CollapsibleSection
+      title="Auto Tagging"
+      :open="isSectionOpen('auto-tagging')"
+      @toggle="toggleSection('auto-tagging')"
+    >
       <p class="section-description">
         Optional local AI tagging for imports, individual posts, and your existing library.
         It is disabled by default and not bundled with the app — turn it on here to set it up.
@@ -1279,10 +1316,13 @@
         </div>
       </div>
       </div>
-    </div>
+    </CollapsibleSection>
 
-    <div class="settings-section">
-      <h2>Restart</h2>
+    <CollapsibleSection
+      title="Restart"
+      :open="isSectionOpen('restart')"
+      @toggle="toggleSection('restart')"
+    >
       <p class="section-description">
         Restart the packaged NekoBooru app after changing runtime, packaging, or port settings.
       </p>
@@ -1304,7 +1344,7 @@
       >
         {{ restartMessage.show ? restartMessage.message : runtimeStatus.restart?.message }}
       </p>
-    </div>
+    </CollapsibleSection>
 
     <div v-if="showPreviewModal" class="modal-overlay" @click.self="showPreviewModal = false">
       <div class="preview-modal">
@@ -1375,11 +1415,28 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import api from '../api/client'
+import CollapsibleSection from '../components/CollapsibleSection.vue'
 
 const currentSettings = ref({})
 const dataDir = ref('')
 const saving = ref(false)
 const isWindows = ref(navigator.platform.toLowerCase().includes('win'))
+const SETTINGS_SECTIONS_KEY = 'nekobooru.settingsSectionsOpen'
+// Order matches the sections rendered in the template above.
+const settingsSectionIds = [
+  'data-storage',
+  'search',
+  'ai-model-defaults',
+  'browser-extension',
+  'server',
+  'video-downloads-yt-dlp',
+  'directory-information',
+  'runtime-packaging',
+  'app-updates',
+  'auto-tagging',
+  'restart',
+]
+const openSections = ref({})
 const SEARCH_PREDICTION_KEY = 'nekobooru.searchPredictionEnabled'
 const NAME_PART_AUTOCOMPLETE_KEY = 'nekobooru.namePartAutocompleteEnabled'
 const searchPredictionEnabled = ref(false)
@@ -1536,7 +1593,7 @@ const thresholdHelp = {
   unsafe: 'Explicit-rating confidence required before auto-tagging can promote a post to unsafe. Questionable/sensitive evidence can only promote to sketchy when it is very strong. Raise this to avoid false unsafe ratings.',
   sketchy: 'Confidence required before auto-tagging can promote a post to sketchy. The backend enforces a conservative floor so weak questionable/sensitive evidence does not relabel ordinary posts.',
   maxTags: 'Maximum number of tags kept from model output. Increase for richer search coverage; decrease if posts become cluttered. This limit applies before manual review.',
-  videoFrames: 'Number of sampled video frames for WD, Camie, PixAI, and OCR frame-tag merging. 2 frames sample about 33% and 66%; 3 samples 25/50/75%; 4 samples 20/40/60/80%.',
+  videoFrames: 'Number of sampled video frames for WD, Camie, CL, PixAI, and OCR frame-tag merging. 2 frames sample about 33% and 66%; 3 samples 25/50/75%; 4 samples 20/40/60/80%.',
   qwenVideoFrames: 'Maximum frames Qwen can inspect when 2 FPS video sampling is enabled. Off means Qwen sees one middle frame. On means Qwen samples every 0.5 seconds until this cap, then reasons over one contact sheet.',
   lightCutoff: 'Posts with this many tags or fewer count as lightly tagged for bulk jobs. Increase to retag sparse libraries; decrease to only target nearly empty posts.',
 }
@@ -1560,6 +1617,7 @@ const extensionModelDefaultKeys = [
   'wdEnabled',
   'pixaiEnabled',
   'characterModelEnabled',
+  'clEnabled',
   'qwenEnabled',
   'ocrEnabled',
   'whisperEnabled',
@@ -1583,7 +1641,46 @@ const migrationStatus = ref({
   details: null,
 })
 
+const openSectionCount = computed(() => settingsSectionIds.filter((id) => openSections.value[id] === true).length)
+
+function isSectionOpen(id) {
+  return openSections.value[id] === true
+}
+
+function toggleSection(id) {
+  openSections.value = { ...openSections.value, [id]: !isSectionOpen(id) }
+  persistSectionState()
+}
+
+function setAllSections(open) {
+  openSections.value = settingsSectionIds.reduce((memo, id) => {
+    memo[id] = open
+    return memo
+  }, {})
+  persistSectionState()
+}
+
+function loadSectionState() {
+  // Sections start collapsed; the page is long enough that everything expanded
+  // buries the section you actually came for.
+  let saved = {}
+  try {
+    saved = JSON.parse(localStorage.getItem(SETTINGS_SECTIONS_KEY) || '{}')
+  } catch {
+    saved = {}
+  }
+  openSections.value = settingsSectionIds.reduce((memo, id) => {
+    memo[id] = saved?.[id] === true
+    return memo
+  }, {})
+}
+
+function persistSectionState() {
+  localStorage.setItem(SETTINGS_SECTIONS_KEY, JSON.stringify(openSections.value))
+}
+
 onMounted(async () => {
+  loadSectionState()
   loadSearchPredictionSetting()
   await Promise.all([loadSettings(), loadExtensionSettings(), loadAutoTags(), refreshYtdlpStatus(), loadRuntimeStatus(), loadUpdateStatus(true)])
   await loadAiModelDefaults()
@@ -1723,6 +1820,7 @@ function autoTagDefaultsForAiModels() {
     wdEnabled: autoTagSettings.value.wdEnabled !== false,
     pixaiEnabled: autoTagSettings.value.pixaiEnabled === true,
     characterModelEnabled: autoTagSettings.value.characterModelEnabled === true,
+    clEnabled: autoTagSettings.value.clEnabled === true,
     qwenEnabled: Boolean(autoTagSettings.value.qwenEnabled || autoTagSettings.value.semanticPoliticalEnabled),
     ocrEnabled: autoTagSettings.value.ocrEnabled === true,
     whisperEnabled: autoTagSettings.value.whisperEnabled === true,
@@ -1759,6 +1857,7 @@ function hydrateProfileDefaults(profileId, current) {
     wdEnabled: !isAnime,
     pixaiEnabled: isAnime,
     characterModelEnabled: isAnime,
+    clEnabled: false,
     qwenEnabled: false,
     semanticPoliticalEnabled: false,
     ocrEnabled: true,
@@ -1773,6 +1872,7 @@ function aiModelDefaultsPayload() {
     wdEnabled: defaults.wdEnabled === true,
     pixaiEnabled: defaults.pixaiEnabled === true,
     characterModelEnabled: defaults.characterModelEnabled === true,
+    clEnabled: defaults.clEnabled === true,
     qwenEnabled: defaults.qwenEnabled === true,
     semanticPoliticalEnabled: defaults.qwenEnabled === true,
     ocrEnabled: defaults.ocrEnabled === true,
@@ -1783,6 +1883,7 @@ function aiModelDefaultsPayload() {
         wdEnabled: stack.wdEnabled === true,
         pixaiEnabled: stack.pixaiEnabled === true,
         characterModelEnabled: stack.characterModelEnabled === true,
+        clEnabled: stack.clEnabled === true,
         qwenEnabled: stack.qwenEnabled === true,
         semanticPoliticalEnabled: stack.qwenEnabled === true,
         ocrEnabled: stack.ocrEnabled === true,
@@ -2001,6 +2102,11 @@ const aiDefaultModels = computed(() => [
     description: 'Anime character, copyright/source, artist, and rating tags.',
   },
   {
+    key: 'clEnabled',
+    name: 'CL Tagger v2',
+    description: 'SigLIP2 Danbooru tagger with a 108k-tag character/copyright/general vocabulary.',
+  },
+  {
     key: 'qwenEnabled',
     name: selectedSemanticModel.value?.name || 'Qwen semantic backend',
     description: 'Higher-level semantic analysis using the selected Qwen backend.',
@@ -2138,6 +2244,7 @@ function modelSettingKey(id) {
     wd: 'wdEnabled',
     pixai: 'pixaiEnabled',
     camie: 'characterModelEnabled',
+    cl: 'clEnabled',
     ocr: 'ocrEnabled',
     whisper: 'whisperEnabled',
     qwen: 'qwenEnabled',
@@ -2151,6 +2258,7 @@ function modelPipelineLabel(id) {
     wd: 'Enable by default for booru tags',
     pixai: 'Enable by default for PixAI anime tags',
     camie: 'Enable by default for character/source tags',
+    cl: 'Enable by default for CL Tagger v2 tags',
     ocr: 'Enable by default for text extraction',
     whisper: 'Enable by default for audio transcripts',
     qwen: 'Enable by default for semantic tags',
@@ -2164,6 +2272,7 @@ function modelPipelineDescription(id) {
     wd: 'Runs on images and sampled video frames. Best baseline for visual library tags.',
     pixai: 'Runs fast PixAI/Danbooru anime tags on images and sampled video frames.',
     camie: 'Adds anime characters, copyright/source tags, artist tags, and rating evidence.',
+    cl: 'SigLIP2 tagger with a 108k-tag Danbooru vocabulary. Gated model: accept its licence on Hugging Face and save a token before downloading.',
     ocr: 'Reads visible captions, subtitles, and meme text from representative frames.',
     whisper: 'Extracts speech from video audio for AMVs, edits, narration, and spoken context.',
     qwen: 'Uses image plus OCR/transcript context for higher-level edit and scene meaning.',
@@ -3362,17 +3471,31 @@ function startYtdlpPolling() {
   margin: 0 auto;
 }
 
-.settings-section {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
+/* Card chrome and the h2 now live in CollapsibleSection.vue. */
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
 }
 
-.settings-section h2 {
-  margin-bottom: 0.5rem;
-  color: var(--text-primary);
+.settings-header h1 {
+  margin: 0;
+}
+
+.settings-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.settings-header-count {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-right: 0.25rem;
 }
 
 .section-description {
