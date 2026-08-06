@@ -264,7 +264,7 @@ async function loadAiEnabled() {
 function normalizeAiModelDefaults(raw = {}) {
   const defaults = raw && typeof raw === 'object' ? raw : {}
   const normalized = {}
-  for (const key of ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']) {
+  for (const key of ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'clEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']) {
     if (Object.prototype.hasOwnProperty.call(defaults, key)) {
       normalized[key] = defaults[key] === true
     }
@@ -279,8 +279,8 @@ function normalizeAiProfileDefaults(raw = {}, fallback = {}) {
   const profiles = raw && typeof raw === 'object' ? raw : {}
   const defaults = {
     custom: fallback,
-    anime: { wdEnabled: false, pixaiEnabled: true, characterModelEnabled: true, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
-    realistic: { wdEnabled: true, pixaiEnabled: false, characterModelEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+    anime: { wdEnabled: false, pixaiEnabled: true, characterModelEnabled: true, clEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+    realistic: { wdEnabled: true, pixaiEnabled: false, characterModelEnabled: false, clEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
   }
   return ['custom', 'anime', 'realistic'].reduce((memo, profileId) => {
     memo[profileId] = {
@@ -808,6 +808,7 @@ function uploadAiProfileSettings(upload, profileId) {
       wdEnabled: profileDefaults.wdEnabled === true,
       pixaiEnabled: profileDefaults.pixaiEnabled === true,
       characterModelEnabled: profileDefaults.characterModelEnabled !== false,
+      clEnabled: profileDefaults.clEnabled === true,
       ocrEnabled: profileDefaults.ocrEnabled !== false,
       whisperEnabled: isVideo && profileDefaults.whisperEnabled !== false,
       qwenEnabled: useSemanticQwen,
@@ -828,6 +829,7 @@ function uploadAiProfileSettings(upload, profileId) {
       wdEnabled: useSemanticQwen ? false : profileDefaults.wdEnabled !== false,
       pixaiEnabled: profileDefaults.pixaiEnabled === true,
       characterModelEnabled: profileDefaults.characterModelEnabled === true,
+      clEnabled: profileDefaults.clEnabled === true,
       ocrEnabled: profileDefaults.ocrEnabled !== false,
       whisperEnabled: isVideo && profileDefaults.whisperEnabled !== false,
       qwenEnabled: useSemanticQwen,

@@ -792,6 +792,14 @@ const DEFAULT_AUTO_TAG_MODELS = [
     vramRequirement: '~0.5-2 GB',
   },
   {
+    id: 'cl',
+    name: 'CL Tagger v2',
+    repoId: 'cella110n/cl_tagger_v2',
+    purpose: 'SigLIP2 Danbooru tagger with a 108k-tag character/copyright/general vocabulary',
+    downloadSize: '~2.3 GB',
+    vramRequirement: '~2-3 GB',
+  },
+  {
     id: 'pixai',
     name: 'PixAI Tagger v0.9',
     repoId: 'deepghs/pixai-tagger-v0.9-onnx',
@@ -834,6 +842,7 @@ const postAutoTagSettings = ref({
   wdEnabled: true,
   pixaiEnabled: false,
   characterModelEnabled: false,
+  clEnabled: false,
   ocrEnabled: false,
   whisperEnabled: false,
   qwenEnabled: false,
@@ -1287,6 +1296,7 @@ function modelSettingKey(id) {
     wd: 'wdEnabled',
     pixai: 'pixaiEnabled',
     camie: 'characterModelEnabled',
+    cl: 'clEnabled',
     ocr: 'ocrEnabled',
     whisper: 'whisperEnabled',
     qwen: 'qwenEnabled',
@@ -1498,7 +1508,7 @@ async function loadAutoTagControls() {
 function normalizeAiModelDefaults(raw = {}) {
   const defaults = raw && typeof raw === 'object' ? raw : {}
   const normalized = {}
-  for (const key of ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']) {
+  for (const key of ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'clEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']) {
     if (Object.prototype.hasOwnProperty.call(defaults, key)) {
       normalized[key] = defaults[key] === true
     }
@@ -1513,8 +1523,8 @@ function normalizeAiProfileDefaults(raw = {}, fallback = {}) {
   const profiles = raw && typeof raw === 'object' ? raw : {}
   const defaults = {
     custom: fallback,
-    anime: { wdEnabled: false, pixaiEnabled: true, characterModelEnabled: true, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
-    realistic: { wdEnabled: true, pixaiEnabled: false, characterModelEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+    anime: { wdEnabled: false, pixaiEnabled: true, characterModelEnabled: true, clEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+    realistic: { wdEnabled: true, pixaiEnabled: false, characterModelEnabled: false, clEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
   }
   return ['custom', 'anime', 'realistic'].reduce((memo, profileId) => {
     memo[profileId] = {
@@ -1852,6 +1862,7 @@ function autoTagProfileSettings(profileId) {
       wdEnabled: profileDefaults.wdEnabled === true,
       pixaiEnabled: profileDefaults.pixaiEnabled === true,
       characterModelEnabled: profileDefaults.characterModelEnabled !== false,
+      clEnabled: profileDefaults.clEnabled === true,
       ocrEnabled: profileDefaults.ocrEnabled !== false,
       whisperEnabled: isVideo && profileDefaults.whisperEnabled !== false,
       qwenEnabled: useSemanticQwen,
@@ -1872,6 +1883,7 @@ function autoTagProfileSettings(profileId) {
       wdEnabled: useSemanticQwen ? false : profileDefaults.wdEnabled !== false,
       pixaiEnabled: profileDefaults.pixaiEnabled === true,
       characterModelEnabled: profileDefaults.characterModelEnabled === true,
+      clEnabled: profileDefaults.clEnabled === true,
       ocrEnabled: profileDefaults.ocrEnabled !== false,
       whisperEnabled: isVideo && profileDefaults.whisperEnabled !== false,
       qwenEnabled: useSemanticQwen,
@@ -1916,7 +1928,7 @@ function selectedMissingBackendPackages() {
 
 function dependenciesForModel(model) {
   if (!model) return []
-  if (model.id === 'wd' || model.id === 'pixai' || model.id === 'camie') return ['onnxruntime', 'numpy', 'pillow']
+  if (model.id === 'wd' || model.id === 'pixai' || model.id === 'camie' || model.id === 'cl') return ['onnxruntime', 'numpy', 'pillow']
   if (model.id === 'ocr') return ['transformers', 'torch']
   if (model.id === 'whisper') return ['transformers', 'transformers_pipeline', 'torch']
   if (model.id === 'qwen') return ['transformers', 'torch', 'qwen_vl_utils']

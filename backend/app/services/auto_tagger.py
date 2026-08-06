@@ -36,6 +36,20 @@ _LLAMA_PRELOAD_HANDLES: list[Any] = []
 SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 SUPPORTED_VIDEO_EXTS = {".webm", ".mp4"}
 WD_MODEL_ID = "SmilingWolf/wd-eva02-large-tagger-v3"
+# CL Tagger v2 ships one subfolder per checkpoint; pin the version we support so
+# downloads stay small and the vocabulary always matches the ONNX graph.
+CL_MODEL_ID = "cella110n/cl_tagger_v2"
+CL_MODEL_VERSION = "v2_01a"
+CL_ONNX_FILE = f"{CL_MODEL_VERSION}/model.onnx"
+CL_ONNX_DATA_FILE = f"{CL_MODEL_VERSION}/model.onnx.data"
+CL_VOCAB_FILE = f"{CL_MODEL_VERSION}/model_vocabulary.json"
+CL_METADATA_FILE = f"{CL_MODEL_VERSION}/model_metadata.json"
+CL_IMAGE_SIZE = 384
+# The model card recommends 0.55 for practical tagging; the per-tag best_thr
+# table maximizes F1 but over-tags badly across a 108k-tag vocabulary.
+CL_MIN_THRESHOLD = 0.55
+CL_RATING_WORDS = {"general", "sensitive", "questionable", "explicit"}
+CL_QUALITY_WORDS = {"best quality", "normal quality", "bad quality", "worst quality", "best", "normal", "bad", "worst"}
 WHISPER_MAX_AUDIO_SECONDS = 30
 QWEN_MIN_FREE_VRAM_GB = 18.0
 QWEN_ANALYSIS_MAX_SIDE = 900
@@ -116,6 +130,28 @@ MODEL_REGISTRY = {
         "status": "tagging_ready",
         "allowPatterns": None,
         "requiredFiles": ["camie-tagger-v2.onnx", "camie-tagger-v2-metadata.json"],
+    },
+    "cl": {
+        "id": "cl",
+        "name": "CL Tagger v2",
+        "repoId": CL_MODEL_ID,
+        "purpose": "SigLIP2 Danbooru tagger with a 108k-tag character/copyright/general vocabulary",
+        "downloadSize": "~2.3 GB",
+        "vramRequirement": "~2-3 GB",
+        "status": "tagging_ready",
+        "version": CL_MODEL_VERSION,
+        # Gated repo (auto-approved): the user has to accept the license on the
+        # model page once and save a Hugging Face token before downloading.
+        "gated": True,
+        "gatedUrl": f"https://huggingface.co/{CL_MODEL_ID}",
+        # Large and gated, so keep it out of "Download all" — it would fail the
+        # whole batch for anyone who has not accepted the license yet.
+        "downloadAll": False,
+        "allowPatterns": [CL_ONNX_FILE, CL_ONNX_DATA_FILE, CL_VOCAB_FILE, CL_METADATA_FILE],
+        "requiredFiles": [CL_ONNX_FILE, CL_ONNX_DATA_FILE, CL_VOCAB_FILE],
+        "expectedTotalBytes": 2_227_031_325,
+        "generalThreshold": CL_MIN_THRESHOLD,
+        "characterThreshold": CL_MIN_THRESHOLD,
     },
     "qwen": {
         "id": "qwen",
@@ -244,6 +280,7 @@ class AutoTagOptions:
     tagVideos: bool = True
     wdEnabled: bool = True
     pixaiEnabled: bool = False
+    clEnabled: bool = False
     generalThreshold: float = 0.35
     characterThreshold: float = 0.45
     maxTags: int = 40
@@ -658,6 +695,146 @@ class CamieTagger:
             categories=categories,
             evidence={
                 "kind": "camie",
+                "topTags": [{"tag": n, "confidence": c} for n, c in by_category.get("general", [])[:10]],
+                "topCharacters": [{"tag": n, "confidence": c} for n, c in by_category.get("character", [])[:10]],
+                "topCopyrights": [{"tag": n, "confidence": c} for n, c in by_category.get("copyright", [])[:10]],
+                "rating": rating,
+            },
+            model=self.name,
+            enabled=True,
+        )
+
+
+class ClTagger:
+    """CL Tagger v2 (SigLIP2 so400m-patch14-384 + LoRA head, ONNX)."""
+
+    name = "cl-tagger-v2"
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._loaded = False
+        self._session = None
+        self._input_name = "pixel_values"
+        self._idx_to_tag: dict[int, str] = {}
+        self._tag_to_category: dict[str, str] = {}
+        self._image_size = CL_IMAGE_SIZE
+        self._providers: list[str] = []
+
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    def unload(self) -> bool:
+        with self._lock:
+            was_loaded = self._loaded
+            self._session = None
+            self._idx_to_tag = {}
+            self._tag_to_category = {}
+            self._providers = []
+            self._loaded = False
+            gc.collect()
+            return was_loaded
+
+    def ensure_loaded(self, progress=None) -> bool:
+        with self._lock:
+            if self._loaded:
+                if progress:
+                    progress("ready", 100, "Model weights already loaded")
+                return True
+            self._load(progress=progress)
+            self._loaded = True
+            if progress:
+                progress("ready", 100, "Model weights loaded")
+            return True
+
+    def _load(self, progress=None) -> None:
+        import onnxruntime as ort  # type: ignore
+
+        cache = model_cache_status("cl")
+        files = cache.get("files") or {}
+        model_path = _cached_file(files, "model.onnx")
+        vocab_path = _cached_file(files, "model_vocabulary.json")
+        if not model_path or not vocab_path:
+            raise RuntimeError("CL Tagger model files are not downloaded")
+
+        if progress:
+            progress("load_weights", 35, "Loading CL Tagger ONNX weights into memory")
+        # model.onnx keeps its weights in the sibling model.onnx.data file, which
+        # onnxruntime resolves relative to the model path.
+        self._session = _create_onnx_session(ort, model_path)
+        self._providers = list(self._session.get_providers())
+        inputs = self._session.get_inputs()
+        self._input_name = inputs[0].name if inputs else "pixel_values"
+        if len(inputs) > 1:
+            raise RuntimeError(
+                "This CL Tagger checkpoint expects NaFlex inputs "
+                f"({', '.join(item.name for item in inputs)}), which is not supported"
+            )
+        self._image_size = _onnx_input_image_size(self._session, default=CL_IMAGE_SIZE)
+        if progress:
+            progress("read_tags", 85, "Reading CL Tagger vocabulary")
+        self._idx_to_tag, self._tag_to_category = _read_cl_vocabulary(Path(vocab_path))
+        if not self._idx_to_tag:
+            raise RuntimeError("CL Tagger vocabulary did not contain any tags")
+
+    def tag_image(self, path: Path, opts: AutoTagOptions) -> AutoTagResult:
+        self.ensure_loaded()
+        import numpy as np  # type: ignore
+
+        arr = _siglip_tensor(path, self._image_size)
+        outputs = self._session.run(None, {self._input_name: arr})
+        logits = _flatten_onnx_scores(outputs, np).astype(np.float64)
+        probs = 1.0 / (1.0 + np.exp(-logits))
+
+        general_threshold = max(float(opts.generalThreshold), CL_MIN_THRESHOLD)
+        character_threshold = max(float(opts.characterThreshold), CL_MIN_THRESHOLD)
+        by_category: dict[str, list[tuple[str, float]]] = {
+            "general": [],
+            "character": [],
+            "copyright": [],
+            "meta": [],
+            "rating": [],
+        }
+        for idx, score in enumerate(probs):
+            raw_tag = self._idx_to_tag.get(idx)
+            if not raw_tag:
+                continue
+            category = self._tag_to_category.get(raw_tag)
+            if category is None or category == "quality":
+                continue
+            tag = normalize_tag(raw_tag)
+            if not tag:
+                continue
+            confidence = float(score)
+            if category == "rating":
+                if confidence >= 0.01:
+                    by_category["rating"].append((tag, confidence))
+                continue
+            threshold = character_threshold if category in {"character", "copyright"} else general_threshold
+            if confidence >= threshold:
+                by_category.setdefault(category, []).append((tag, confidence))
+
+        for category in by_category:
+            by_category[category].sort(key=lambda item: item[1], reverse=True)
+
+        max_tags = max(1, int(opts.maxTags))
+        rating = {tag: score for tag, score in by_category.get("rating", [])[:8]}
+        tags = [tag for tag, _ in by_category.get("general", [])[:max_tags]]
+        character_tags = [tag for tag, _ in by_category.get("character", [])[:max_tags]]
+        copyright_tags = [tag for tag, _ in by_category.get("copyright", [])[:max_tags]]
+        categories = {tag: "general" for tag in tags}
+        categories.update({tag: "character" for tag in character_tags})
+        categories.update({tag: "copyright" for tag in copyright_tags})
+
+        return AutoTagResult(
+            tags=tags,
+            character_tags=character_tags,
+            copyright_tags=copyright_tags,
+            rating=rating,
+            safety=_camie_safety(rating, opts) if rating else None,
+            categories=categories,
+            evidence={
+                "kind": "cl",
+                "version": CL_MODEL_VERSION,
                 "topTags": [{"tag": n, "confidence": c} for n, c in by_category.get("general", [])[:10]],
                 "topCharacters": [{"tag": n, "confidence": c} for n, c in by_category.get("character", [])[:10]],
                 "topCopyrights": [{"tag": n, "confidence": c} for n, c in by_category.get("copyright", [])[:10]],
@@ -1102,6 +1279,7 @@ class QwenGgufSemanticTagger:
 
 
 _camie_tagger = CamieTagger()
+_cl_tagger = ClTagger()
 _pixai_tagger = PixAiTagger()
 _ocr_tagger = OcrTagger()
 _whisper_tagger = WhisperTagger()
@@ -1171,6 +1349,7 @@ def _onnx_runtime_info() -> dict:
         "wdProviders": list(_wd_tagger._providers),
         "pixaiProviders": list(_pixai_tagger._providers),
         "camieProviders": list(_camie_tagger._providers),
+        "clProviders": list(_cl_tagger._providers),
     }
     if not info["available"]:
         return info
@@ -1961,6 +2140,8 @@ def _tagger_for_model(model_id: str):
         return _pixai_tagger
     if model_id == "camie":
         return _camie_tagger
+    if model_id == "cl":
+        return _cl_tagger
     if model_id == "ocr":
         return _ocr_tagger
     if model_id == "whisper":
@@ -2139,6 +2320,7 @@ def _new_load_job(model_id: str, *, status: str, progress: int, message: str) ->
         "wd": 20,
         "pixai": 15,
         "camie": 30,
+        "cl": 45,
         "ocr": 25,
         "whisper": 25,
         "qwen": 90,
@@ -2349,13 +2531,15 @@ def _model_runtime_providers(model_id: str) -> list[str]:
         return list(_pixai_tagger._providers)
     if model_id == "camie":
         return list(_camie_tagger._providers)
+    if model_id == "cl":
+        return list(_cl_tagger._providers)
     if model_id in {"qwen_gguf_q4", "qwen_gguf_q8"} and _llama_cpp_importable():
         return ["llama.cpp"]
     return []
 
 
 def runtime_available(model_id: str) -> bool:
-    if model_id in {"wd", "pixai", "camie"}:
+    if model_id in {"wd", "pixai", "camie", "cl"}:
         return bool(_onnx_runtime_info().get("available")) and find_spec("numpy") is not None
     if model_id in {"ocr", "whisper"}:
         return find_spec("transformers") is not None and find_spec("torch") is not None
@@ -2513,15 +2697,19 @@ class _ProgressTqdm:
             model["updatedAt"] = time.time()
 
 
-_download_context = threading.local()
+# Deliberately process-global rather than thread-local: snapshot_download fans
+# per-file progress bars out to worker threads, and a thread-local context would
+# leave every one of them unable to find the job, so byte progress never moved.
+# Only one download job runs at a time (start_model_download enforces it).
+_download_context: dict[str, str | None] = {"job_id": None, "model_id": None}
 
 
 def _active_job_id() -> str | None:
-    return getattr(_download_context, "job_id", None)
+    return _download_context.get("job_id")
 
 
 def _active_model_id() -> str | None:
-    return getattr(_download_context, "model_id", None)
+    return _download_context.get("model_id")
 
 
 def current_download_job() -> dict | None:
@@ -2719,8 +2907,8 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
                 _mark_download_job_cancelled_locked()
                 return
         meta = MODEL_REGISTRY[model_id]
-        _download_context.job_id = job_id
-        _download_context.model_id = model_id
+        _download_context["job_id"] = job_id
+        _download_context["model_id"] = model_id
         with _download_lock:
             if not _download_job or _download_job.get("id") != job_id:
                 return
@@ -2795,8 +2983,8 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
                 _download_job["failed"] += 1
                 _download_job["updatedAt"] = time.time()
         finally:
-            _download_context.job_id = None
-            _download_context.model_id = None
+            _download_context["job_id"] = None
+            _download_context["model_id"] = None
 
     with _download_lock:
         if _download_job and _download_job.get("id") == job_id:
@@ -2805,8 +2993,8 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
             else:
                 _download_job["status"] = "failed" if _download_job["failed"] else "completed"
             _download_job["updatedAt"] = time.time()
-    _download_context.job_id = None
-    _download_context.model_id = None
+    _download_context["job_id"] = None
+    _download_context["model_id"] = None
 
 
 def _mark_download_job_cancelled_locked(message: str = "Model download cancelled") -> None:
@@ -2941,6 +3129,10 @@ def _optional_image_results(
         camie = _unavailable_model_result("camie") or _run_optional("camie", lambda: _camie_tagger.tag_image(path, opts))
         results.append(camie)
         _add_visual_tag_hints(context, [camie])
+    if opts.clEnabled:
+        cl = _unavailable_model_result("cl") or _run_optional("cl", lambda: _cl_tagger.tag_image(path, opts))
+        results.append(cl)
+        _add_visual_tag_hints(context, [cl])
     if opts.ocrEnabled:
         ocr = _unavailable_model_result("ocr") or _run_optional("ocr", lambda: _ocr_tagger.read_image(path))
         results.append(ocr)
@@ -2966,7 +3158,7 @@ def _tag_video_with_enrichers(path: Path, opts: AutoTagOptions) -> AutoTagResult
         results.append(whisper)
         if whisper.evidence.get("transcript"):
             context["transcript"] = whisper.evidence.get("transcript")
-    visual_enrichers = opts.pixaiEnabled or opts.characterModelEnabled or opts.ocrEnabled
+    visual_enrichers = opts.pixaiEnabled or opts.characterModelEnabled or opts.clEnabled or opts.ocrEnabled
     qwen_enricher = opts.qwenEnabled or opts.semanticPoliticalEnabled
     if visual_enrichers:
         frames = _sample_video_frames(path, opts, frame_count=opts.videoMaxFrames, prefix="visual-frames-")
@@ -3392,6 +3584,58 @@ def _imagenet_tensor(path: Path, image_size: int):
     std = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
     arr = (arr - mean) / std
     return np.transpose(arr, (2, 0, 1))[None, ...].astype(np.float32)
+
+
+def _siglip_tensor(path: Path, image_size: int):
+    """SigLIP2 preprocessing: square resize, scale to [0,1], normalize mean=std=0.5."""
+    import numpy as np  # type: ignore
+
+    with Image.open(path) as img:
+        img = img.convert("RGB")
+        resized = img.resize((image_size, image_size), Image.BICUBIC)
+        arr = np.asarray(resized, dtype=np.float32) / 255.0
+    arr = (arr - 0.5) / 0.5
+    return np.transpose(arr, (2, 0, 1))[None, ...].astype(np.float32)
+
+
+def _cl_vocab_section(vocab: dict, key: str) -> dict:
+    """Read a vocabulary section, tolerating version-prefixed keys like 'v2_01a/idx_to_tag'."""
+    section = vocab.get(key)
+    if isinstance(section, dict):
+        return section
+    suffix = f"/{key}"
+    for name, value in vocab.items():
+        if isinstance(name, str) and name.endswith(suffix) and isinstance(value, dict):
+            return value
+    return {}
+
+
+def _read_cl_vocabulary(path: Path) -> tuple[dict[int, str], dict[str, str]]:
+    with open(path, encoding="utf-8") as fh:
+        vocab = json.load(fh)
+
+    idx_to_tag: dict[int, str] = {}
+    for key, value in _cl_vocab_section(vocab, "idx_to_tag").items():
+        try:
+            idx_to_tag[int(key)] = str(value)
+        except (TypeError, ValueError):
+            continue
+
+    tag_to_category: dict[str, str] = {}
+    for tag, category in _cl_vocab_section(vocab, "tag_to_category").items():
+        normalized = str(category or "").strip().lower()
+        if normalized in {"", "unknown"}:
+            continue
+        # Vocabularies exported before the RATING_TAGS convention fix file the
+        # bare rating/quality words under "General"; reclassify them here so they
+        # do not leak into the general tag list.
+        word = str(tag).strip().lower().replace("_", " ")
+        if word in CL_RATING_WORDS:
+            normalized = "rating"
+        elif word in CL_QUALITY_WORDS:
+            normalized = "quality"
+        tag_to_category[str(tag)] = normalized
+    return idx_to_tag, tag_to_category
 
 
 def _camie_safety(rating: dict[str, float], opts: AutoTagOptions) -> str | None:

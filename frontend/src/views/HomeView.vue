@@ -788,7 +788,7 @@ let batchAutoPollTimer = null
 let batchOptimizePollTimer = null
 const mediaOptimizeProfiles = MEDIA_OPTIMIZE_PROFILES
 
-const aiModelDefaultKeys = ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']
+const aiModelDefaultKeys = ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'clEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']
 const batchAiProfiles = computed(() => [
   {
     id: 'default',
@@ -820,6 +820,7 @@ const batchModelOptions = [
   { key: 'wdEnabled', label: 'WD Tagger', help: 'Broad booru/media tags from images and sampled video frames.' },
   { key: 'pixaiEnabled', label: 'PixAI Tagger v0.9', help: 'Fast PixAI/Danbooru anime and illustration tags.' },
   { key: 'characterModelEnabled', label: 'Camie Tagger v2', help: 'Anime character, copyright, artist, and rating tags.' },
+  { key: 'clEnabled', label: 'CL Tagger v2', help: 'SigLIP2 Danbooru tagger with a 108k-tag character/copyright/general vocabulary.' },
   { key: 'ocrEnabled', label: 'TrOCR Printed', help: 'Visible text, captions, subtitle, and meme text extraction.' },
   { key: 'whisperEnabled', label: 'Whisper Small', help: 'Speech, music, AMV/edit, and audio transcript signals for videos.' },
   { key: 'qwenEnabled', label: 'Qwen Semantic', help: 'Higher-level scene, political/edit, propaganda, and contextual tags.' },
@@ -1207,6 +1208,7 @@ function defaultBatchAiSettings() {
     enabled: true,
     wdEnabled: true,
     characterModelEnabled: false,
+    clEnabled: false,
     ocrEnabled: false,
     whisperEnabled: false,
     qwenEnabled: false,
@@ -1470,8 +1472,8 @@ function normalizeAiProfileDefaults(raw = {}, fallback = {}) {
   const profiles = raw && typeof raw === 'object' ? raw : {}
   const defaults = {
     custom: fallback,
-    anime: { wdEnabled: false, pixaiEnabled: true, characterModelEnabled: true, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
-    realistic: { wdEnabled: true, pixaiEnabled: false, characterModelEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+    anime: { wdEnabled: false, pixaiEnabled: true, characterModelEnabled: true, clEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
+    realistic: { wdEnabled: true, pixaiEnabled: false, characterModelEnabled: false, clEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
   }
   return ['custom', 'anime', 'realistic'].reduce((memo, profileId) => {
     memo[profileId] = {
@@ -1493,6 +1495,7 @@ function profileStackSummary(profileId) {
     stack.wdEnabled ? 'WD' : '',
     stack.pixaiEnabled ? 'PixAI' : '',
     stack.characterModelEnabled ? 'Camie' : '',
+    stack.clEnabled ? 'CL' : '',
     stack.qwenEnabled ? 'Qwen' : '',
     stack.ocrEnabled ? 'OCR' : '',
     stack.whisperEnabled ? 'audio' : '',

@@ -757,6 +757,7 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertIn("wd", ids)
         self.assertIn("pixai", ids)
         self.assertIn("camie", ids)
+        self.assertIn("cl", ids)
         self.assertIn("qwen", ids)
         self.assertIn("qwen_gguf_q4", ids)
         self.assertIn("qwen_gguf_q8", ids)
@@ -796,6 +797,8 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertIn("wd", start.call_args.args[0])
         self.assertIn("camie", start.call_args.args[0])
         self.assertIn("pixai", start.call_args.args[0])
+        # CL Tagger is gated and 2.3 GB, so it is opt-in rather than part of "download all".
+        self.assertNotIn("cl", start.call_args.args[0])
 
     def test_download_all_uses_selected_semantic_backend_only(self):
         fake_job = {
@@ -1172,6 +1175,91 @@ class AutoTagUnitTests(unittest.TestCase):
         pixai_tag.assert_not_called()
         self.assertEqual(result.error, "PixAI Tagger v0.9: model_not_downloaded")
         self.assertEqual(result.evidence["models"][0]["evidence"]["action"], "download_model")
+
+    def test_missing_cl_model_returns_structured_error_without_loading(self):
+        from app.services.auto_tagger import AutoTagOptions, _tag_image
+
+        with patch("app.services.auto_tagger.runtime_available", return_value=True),              patch("app.services.auto_tagger.model_cache_status", return_value={"downloaded": False, "files": {}}),              patch("app.services.auto_tagger._cl_tagger.tag_image") as cl_tag:
+            result = _tag_image(Path("sample.png"), AutoTagOptions(wdEnabled=False, clEnabled=True))
+
+        cl_tag.assert_not_called()
+        self.assertEqual(result.error, "CL Tagger v2: model_not_downloaded")
+        self.assertEqual(result.evidence["models"][0]["evidence"]["action"], "download_model")
+
+    def test_cl_tagger_splits_categories_and_enforces_threshold_floor(self):
+        import tempfile
+        from PIL import Image
+        import numpy as np
+        from app.services.auto_tagger import AutoTagOptions, ClTagger
+
+        class FakeInput:
+            name = "pixel_values"
+            shape = [1, 3, 384, 384]
+
+        class FakeSession:
+            def get_inputs(self):
+                return [FakeInput()]
+
+            def run(self, *_args, **_kwargs):
+                # logits -> sigmoid: 0.88, 0.55, 0.98, 0.98, 0.98, 0.98
+                return [np.asarray([[2.0, 0.2, 4.0, 4.0, 4.0, 4.0]], dtype=np.float32)]
+
+        tagger = ClTagger()
+        tagger._loaded = True
+        tagger._session = FakeSession()
+        tagger._idx_to_tag = {
+            0: "blue_eyes",
+            1: "weak_general",
+            2: "hatsune_miku",
+            3: "vocaloid",
+            4: "explicit",
+            5: "best quality",
+        }
+        tagger._tag_to_category = {
+            "blue_eyes": "general",
+            "weak_general": "general",
+            "hatsune_miku": "character",
+            "vocaloid": "copyright",
+            "explicit": "rating",
+            "best quality": "quality",
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sample.png"
+            Image.new("RGB", (32, 48), "white").save(path)
+            result = tagger.tag_image(path, AutoTagOptions(generalThreshold=0.35, characterThreshold=0.45))
+
+        self.assertIn("blue_eyes", result.tags)
+        # 0.55 floor overrides the lower app-wide general threshold.
+        self.assertNotIn("weak_general", result.tags)
+        self.assertEqual(result.character_tags, ["hatsune_miku"])
+        self.assertEqual(result.copyright_tags, ["vocaloid"])
+        self.assertNotIn("best_quality", result.tags)
+        self.assertEqual(result.safety, "unsafe")
+        self.assertEqual(result.evidence["kind"], "cl")
+
+    def test_cl_vocabulary_reader_handles_version_prefixed_keys(self):
+        import tempfile
+        from app.services.auto_tagger import _read_cl_vocabulary
+
+        payload = {
+            "v2_01a/idx_to_tag": {"0": "blue_eyes", "1": "explicit", "2": "worst quality"},
+            "v2_01a/tag_to_category": {
+                "blue_eyes": "General",
+                # Older exports file the rating/quality words under General.
+                "explicit": "General",
+                "worst quality": "General",
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "model_vocabulary.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            idx_to_tag, tag_to_category = _read_cl_vocabulary(path)
+
+        self.assertEqual(idx_to_tag[0], "blue_eyes")
+        self.assertEqual(tag_to_category["blue_eyes"], "general")
+        self.assertEqual(tag_to_category["explicit"], "rating")
+        self.assertEqual(tag_to_category["worst quality"], "quality")
 
     def test_pixai_keeps_character_threshold_conservative(self):
         import tempfile

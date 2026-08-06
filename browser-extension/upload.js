@@ -22,6 +22,7 @@ const AI_TAG_PROFILES = {
       wdEnabled: false,
       pixaiEnabled: true,
       characterModelEnabled: true,
+      clEnabled: false,
       ocrEnabled: true,
       whisperEnabled: false,
       qwenEnabled: false,
@@ -37,6 +38,7 @@ const AI_TAG_PROFILES = {
       wdEnabled: false,
       pixaiEnabled: true,
       characterModelEnabled: true,
+      clEnabled: false,
       ocrEnabled: true,
       whisperEnabled: true,
       qwenEnabled: false,
@@ -53,6 +55,7 @@ const AI_TAG_PROFILES = {
       wdEnabled: true,
       pixaiEnabled: false,
       characterModelEnabled: false,
+      clEnabled: false,
       ocrEnabled: true,
       whisperEnabled: false,
       qwenEnabled: false,
@@ -68,6 +71,7 @@ const AI_TAG_PROFILES = {
       wdEnabled: true,
       pixaiEnabled: false,
       characterModelEnabled: false,
+      clEnabled: false,
       ocrEnabled: true,
       whisperEnabled: true,
       qwenEnabled: false,
@@ -247,6 +251,7 @@ function applyExtensionModelDefaults(modelDefaults = {}) {
     'wdEnabled',
     'pixaiEnabled',
     'characterModelEnabled',
+    'clEnabled',
     'qwenEnabled',
     'semanticPoliticalEnabled',
     'ocrEnabled',
@@ -1477,6 +1482,7 @@ function modelSettingKey(id) {
     wd: 'wdEnabled',
     pixai: 'pixaiEnabled',
     camie: 'characterModelEnabled',
+    cl: 'clEnabled',
     ocr: 'ocrEnabled',
     whisper: 'whisperEnabled',
     qwen: 'qwenEnabled',
@@ -1506,7 +1512,7 @@ function selectedMissingBackendPackages() {
 
 function dependenciesForModel(model) {
   if (!model) return []
-  if (model.id === 'wd' || model.id === 'pixai' || model.id === 'camie') return ['onnxruntime', 'numpy', 'pillow']
+  if (model.id === 'wd' || model.id === 'pixai' || model.id === 'camie' || model.id === 'cl') return ['onnxruntime', 'numpy', 'pillow']
   if (model.id === 'ocr') return ['transformers', 'torch']
   if (model.id === 'whisper') return ['transformers', 'transformers_pipeline', 'torch']
   if (model.id === 'qwen') return ['transformers', 'torch', 'qwen_vl_utils']
