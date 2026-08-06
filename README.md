@@ -230,6 +230,13 @@ It times the default WD tagger (preprocess + inference) on CPU and GPU and print
 per-image latency, throughput, and projected times for bulk runs. Use
 `--images <folder>` to benchmark your own files, or `--device cpu|gpu|both`.
 
+> **ONNX taggers on the GPU:** `onnxruntime-gpu` ships no CUDA libraries of its own — it loads
+> cuDNN 9 and the CUDA 12 runtime by name at session creation. Those DLLs already come with the
+> `torch` wheel, but on Windows they sit in a directory Windows never searches, so without help
+> onnxruntime reports *"Require cuDNN 9.\* and CUDA 12.\*"* and every ONNX tagger (WD, Camie, CL,
+> PixAI) silently runs on CPU. NekoBooru preloads them automatically from the installed torch (or
+> `nvidia-*`) wheels, so no separate CUDA Toolkit or cuDNN install is needed.
+
 > **Older NVIDIA GPUs:** PyTorch's default CUDA 12.8 builds dropped Maxwell/Pascal/Volta
 > support, so on a GTX 10-series card (e.g. 1060, `sm_61`) the standard GPU install fails
 > with *"no kernel image is available for execution on the device"*. Use the **Legacy**

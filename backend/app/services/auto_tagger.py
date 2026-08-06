@@ -32,6 +32,9 @@ from .settings import SettingsManager
 logger = logging.getLogger(__name__)
 _LLAMA_DLL_DIRECTORY_HANDLES: list[Any] = []
 _LLAMA_PRELOAD_HANDLES: list[Any] = []
+_ONNX_DLL_DIRECTORY_HANDLES: list[Any] = []
+_ONNX_PRELOAD_HANDLES: list[Any] = []
+_ONNX_CUDA_PREPARED = False
 
 SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 SUPPORTED_VIDEO_EXTS = {".webm", ".mp4"}
@@ -1364,7 +1367,80 @@ def _onnx_runtime_info() -> dict:
     return info
 
 
+# CUDA/cuDNN libraries onnxruntime_providers_cuda.dll links against, in load
+# order. cuDNN 9 is split into sub-libraries that must be resident before
+# cudnn64_9.dll itself will initialize.
+_ONNX_CUDA_DLLS = (
+    "cudart64_12.dll",
+    "cublasLt64_12.dll",
+    "cublas64_12.dll",
+    "nvJitLink_120_0.dll",
+    "cufft64_11.dll",
+    "curand64_10.dll",
+    "cusparse64_12.dll",
+    "cusolver64_11.dll",
+    "cudnn_graph64_9.dll",
+    "cudnn_engines_precompiled64_9.dll",
+    "cudnn_engines_runtime_compiled64_9.dll",
+    "cudnn_heuristic64_9.dll",
+    "cudnn_ops64_9.dll",
+    "cudnn_adv64_9.dll",
+    "cudnn_cnn64_9.dll",
+    "cudnn64_9.dll",
+)
+
+
+def _prepare_onnx_cuda_runtime() -> None:
+    """Preload CUDA/cuDNN so onnxruntime can build its CUDA provider on Windows.
+
+    onnxruntime-gpu ships no CUDA libraries of its own; it dlopens cuDNN 9 and
+    the CUDA 12 runtime by bare name. Those DLLs are already on disk inside the
+    torch wheel (or the nvidia-* wheels), but they live in a directory Windows
+    never searches, so provider creation fails with "Require cuDNN 9.* and
+    CUDA 12.*" and every ONNX tagger silently falls back to CPU. Putting the
+    directory on the search path is not enough — the libraries have to be
+    resident — so preload them here and keep the handles alive for the process.
+    """
+    global _ONNX_CUDA_PREPARED
+    if _ONNX_CUDA_PREPARED or os.name != "nt":
+        return
+    _ONNX_CUDA_PREPARED = True
+
+    candidates: list[Path] = []
+    torch_spec = find_spec("torch")
+    if torch_spec and torch_spec.origin:
+        torch_root = Path(torch_spec.origin).resolve().parent
+        candidates.append(torch_root / "lib")
+        nvidia_root = torch_root.parent / "nvidia"
+        if nvidia_root.exists():
+            candidates.extend(path for path in nvidia_root.rglob("bin") if path.is_dir())
+    lib_dirs = [path for path in candidates if path.is_dir()]
+    if not lib_dirs:
+        return
+
+    for path in lib_dirs:
+        if hasattr(os, "add_dll_directory"):
+            try:
+                _ONNX_DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(str(path)))
+            except OSError as exc:
+                logger.debug("Unable to add ONNX CUDA DLL directory %s: %s", path, exc)
+
+    loaded = 0
+    for name in _ONNX_CUDA_DLLS:
+        path = next((directory / name for directory in lib_dirs if (directory / name).exists()), None)
+        if not path:
+            continue
+        try:
+            _ONNX_PRELOAD_HANDLES.append(ctypes.WinDLL(str(path)))
+            loaded += 1
+        except OSError as exc:
+            logger.debug("Unable to preload CUDA DLL %s: %s", path, exc)
+    if loaded:
+        logger.info("Preloaded %d CUDA/cuDNN libraries for the onnxruntime CUDA provider", loaded)
+
+
 def _create_onnx_session(ort, model_path: str):
+    _prepare_onnx_cuda_runtime()
     providers = _onnx_providers(ort)
     try:
         return ort.InferenceSession(model_path, providers=providers)

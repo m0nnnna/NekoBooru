@@ -1176,6 +1176,29 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertEqual(result.error, "PixAI Tagger v0.9: model_not_downloaded")
         self.assertEqual(result.evidence["models"][0]["evidence"]["action"], "download_model")
 
+    def test_onnx_cuda_preload_is_idempotent_and_optional(self):
+        from app.services import auto_tagger
+
+        original = list(auto_tagger._ONNX_PRELOAD_HANDLES)
+        try:
+            # Without torch there is nothing to preload; ONNX must still fall
+            # back to CPU rather than raising.
+            auto_tagger._ONNX_PRELOAD_HANDLES.clear()
+            auto_tagger._ONNX_CUDA_PREPARED = False
+            with patch("app.services.auto_tagger.find_spec", return_value=None):
+                auto_tagger._prepare_onnx_cuda_runtime()
+            self.assertEqual(auto_tagger._ONNX_PRELOAD_HANDLES, [])
+
+            # Repeat calls must not reload the libraries on every session.
+            auto_tagger._ONNX_CUDA_PREPARED = False
+            with patch("app.services.auto_tagger.find_spec", return_value=None):
+                auto_tagger._prepare_onnx_cuda_runtime()
+                auto_tagger._prepare_onnx_cuda_runtime()
+            self.assertTrue(auto_tagger._ONNX_CUDA_PREPARED)
+        finally:
+            auto_tagger._ONNX_PRELOAD_HANDLES[:] = original
+            auto_tagger._ONNX_CUDA_PREPARED = True
+
     def test_missing_cl_model_returns_structured_error_without_loading(self):
         from app.services.auto_tagger import AutoTagOptions, _tag_image
 

@@ -147,6 +147,8 @@ Everything lives in [backend/app/services/auto_tagger.py](backend/app/services/a
 - Downloads go through the HuggingFace hub with progress jobs (`start_model_download`, `_run_model_download_job`, `model_cache_status`, `delete_model_cache`).
 - **Remote worker**: when `opts.remoteEnabled`, `tag_media()` forwards the file to another instance's `/api/auto-tags/infer` instead of running locally.
 
+`onnxruntime-gpu` bundles no CUDA libraries. `_prepare_onnx_cuda_runtime()` preloads cuDNN 9 and the CUDA 12 runtime out of the installed torch (or `nvidia-*`) wheels before the first session is built — without it every ONNX tagger silently falls back to CPU on Windows. Adding the directory to the DLL search path is not sufficient; the libraries must actually be resident.
+
 **ONNX helper toolkit** (reuse these rather than writing new preprocessing): `_create_onnx_session`, `_onnx_input_image_size`, `_generic_onnx_image_tensor`, `_imagenet_tensor`, `_flatten_onnx_scores`, `_cached_file`, `_cached_file_by_suffix`, `_cached_tag_metadata_file`, `_read_tag_rows_from_csv`, `_read_tag_rows_from_json`, `normalize_tag`, `safety_from_rating`.
 
 ### Adding a new tagger model
