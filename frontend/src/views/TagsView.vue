@@ -101,16 +101,22 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../api/client'
 import Pagination from '../components/Pagination.vue'
+
+const route = useRoute()
+const router = useRouter()
 
 const tags = ref([])
 const categories = ref([])
 const total = ref(0)
 const page = ref(1)
 const limit = 50
-const searchQuery = ref('')
+// Seeded from ?q= so arriving from a tag's "?" link lands on that tag instead
+// of the full list with the name still to be typed again.
+const searchQuery = ref(String(route.query.q || ''))
 const sortKey = ref('usage')
 const sortAsc = ref(false)
 
@@ -132,6 +138,19 @@ onMounted(async () => {
     fetchAliases(),
   ])
 })
+
+// Following another tag's "?" while already here only changes the query, so
+// the component is reused and nothing would refetch without this.
+watch(
+  () => route.query.q,
+  (value) => {
+    const next = String(value || '')
+    if (next === searchQuery.value) return
+    searchQuery.value = next
+    page.value = 1
+    fetchTags()
+  },
+)
 
 async function fetchTags() {
   try {
@@ -177,6 +196,12 @@ function debouncedSearch() {
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     page.value = 1
+    // Keep the URL honest so a reload or a shared link shows the same list.
+    // replace(), not push(), so typing does not bury the back button.
+    const q = searchQuery.value || undefined
+    if (String(route.query.q || '') !== String(q || '')) {
+      router.replace({ path: '/tags', query: { ...route.query, q } })
+    }
     fetchTags()
   }, 300)
 }
