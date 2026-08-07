@@ -31,6 +31,9 @@
     <!-- Main upload form -->
     <div id="form-wrap" class="hidden">
       <div class="preview" id="preview"></div>
+      <!-- Outside .preview: that box centres one media element and clips
+           overflow, so a control row placed inside it lands beside the video. -->
+      <div class="frame-picker-slot hidden" id="frame-picker"></div>
 
       <label class="field-label" for="tags">Tags</label>
       <div class="tag-input">

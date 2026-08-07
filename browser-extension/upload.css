@@ -313,13 +313,18 @@ select:focus {
   font-size: 0.8rem;
 }
 
-/* Which frame the AI looks at. Sits under the player so the timecode reads
-   against the scrubber it came from. */
+/* Which frame the AI looks at. Its own row under the player, so the timecode
+   reads against the scrubber it came from without fighting .preview's
+   centred, clipped layout. */
+.frame-picker-slot {
+  margin: -0.5rem 0 1rem;
+}
+
 .frame-picker {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.45rem;
-  margin-top: 0.5rem;
+  gap: 0.4rem;
   padding: 0.5rem 0.6rem;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
@@ -327,13 +332,14 @@ select:focus {
 }
 
 .frame-picker-label {
-  flex: 1;
+  flex: 1 1 100%;
   min-width: 0;
   color: var(--text-secondary);
   font-size: 0.75rem;
 }
 
 .frame-picker-btn {
+  flex: 1 1 auto;
   padding: 0.3rem 0.6rem;
   font-size: 0.75rem;
   white-space: nowrap;

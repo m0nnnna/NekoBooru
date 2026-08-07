@@ -103,6 +103,7 @@ const els = {
   formWrap: document.getElementById('form-wrap'),
   openOptions: document.getElementById('open-options'),
   preview: document.getElementById('preview'),
+  framePicker: document.getElementById('frame-picker'),
   tagPills: document.getElementById('tag-pills'),
   tags: document.getElementById('tags'),
   suggestions: document.getElementById('suggestions'),
@@ -500,6 +501,7 @@ function clamp(value, min, max) {
 
 function renderPreview() {
   els.preview.innerHTML = ''
+  clearFramePicker()
   // Link-fetch mode: src is a page URL, not playable media, which is why videos
   // from X/YouTube/Reddit never appeared here. The server can fetch the file
   // and hand it back, so offer that rather than only explaining the absence.
@@ -547,6 +549,7 @@ async function loadServerPreview(button) {
     setStatus('Fetching media for preview...', 'working')
     const token = await getContentToken()
     els.preview.innerHTML = ''
+    clearFramePicker()
     if (mediaType === 'video') {
       const v = document.createElement('video')
       v.src = `${instanceUrl}/api/uploads/${encodeURIComponent(token)}/content`
@@ -608,7 +611,14 @@ function renderFramePicker(video) {
 
   refresh()
   row.append(label, pick, reset)
-  els.preview.appendChild(row)
+  els.framePicker.innerHTML = ''
+  els.framePicker.appendChild(row)
+  els.framePicker.classList.remove('hidden')
+}
+
+function clearFramePicker() {
+  els.framePicker.innerHTML = ''
+  els.framePicker.classList.add('hidden')
 }
 
 function formatTimecode(seconds) {
