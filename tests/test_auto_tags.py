@@ -749,6 +749,52 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertTrue(response.json()["downloaded"])
         self.assertEqual(response.json()["modelId"], "SmilingWolf/wd-eva02-large-tagger-v3")
 
+    def test_concurrent_infer_requests_serialize_without_blocking_the_api(self):
+        """Several extension popups tagging at once must queue, not collide."""
+        import threading
+        from PIL import Image
+        from app.services import auto_tagger
+
+        state = {"concurrent": 0, "peak": 0}
+        counter_lock = threading.Lock()
+
+        def fake_pipeline(path, opts):
+            with counter_lock:
+                state["concurrent"] += 1
+                state["peak"] = max(state["peak"], state["concurrent"])
+            time.sleep(0.15)
+            with counter_lock:
+                state["concurrent"] -= 1
+            return auto_tagger.AutoTagResult(enabled=True, model="fake", tags=["x"])
+
+        sample = Path(self.tmp.name) / "concurrent.png"
+        Image.new("RGB", (8, 8), "white").save(sample)
+        payload = sample.read_bytes()
+        results = {}
+
+        def worker(index):
+            response = self.client.post(
+                "/api/auto-tags/infer",
+                files={"file": ("concurrent.png", payload, "image/png")},
+                data={"options": "{}"},
+            )
+            results[index] = response.status_code
+
+        with patch.object(auto_tagger, "_infer_local_locked", fake_pipeline):
+            threads = [threading.Thread(target=worker, args=(i,)) for i in range(4)]
+            for thread in threads:
+                thread.start()
+            time.sleep(0.2)
+            # The API must still answer while inference is saturated; running the
+            # pipeline inline in an async endpoint used to block the event loop.
+            probe = self.client.get("/api/auto-tags/models/load-job")
+            for thread in threads:
+                thread.join(timeout=15)
+
+        self.assertEqual(set(results.values()), {200})
+        self.assertEqual(probe.status_code, 200)
+        self.assertEqual(state["peak"], 1, "inference must not run concurrently")
+
     def test_model_catalog_lists_downloadable_models(self):
         response = self.client.get("/api/auto-tags/models")
 
@@ -1303,7 +1349,9 @@ class AutoTagUnitTests(unittest.TestCase):
         auto_tagger._load_queue.clear()
         auto_tagger._load_worker = None
         try:
-            with patch.object(auto_tagger, "_infer_local", slow_infer),                  patch.object(auto_tagger, "_tagger_for_model", lambda mid: FakeTagger()):
+            # Patch the inner function: _infer_local itself now takes the GPU lock.
+            with patch.object(auto_tagger, "_infer_local_locked", slow_infer), \
+                 patch.object(auto_tagger, "_tagger_for_model", lambda mid: FakeTagger()):
                 tag_thread = threading.Thread(
                     target=auto_tagger.tag_media,
                     args=(Path("sample.png"), auto_tagger.AutoTagOptions(enabled=True)),

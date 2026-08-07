@@ -121,8 +121,12 @@ async def auto_tags_for_upload(token: str):
     if not temp_path or not temp_path.exists():
         raise HTTPException(status_code=404, detail="Invalid or expired content token")
 
-    from ..services.auto_tagger import tag_media
-    result = tag_media(temp_path)
+    from ..services.auto_tag_jobs import _tag_media_async
+
+    # Off the event loop: inference takes seconds, and several extension popups
+    # previewing at once would otherwise freeze the whole server, not just this
+    # request.
+    result = await _tag_media_async(temp_path, None)
     return {
         "enabled": result.enabled,
         "model": result.model,

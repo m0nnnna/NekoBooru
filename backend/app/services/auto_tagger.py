@@ -3203,13 +3203,22 @@ def tag_media(path: Path, opts: AutoTagOptions | None = None) -> AutoTagResult:
         # Remote work happens on the worker's GPU, so it must not queue behind
         # the local lock.
         return _tag_media_remote(path, opts)
-    with _gpu_work_lock:
-        return _infer_local(path, opts)
+    return _infer_local(path, opts)
 
 
 def _infer_local(path: Path, opts: AutoTagOptions) -> AutoTagResult:
-    """Run the model pipeline in this process (the worker side / local mode)."""
+    """Run the model pipeline in this process (the worker side / local mode).
+
+    Holds the GPU lock here rather than in tag_media() so the worker's /infer
+    endpoint is covered too — several callers hitting a worker at once would
+    otherwise run concurrent inference and exhaust VRAM.
+    """
     path = Path(path)
+    with _gpu_work_lock:
+        return _infer_local_locked(path, opts)
+
+
+def _infer_local_locked(path: Path, opts: AutoTagOptions) -> AutoTagResult:
     try:
         if path.suffix.lower() in SUPPORTED_IMAGE_EXTS:
             if not opts.tagImages:

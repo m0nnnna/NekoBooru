@@ -1,3 +1,4 @@
+import asyncio
 import json
 import tempfile
 from ipaddress import ip_address
@@ -254,7 +255,9 @@ async def infer_media(
                 if not chunk:
                     break
                 out.write(chunk)
-        result = _infer_local(tmp_path, opts)
+        # Workers get hit by several callers at once; keep inference off the
+        # event loop so queued requests are served instead of stalling the API.
+        result = await asyncio.to_thread(_infer_local, tmp_path, opts)
         return json.loads(result_to_json(result))
     finally:
         tmp_path.unlink(missing_ok=True)
