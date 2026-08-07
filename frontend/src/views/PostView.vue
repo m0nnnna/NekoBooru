@@ -147,6 +147,15 @@
             {{ autoTagLoading && activeAutoTagProfile === profile.id ? 'Running...' : profile.label }}
           </button>
         </div>
+        <!-- Outside the model picker: it enriches whatever the models found, and
+             a control that changes the result should not sit behind a details. -->
+        <label class="booru-lookup-row">
+          <input type="checkbox" v-model="postAutoTagSettings.booruLookupEnabled" />
+          <span>
+            <strong>Look up character series on Danbooru</strong>
+            <small>Adds the series for recognised characters. Only adds tags; never replaces model output.</small>
+          </span>
+        </label>
         <div v-if="autoTagLoading" class="ai-inline-status">
           <div class="ai-inline-status-head">
             <strong>{{ autoTagStageTitle }}</strong>
@@ -843,6 +852,7 @@ const postAutoTagSettings = ref({
   pixaiEnabled: false,
   characterModelEnabled: false,
   clEnabled: false,
+  booruLookupEnabled: false,
   ocrEnabled: false,
   whisperEnabled: false,
   qwenEnabled: false,
@@ -2722,6 +2732,37 @@ function tweetIdFromUrl(raw) {
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   background: var(--bg-primary);
+}
+
+.booru-lookup-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.booru-lookup-row input {
+  margin-top: 0.2rem;
+}
+
+.booru-lookup-row strong {
+  display: block;
+  font-size: 0.85rem;
+}
+
+.booru-lookup-row small {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.35;
 }
 
 .ai-model-picker summary {
