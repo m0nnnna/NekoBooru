@@ -221,3 +221,56 @@ class UploadJobApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UploadTokenRecoveryTests(unittest.TestCase):
+    """A restart must not strand an upload that already reached disk.
+
+    upload_tokens is in-process, so a crash, an update, or the dev server
+    reloading on a file change drops every pending token and the user gets
+    "Invalid or expired content token" for a file that uploaded fine.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        backend_path = str(Path(__file__).resolve().parents[1] / "backend")
+        if backend_path not in sys.path:
+            sys.path.insert(0, backend_path)
+
+    def test_token_is_recovered_from_disk_when_the_map_is_lost(self):
+        import uuid as uuid_lib
+        from unittest.mock import PropertyMock, patch
+
+        from app.routers import uploads
+
+        with tempfile.TemporaryDirectory() as tmp:
+            uploads_dir = Path(tmp)
+            token = str(uuid_lib.uuid4())
+            saved = uploads_dir / f"{token}.jpg"
+            saved.write_bytes(b"image-bytes")
+
+            with patch.object(type(uploads.settings), "uploads_dir",
+                              new_callable=PropertyMock, return_value=uploads_dir):
+                uploads.upload_tokens.clear()  # stand in for the restart
+                recovered = uploads.get_upload_path(token)
+                self.assertEqual(recovered, saved)
+                # Recovered entries are cached so the next lookup skips the disk.
+                self.assertEqual(uploads.upload_tokens.get(token), saved)
+
+    def test_only_issued_token_shapes_reach_the_filesystem(self):
+        from unittest.mock import PropertyMock, patch
+
+        from app.routers import uploads
+
+        with tempfile.TemporaryDirectory() as tmp:
+            uploads_dir = Path(tmp)
+            (uploads_dir / "secret.jpg").write_bytes(b"x")
+
+            with patch.object(type(uploads.settings), "uploads_dir",
+                              new_callable=PropertyMock, return_value=uploads_dir):
+                uploads.upload_tokens.clear()
+                # The token is interpolated into a glob, so anything that is not
+                # a UUID must be refused rather than probing the directory.
+                for bad in ("../../etc/passwd", "not-a-uuid", "*", "secret", "", None):
+                    with self.subTest(token=bad):
+                        self.assertIsNone(uploads.get_upload_path(bad))

@@ -87,8 +87,32 @@ async def upload_file(content: UploadFile = File(...)):
 
 
 def get_upload_path(token: str) -> Path | None:
-    """Get the temporary file path for an upload token."""
-    return upload_tokens.get(token)
+    """Get the temporary file path for an upload token.
+
+    ``upload_tokens`` is in-process, so a restart — a crash, an update, the dev
+    server reloading on a file change — drops every pending token and the user
+    sees "Invalid or expired content token" even though their file uploaded
+    fine and is still sitting on disk. The temp file is named after the token,
+    so recover it from the filesystem when the map has no entry.
+    """
+    path = upload_tokens.get(token)
+    if path:
+        return path
+
+    # The token reaches the glob below, so only accept the UUIDs save_upload()
+    # issues; anything else could try to escape the uploads directory.
+    try:
+        uuid.UUID(str(token))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+    uploads_dir = Path(settings.uploads_dir)
+    if not uploads_dir.is_dir():
+        return None
+    recovered = next((item for item in uploads_dir.glob(f"{token}.*") if item.is_file()), None)
+    if recovered:
+        upload_tokens[token] = recovered
+    return recovered
 
 
 def remove_upload_token(token: str):
