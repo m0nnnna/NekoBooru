@@ -188,6 +188,7 @@ async def analyze_and_maybe_apply(db, post: Post, *, opts: AutoTagOptions, job: 
 
     evidence = dict(result.evidence or {})
     evidence["categories"] = categories
+    evidence["displayNames"] = result.display_names
     suggestion = AutoTagSuggestion(
         job_id=job.id if job else None,
         post_id=post.id,
@@ -229,6 +230,7 @@ async def preview_post(post_id: int, overrides: dict | None = None) -> dict:
             "suggestedTags": merged_tags,
             "suggestedSafety": promote_safety(post.safety or "safe", result.safety, opts),
             "categories": categories,
+            "displayNames": result.display_names,
             "evidence": result.evidence,
             "model": result.model,
             "error": result.error,
@@ -241,6 +243,7 @@ async def apply_post(
     tags: list[str] | None = None,
     safety: str | None = None,
     categories: dict | None = None,
+    display_names: dict | None = None,
     overrides: dict | None = None,
     suggestion: dict | None = None,
     save_analysis: bool = False,
@@ -261,7 +264,10 @@ async def apply_post(
             tags = generated_preview["suggestedTags"]
             safety = generated_preview["suggestedSafety"]
             categories = generated_preview["categories"]
-        await replace_tags_for_post(db, post, tags, categories=categories or {})
+            display_names = generated_preview.get("displayNames") or {}
+        await replace_tags_for_post(
+            db, post, tags, categories=categories or {}, display_names=display_names or {}
+        )
         if safety in {"safe", "sketchy", "unsafe"}:
             post.safety = promote_safety(post.safety or "safe", safety, opts)
         if save_analysis or getattr(opts, "saveSemanticAnalysis", False):
@@ -325,10 +331,14 @@ async def apply_job_suggestions(job_id: int) -> dict:
                 tags = json.loads(suggestion.suggested_tags or "[]")
                 evidence = json.loads(suggestion.evidence or "{}")
                 categories = evidence.get("categories") or {}
+                display_names = evidence.get("displayNames") or {}
             except Exception:
                 tags = []
                 categories = {}
-            await replace_tags_for_post(db, post, tags, categories=categories)
+                display_names = {}
+            await replace_tags_for_post(
+                db, post, tags, categories=categories, display_names=display_names
+            )
             if suggestion.suggested_safety in {"safe", "sketchy", "unsafe"}:
                 opts = validate_options(json.loads(job.settings_snapshot or "{}"))
                 post.safety = promote_safety(post.safety or "safe", suggestion.suggested_safety, opts)

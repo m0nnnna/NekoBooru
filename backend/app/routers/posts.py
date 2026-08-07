@@ -544,6 +544,7 @@ async def apply_auto_tags(post_id: int, body: dict | None = None):
             tags=body.get("tags"),
             safety=body.get("safety"),
             categories=body.get("categories") or {},
+            display_names=body.get("displayNames") or {},
             overrides=body.get("settings") or {},
             suggestion=body.get("suggestion") or {},
             save_analysis=body.get("saveAnalysis") is True,
