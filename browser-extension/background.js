@@ -2,6 +2,11 @@
 // matching popup — "Download to NekoBooru" (upload web media in) and "Insert
 // media from NekoBooru" (browse your instance and copy a piece out).
 
+// Shared with the popup: booru site detection, the injected DOM scraper, and
+// the JSON parsers. The fetching itself happens here so it runs with the
+// extension's host permissions rather than a page's origin.
+importScripts('booru-tags.js')
+
 const MENU_ID = 'nekobooru-upload'
 // Same title as MENU_ID so the two read as a single "Download to NekoBooru"
 // entry. This one covers the page context on overlay players (X mid-playback),
@@ -238,6 +243,66 @@ function persistXMediaCache() {
 
 loadXMediaCache()
 
+// Read the booru post the download came from, so its own tags - already split
+// into artist/character/copyright/meta - come across instead of being guessed
+// again locally.
+async function collectBooruTags(pageUrl, tabId) {
+  const site = detectBooruPost(pageUrl)
+  if (!site) return null
+  const context = { siteId: site.siteId, label: site.label }
+
+  // The open tab first: no request, no rate limit, and the only route that
+  // works on Gelbooru, whose API wants credentials we do not ask for.
+  const fromDom = resultFromScrape(await scrapeBooruTagsFromTab(tabId), context)
+  if (fromDom) return fromDom
+  if (!site.apiUsable) return null
+
+  const payload = await fetchBooruJson(site.apiUrl)
+  const result = site.parse(payload, context)
+  if (result && site.siteId === 'gelbooru') await enrichGelbooruTagTypes(site, result)
+  return result
+}
+
+async function scrapeBooruTagsFromTab(tabId) {
+  const id = Number(tabId)
+  if (!Number.isInteger(id) || id < 0 || !chrome.scripting) return null
+  try {
+    const [injected] = await chrome.scripting.executeScript({
+      target: { tabId: id },
+      func: scrapeBooruTagsFromPage,
+    })
+    return injected?.result || null
+  } catch {
+    // Tab closed, navigated away, or a page the extension may not touch.
+    return null
+  }
+}
+
+async function fetchBooruJson(url) {
+  const response = await fetch(url, { credentials: 'omit' })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  return response.json()
+}
+
+// Gelbooru-family post APIs return one flat tag string, so the categories need
+// a second call. Safebooru ignores json=1 there and answers XML.
+async function enrichGelbooruTagTypes(site, result) {
+  if (!result?.tags?.length) return result
+  const url = site.apiUrl
+    .replace('s=post', 's=tag')
+    .replace(/&id=\d+/, `&limit=${result.tags.length}&names=${encodeURIComponent(result.tags.join(' '))}`)
+  try {
+    const response = await fetch(url, { credentials: 'omit' })
+    if (!response.ok) return result
+    const body = (await response.text()).trim()
+    const rows = body.startsWith('<') ? parseGelbooruTagTypeXml(body) : JSON.parse(body)
+    return applyGelbooruTagTypes(result, rows)
+  } catch {
+    // Categories are a bonus; the tags themselves are already worth importing.
+    return result
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.type === 'nekobooru-cursor') {
     lastCursor = { x: msg.x, y: msg.y }
@@ -267,6 +332,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (Number.isInteger(xMediaIndex)) params.set('xMediaIndex', String(xMediaIndex))
     openPopup('upload.html', params, sender.tab)
     return
+  }
+
+  if (msg && msg.type === 'nekobooru-booru-tags') {
+    ;(async () => {
+      try {
+        sendResponse({ ok: true, result: await collectBooruTags(msg.pageUrl, msg.tabId) })
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) })
+      }
+    })()
+    return true
   }
 
   if (msg && msg.type === 'nekobooru-x-media-cache') {
@@ -575,6 +651,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (xTweetUsername) params.set('xTweetUsername', xTweetUsername)
     const xMediaIndex = xPhotoIndexFromUrl(target)
     if (Number.isInteger(xMediaIndex)) params.set('xMediaIndex', String(xMediaIndex))
+    if (tab?.id != null) params.set('sourceTabId', String(tab.id))
     openPopup('upload.html', params, tab)
     return
   }
@@ -595,6 +672,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (xTweetUsername) params.set('xTweetUsername', xTweetUsername)
   const xMediaIndex = xPhotoIndexFromUrl(sourcePageUrl)
   if (Number.isInteger(xMediaIndex)) params.set('xMediaIndex', String(xMediaIndex))
+  if (tab?.id != null) params.set('sourceTabId', String(tab.id))
   openPopup('upload.html', params, tab)
 })
 

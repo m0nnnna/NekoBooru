@@ -47,6 +47,11 @@ class CreatePostRequest(BaseModel):
     source: Optional[str] = None
     autoTag: Optional[bool] = None
     autoTagProfile: Optional[str] = None
+    # Tag metadata the client already knows, e.g. the browser extension
+    # importing a booru post's own artist/character/copyright split. Keyed by
+    # tag name; anything absent falls back to "general" as before.
+    tagCategories: dict[str, str] = {}
+    tagDisplayNames: dict[str, str] = {}
 
 
 class UpdatePostRequest(BaseModel):
@@ -222,8 +227,16 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
             remove_upload_token(request.contentToken)
             raise _duplicate_post_exception(existing_post, sha256)
 
-        # Process tags using direct inserts (avoids lazy loading issues)
-        await apply_tags_for_post(db, post.id, final_tags, categories=auto_categories, display_names=auto_display_names)
+        # Process tags using direct inserts (avoids lazy loading issues).
+        # A category the client supplied comes from the source site's own
+        # taxonomy, so it outranks what the local models inferred.
+        await apply_tags_for_post(
+            db,
+            post.id,
+            final_tags,
+            categories={**auto_categories, **(request.tagCategories or {})},
+            display_names={**auto_display_names, **(request.tagDisplayNames or {})},
+        )
         if should_auto_tag and getattr(opts, "saveSemanticAnalysis", False):
             from ..services.ai_analysis import save_analysis_from_result
 

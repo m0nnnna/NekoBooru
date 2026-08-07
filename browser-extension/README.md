@@ -19,6 +19,20 @@ The extension adds three right-click menu items:
    protection, login-gated images, etc.) it falls back to downloading the bytes
    in your browser and uploading them.
 
+#### Downloading from another booru
+
+When the media came from a booru post page, the popup imports that post's own
+tags — already split into artist / character / copyright / meta — along with its
+rating, and those categories are sent with the post so they survive the import.
+Supported: Danbooru (`*.donmai.us`), Gelbooru, Safebooru, rule34.xxx and other
+Gelbooru clones, yande.re / Konachan, and e621 / e926.
+
+Tags are read from the open tab's sidebar first, which costs no request and is
+the only route that works on Gelbooru — its JSON API returns 401 without an API
+key. The site's JSON API is the fallback for when that tab is gone. Everything
+is additive: nothing you already typed is removed, and on any other site the
+import stays silent.
+
 ### Insert media from NekoBooru (your instance → wherever you're posting)
 
 1. While composing a post anywhere (e.g. X), right-click and choose **Insert

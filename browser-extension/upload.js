@@ -11,6 +11,9 @@ const xMediaIndex = parseXMediaIndex(params.get('xMediaIndex')) ?? xPhotoIndexFr
 // 'link' when src is a page URL the server should fetch (yt-dlp), not direct
 // media to preview inline (e.g. an X tweet whose <video> is a blob URL).
 const fetchMode = params.get('fetch') || ''
+// The tab the media was right-clicked in. Used to read a booru post's own tag
+// sidebar; absent when the popup was opened some other way.
+const sourceTabId = Number.parseInt(params.get('sourceTabId') || '', 10)
 const AI_TAG_PROFILES = {
   anime: {
     label: 'Anime / Booru',
@@ -136,6 +139,7 @@ let autoTagSuggestion = null
 let autoTagSuggestionProfile = 'extension'
 let autoTagModelOverrides = {}
 let extensionUploadDefaults = {}
+let booruTagCategories = {}
 // Booru lookup is not a model, so it is not part of a profile's model stack and
 // AI_TAG_PROFILES must not carry it: profiles are re-applied on every run, which
 // would silently undo the popup's checkbox. Saved settings and extension
@@ -199,6 +203,7 @@ async function init() {
   applyAiVisibility(false)
 
   renderPreview()
+  importBooruTags()
   setupTagAutocomplete()
   setupViewportTooltips()
   els.startLocalApp.addEventListener('click', startLocalApp)
@@ -212,6 +217,64 @@ async function init() {
   els.booruLookup.addEventListener('change', () => {
     setBooruLookup(els.booruLookup.checked, { fromUser: true })
   })
+}
+
+// Pull the source booru's own tags into the form when the download came from
+// one. Additive and quiet: it fills an empty form, tops up a non-empty one, and
+// stays silent on every other site.
+async function importBooruTags() {
+  if (!pageUrl) return
+  let response
+  try {
+    response = await chrome.runtime.sendMessage({
+      type: 'nekobooru-booru-tags',
+      pageUrl,
+      tabId: Number.isInteger(sourceTabId) ? sourceTabId : null,
+    })
+  } catch {
+    return
+  }
+  const result = response?.ok ? response.result : null
+  if (!result?.tags?.length) return
+
+  booruTagCategories = result.categories || {}
+  setTags([...tags, ...result.tags])
+  // The booru's rating is a fact about the post; only apply it when the user
+  // has not already chosen something stricter than the remembered default.
+  if (result.safety && SAFETY_ORDER.indexOf(result.safety) > SAFETY_ORDER.indexOf(els.safety.value)) {
+    els.safety.value = result.safety
+  }
+  const detail = ['character', 'copyright', 'artist']
+    .filter((name) => result.counts?.[name])
+    .map((name) => `${result.counts[name]} ${name}`)
+    .join(', ')
+  setStatus(
+    `Imported ${result.tags.length} tags from ${result.label}${detail ? ` (${detail})` : ''}. Edit them or upload.`,
+    'success',
+  )
+}
+
+const SAFETY_ORDER = ['safe', 'sketchy', 'unsafe']
+
+// The categories for the tags actually being submitted.
+function pickBooruCategories(submittedTags) {
+  const picked = {}
+  ;(submittedTags || []).forEach((tag) => {
+    const category = booruTagCategories[tag]
+    if (category && category !== 'general') picked[tag] = category
+  })
+  return picked
+}
+
+// NekoBooru flattens "miyu_(blue_archive)" to "miyu_blue_archive", so pass the
+// qualifier spelling along as the display name and the sidebar can show
+// "miyu (blue archive)" the way the source booru did.
+function pickBooruDisplayNames(submittedTags) {
+  const picked = {}
+  ;(submittedTags || []).forEach((tag) => {
+    if (booruTagCategories[tag] && tag.includes('(')) picked[tag] = tag.replace(/_/g, ' ')
+  })
+  return picked
 }
 
 async function checkBackendHealth() {
@@ -889,6 +952,11 @@ async function createPostFromPopup(options = {}) {
     safety: els.safety.value,
     tags: parseTags(),
   }
+  // Only for tags still in the form: the user may have removed some.
+  const importedCategories = pickBooruCategories(body.tags)
+  if (Object.keys(importedCategories).length) body.tagCategories = importedCategories
+  const importedDisplayNames = pickBooruDisplayNames(body.tags)
+  if (Object.keys(importedDisplayNames).length) body.tagDisplayNames = importedDisplayNames
   if (Object.prototype.hasOwnProperty.call(options, 'autoTag')) body.autoTag = options.autoTag
   if (options.profile) body.autoTagProfile = options.profile
   const source = selectedSourceUrl()

@@ -16,6 +16,22 @@ from ..models import Tag, TagAlias, TagCategory, TagImplication
 from ..models.post import PostTag
 
 
+def qualifier_display_name(raw: str) -> str | None:
+    """Keep the booru spelling when a qualified tag is typed or imported.
+
+    normalize_tag() flattens ``evie_(stellar_blade)`` to ``evie_stellar_blade``,
+    which is what makes both spellings find each other in search - but it also
+    loses the parentheses the display name exists to preserve. Recover them from
+    the raw input so hand-typed booru tags read the same as tagger-supplied
+    ones. Returns None for ordinary tags, which keeps the existing
+    "underscores become spaces" fallback.
+    """
+    text = re.sub(r"\s+", " ", str(raw or "").strip().lower())
+    if "(" not in text or ")" not in text:
+        return None
+    return text.replace("_", " ").strip()
+
+
 def normalize_tag(raw: str) -> str:
     tag = re.sub(r"\s+", "_", str(raw or "").strip().lower())
     tag = re.sub(r"[^\w:.-]+", "_", tag)
@@ -64,7 +80,7 @@ async def process_tags_for_post(
         tag_result = await db.execute(select(Tag).where(Tag.name == tag_name))
         tag = tag_result.scalars().first()
 
-        display_name = display_names.get(tag_name)
+        display_name = display_names.get(tag_name) or qualifier_display_name(raw_name)
         if not tag:
             tag = Tag(name=tag_name, category_id=category_id, display_name=display_name)
             db.add(tag)

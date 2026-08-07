@@ -162,6 +162,64 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(body["error"], "disabled")
         self.assertNotIn("auto_tagged", body["categories"])
 
+    def test_create_post_honours_client_supplied_tag_metadata(self):
+        """The extension imports a booru post's own artist/character split."""
+        self._disable_auto_tags()
+        token = self._upload_image_token()
+        created = self.client.post(
+            "/api/posts",
+            json={
+                "contentToken": token,
+                "tags": ["1girl", "code_geass", "c.c.", "miyu_(blue_archive)"],
+                "safety": "safe",
+                "autoTag": False,
+                "tagCategories": {
+                    "code_geass": "copyright",
+                    "c.c.": "character",
+                    "miyu_(blue_archive)": "character",
+                },
+                # The qualifier spelling survives the name flattening.
+                "tagDisplayNames": {"miyu_(blue_archive)": "miyu (blue archive)"},
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+
+        detail = self.client.get(f"/api/posts/{created.json()['id']}")
+        self.assertEqual(detail.status_code, 200, detail.text)
+        by_name = {row["name"]: row for row in detail.json()["tagDetails"]}
+        self.assertEqual(by_name["code_geass"]["category"], "copyright")
+        self.assertEqual(by_name["c.c."]["category"], "character")
+        self.assertEqual(by_name["miyu_blue_archive"]["category"], "character")
+        self.assertEqual(by_name["miyu_blue_archive"]["displayName"], "miyu (blue archive)")
+        # Anything the client said nothing about keeps the old default.
+        self.assertEqual(by_name["1girl"]["category"], "general")
+
+    def test_hand_typed_qualifier_tag_keeps_its_booru_spelling(self):
+        """Typing evie_(stellar_blade) should read back with the parentheses."""
+        self._disable_auto_tags()
+        post = self._upload_image_post(tags=["evie_(stellar_blade)"])
+
+        detail = self.client.get(f"/api/posts/{post['id']}")
+        by_name = {row["name"]: row for row in detail.json()["tagDetails"]}
+        self.assertIn("evie_stellar_blade", by_name)
+        self.assertEqual(by_name["evie_stellar_blade"]["displayName"], "evie (stellar blade)")
+
+        # Either spelling finds it, since both normalize to the stored name.
+        for query in ("evie_(stellar_blade)", "evie_stellar_blade"):
+            found = self.client.get("/api/posts", params={"q": query})
+            self.assertEqual(found.status_code, 200, found.text)
+            self.assertIn(post["id"], [row["id"] for row in found.json()["results"]], query)
+
+    def test_create_post_without_tag_metadata_is_unchanged(self):
+        self._disable_auto_tags()
+        post = self._upload_image_post(tags=["plain_tag"])
+
+        detail = self.client.get(f"/api/posts/{post['id']}")
+        by_name = {row["name"]: row for row in detail.json()["tagDetails"]}
+        self.assertEqual(by_name["plain_tag"]["category"], "general")
+        # No stored spelling, so it falls back to the underscore-free name.
+        self.assertEqual(by_name["plain_tag"]["displayName"], "plain tag")
+
     def test_extension_upload_defaults_can_be_saved(self):
         default_response = self.client.get("/api/settings/extension")
         self.assertEqual(default_response.status_code, 200, default_response.text)
