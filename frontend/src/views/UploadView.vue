@@ -189,8 +189,10 @@ import api from '../api/client'
 import TagInput from '../components/TagInput.vue'
 import RemoteClipEditor from '../components/RemoteClipEditor.vue'
 import UploadJobProgress from '../components/UploadJobProgress.vue'
+import { useTagsStore } from '../stores/tags'
 
 const router = useRouter()
+const tagsStore = useTagsStore()
 const remoteClipEditor = ref(null)
 
 const isDragging = ref(false)
@@ -928,12 +930,15 @@ async function uploadAll() {
         }, crypto.randomUUID())
         upload.postId = await waitForPublished(upload, upload.job.id, artifact.id)
       } else {
+        const meta = tagsStore.tagMetadataFor(upload.tags)
         created = await api.createPost({
           contentToken: upload.token,
           tags: upload.tags,
           safety: upload.safety,
           source: upload.source || null,
           autoTag: autoTagUploads.value && !upload.aiPreviewed,
+          tagCategories: meta.categories,
+          tagDisplayNames: meta.displayNames,
         })
         upload.postId = created?.id
       }

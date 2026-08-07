@@ -139,7 +139,8 @@ let autoTagSuggestion = null
 let autoTagSuggestionProfile = 'extension'
 let autoTagModelOverrides = {}
 let extensionUploadDefaults = {}
-let booruTagCategories = {}
+let knownTagCategories = {}
+let knownTagDisplayNames = {}
 // Booru lookup is not a model, so it is not part of a profile's model stack and
 // AI_TAG_PROFILES must not carry it: profiles are re-applied on every run, which
 // would silently undo the popup's checkbox. Saved settings and extension
@@ -237,7 +238,7 @@ async function importBooruTags() {
   const result = response?.ok ? response.result : null
   if (!result?.tags?.length) return
 
-  booruTagCategories = result.categories || {}
+  Object.assign(knownTagCategories, result.categories || {})
   setTags([...tags, ...result.tags])
   // The booru's rating is a fact about the post; only apply it when the user
   // has not already chosen something stricter than the remembered default.
@@ -257,10 +258,10 @@ async function importBooruTags() {
 const SAFETY_ORDER = ['safe', 'sketchy', 'unsafe']
 
 // The categories for the tags actually being submitted.
-function pickBooruCategories(submittedTags) {
+function pickTagCategories(submittedTags) {
   const picked = {}
   ;(submittedTags || []).forEach((tag) => {
-    const category = booruTagCategories[tag]
+    const category = knownTagCategories[tag]
     if (category && category !== 'general') picked[tag] = category
   })
   return picked
@@ -269,10 +270,11 @@ function pickBooruCategories(submittedTags) {
 // NekoBooru flattens "miyu_(blue_archive)" to "miyu_blue_archive", so pass the
 // qualifier spelling along as the display name and the sidebar can show
 // "miyu (blue archive)" the way the source booru did.
-function pickBooruDisplayNames(submittedTags) {
+function pickTagDisplayNames(submittedTags) {
   const picked = {}
   ;(submittedTags || []).forEach((tag) => {
-    if (booruTagCategories[tag] && tag.includes('(')) picked[tag] = tag.replace(/_/g, ' ')
+    if (knownTagDisplayNames[tag]) picked[tag] = knownTagDisplayNames[tag]
+    else if (knownTagCategories[tag] && tag.includes('(')) picked[tag] = tag.replace(/_/g, ' ')
   })
   return picked
 }
@@ -631,7 +633,7 @@ function onTagInput() {
   debounceTimer = setTimeout(async () => {
     try {
       const res = await fetch(
-        `${instanceUrl}/api/tags/autocomplete?q=${encodeURIComponent(word)}`
+        `${instanceUrl}/api/tags/autocomplete?q=${encodeURIComponent(word)}&includeRemote=true`
       )
       if (!res.ok) return
       currentSuggestions = await res.json()
@@ -658,7 +660,18 @@ function renderSuggestions() {
     name.textContent = tag.name
     const count = document.createElement('span')
     count.className = 'tag-count'
-    count.textContent = tag.usageCount ?? ''
+    if (tag.remote) {
+      // Not in the library: show whose count it is, since it is not yours.
+      name.append(Object.assign(document.createElement('em'), {
+        className: 'tag-category',
+        textContent: tag.category || '',
+      }))
+      count.classList.add('remote')
+      count.textContent = `${tag.source} ${formatRemoteCount(tag.remoteCount)}`
+      count.title = `Not in your library. ${tag.remoteCount} posts on ${tag.source}.`
+    } else {
+      count.textContent = tag.usageCount ?? ''
+    }
     li.append(name, count)
     li.addEventListener('mousedown', (e) => {
       e.preventDefault()
@@ -669,7 +682,20 @@ function renderSuggestions() {
   els.suggestions.classList.remove('hidden')
 }
 
+function formatRemoteCount(count) {
+  const value = Number(count) || 0
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`
+  return String(value)
+}
+
 function pickSuggestion(tag) {
+  // A remote tag brings its category with it; the library has never seen it,
+  // so this is the only chance to file it as a character rather than general.
+  if (tag.remote && tag.name) {
+    knownTagCategories[tag.name] = tag.category || 'general'
+    if (tag.displayName && tag.displayName !== tag.name) knownTagDisplayNames[tag.name] = tag.displayName
+  }
   // Suggestion names come from the server already normalised.
   if (!tags.includes(tag.name)) {
     tags.push(tag.name)
@@ -737,6 +763,9 @@ function parseTags() {
   if (els.includeTweetUsername.checked && usernameTag && !tags.includes(usernameTag)) {
     tags.push(usernameTag)
   }
+  // A handle, not a subject: file it under "user" so it groups with other
+  // social accounts instead of disappearing into the general pile.
+  if (usernameTag) knownTagCategories[usernameTag] = 'user'
   renderPills()
   return [...tags]
 }
@@ -953,9 +982,9 @@ async function createPostFromPopup(options = {}) {
     tags: parseTags(),
   }
   // Only for tags still in the form: the user may have removed some.
-  const importedCategories = pickBooruCategories(body.tags)
+  const importedCategories = pickTagCategories(body.tags)
   if (Object.keys(importedCategories).length) body.tagCategories = importedCategories
-  const importedDisplayNames = pickBooruDisplayNames(body.tags)
+  const importedDisplayNames = pickTagDisplayNames(body.tags)
   if (Object.keys(importedDisplayNames).length) body.tagDisplayNames = importedDisplayNames
   if (Object.prototype.hasOwnProperty.call(options, 'autoTag')) body.autoTag = options.autoTag
   if (options.profile) body.autoTagProfile = options.profile
@@ -989,6 +1018,10 @@ async function updateCreatedPost() {
     safety: els.safety.value,
     tags: parseTags(),
   }
+  const updatedCategories = pickTagCategories(body.tags)
+  if (Object.keys(updatedCategories).length) body.tagCategories = updatedCategories
+  const updatedDisplayNames = pickTagDisplayNames(body.tags)
+  if (Object.keys(updatedDisplayNames).length) body.tagDisplayNames = updatedDisplayNames
   const source = selectedSourceUrl()
   if (source) body.source = source
   const res = await fetch(`${instanceUrl}/api/posts/${createdPost.id}`, {

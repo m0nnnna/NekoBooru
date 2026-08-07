@@ -32,6 +32,9 @@ const CATEGORY_ORDER = [
   { category: 'artist', label: 'Artist' },
   { category: 'character', label: 'Character' },
   { category: 'copyright', label: 'Copyright' },
+  // Not a Danbooru category: social handles, e.g. the tweet username the
+  // browser extension saves.
+  { category: 'user', label: 'User' },
   { category: 'meta', label: 'Metadata' },
   { category: 'general', label: 'Tag' },
 ]

@@ -1029,6 +1029,18 @@
         </div>
 
         <label class="toggle-card booru-lookup-toggle">
+          <input type="checkbox" v-model="autoTagSettings.booruSuggestEnabled" @change="saveAutoTagSettings" />
+          <span>
+            <strong>Booru tag suggestions</strong>
+            <small>
+              While typing a tag, also suggest tags this library does not have yet from Danbooru and Gelbooru,
+              with the category they use there - so a character arrives filed as a character. Sends the partial
+              tag you are typing to those sites.
+            </small>
+          </span>
+        </label>
+
+        <label class="toggle-card booru-lookup-toggle">
           <input type="checkbox" v-model="autoTagSettings.booruLookupEnabled" @change="saveAutoTagSettings" />
           <span>
             <strong>Booru series lookup</strong>

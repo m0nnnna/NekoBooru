@@ -58,6 +58,10 @@ class UpdatePostRequest(BaseModel):
     safety: Optional[str] = None
     tags: Optional[list[str]] = None
     source: Optional[str] = None
+    # As on create: the category/spelling a client already knows, e.g. a tag
+    # picked from a remote booru suggestion that this library has never seen.
+    tagCategories: dict[str, str] = {}
+    tagDisplayNames: dict[str, str] = {}
 
 
 class SaveAiAnalysisRequest(BaseModel):
@@ -489,7 +493,13 @@ async def update_post(post_id: int, request: UpdatePostRequest, db: AsyncSession
         post.source = request.source
 
     if request.tags is not None:
-        await replace_tags_for_post(db, post, request.tags)
+        await replace_tags_for_post(
+            db,
+            post,
+            request.tags,
+            categories=request.tagCategories or None,
+            display_names=request.tagDisplayNames or None,
+        )
 
     # Touch updated_at so the change is recorded even when only tags changed
     # (tag associations are written via Core inserts that don't fire ORM events).

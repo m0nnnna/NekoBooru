@@ -106,6 +106,19 @@ class AutoTagApiTests(unittest.TestCase):
         response = self.client.put("/api/auto-tags/settings", json={"settings": settings})
         self.assertEqual(response.status_code, 200, response.text)
 
+    def _set_auto_tag_settings(self, **changes):
+        settings = self.client.get("/api/auto-tags/settings").json()
+        settings.update(changes)
+        response = self.client.put("/api/auto-tags/settings", json={"settings": settings})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.addCleanup(self._restore_auto_tag_setting, changes)
+
+    def _restore_auto_tag_setting(self, changes):
+        settings = self.client.get("/api/auto-tags/settings").json()
+        for key in changes:
+            settings[key] = False
+        self.client.put("/api/auto-tags/settings", json={"settings": settings})
+
     def _fake_result(self):
         from app.services.auto_tagger import AutoTagResult
 
@@ -193,6 +206,93 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual(by_name["miyu_blue_archive"]["displayName"], "miyu (blue archive)")
         # Anything the client said nothing about keeps the old default.
         self.assertEqual(by_name["1girl"]["category"], "general")
+
+    def test_remote_suggestions_are_off_until_enabled(self):
+        from unittest.mock import patch
+
+        self._upload_image_post(tags=["remote_probe_local"])
+        with patch("app.services.booru_suggest.suggest_tags") as suggest:
+            response = self.client.get(
+                "/api/tags/autocomplete", params={"q": "remote_probe", "includeRemote": "true"}
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([row["name"] for row in response.json()], ["remote_probe_local"])
+        suggest.assert_not_called()
+
+    def test_remote_suggestions_top_up_local_matches(self):
+        from unittest.mock import AsyncMock, patch
+
+        self._upload_image_post(tags=["suggest_probe_local"])
+        self._set_auto_tag_settings(booruSuggestEnabled=True)
+        remote = [
+            {
+                "name": "suggest_probe_local",  # already local: must be dropped
+                "displayName": "suggest probe local",
+                "category": "character",
+                "usageCount": 0,
+                "remoteCount": 5,
+                "remote": True,
+                "source": "danbooru",
+            },
+            {
+                "name": "suggest_probe_remote",
+                "displayName": "suggest probe remote",
+                "category": "character",
+                "usageCount": 0,
+                "remoteCount": 120,
+                "remote": True,
+                "source": "danbooru",
+            },
+        ]
+        with patch("app.services.booru_suggest.suggest_tags", new=AsyncMock(return_value=remote)):
+            response = self.client.get(
+                "/api/tags/autocomplete", params={"q": "suggest_probe", "includeRemote": "true"}
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        rows = response.json()
+        self.assertEqual([row["name"] for row in rows], ["suggest_probe_local", "suggest_probe_remote"])
+        # Local first, and its count is a real one.
+        self.assertNotIn("remote", rows[0])
+        added = rows[1]
+        self.assertTrue(added["remote"])
+        self.assertEqual(added["category"], "character")
+        self.assertEqual(added["remoteCount"], 120)
+        # Never presented as a local post count.
+        self.assertEqual(added["usageCount"], 0)
+        # Coloured from this library's own palette.
+        self.assertEqual(added["categoryColor"], rows[0]["categoryColor"] and added["categoryColor"])
+        self.assertTrue(added["categoryColor"].startswith("#"))
+
+    def test_remote_suggestions_stay_out_of_plain_autocomplete(self):
+        from unittest.mock import patch
+
+        self._upload_image_post(tags=["plain_probe_local"])
+        self._set_auto_tag_settings(booruSuggestEnabled=True)
+        with patch("app.services.booru_suggest.suggest_tags") as suggest:
+            response = self.client.get("/api/tags/autocomplete", params={"q": "plain_probe"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([row["name"] for row in response.json()], ["plain_probe_local"])
+        suggest.assert_not_called()
+
+    def test_user_category_exists_for_social_handles(self):
+        response = self.client.get("/api/tag-categories")
+        self.assertEqual(response.status_code, 200, response.text)
+        names = [row["name"] for row in response.json()]
+        self.assertIn("user", names)
+
+        post = self.client.post(
+            "/api/posts",
+            json={
+                "contentToken": self._upload_image_token(),
+                "tags": ["twitter_user_someone"],
+                "autoTag": False,
+                "tagCategories": {"twitter_user_someone": "user"},
+            },
+        )
+        self.assertEqual(post.status_code, 200, post.text)
+        detail = self.client.get(f"/api/posts/{post.json()['id']}")
+        by_name = {row["name"]: row for row in detail.json()["tagDetails"]}
+        self.assertEqual(by_name["twitter_user_someone"]["category"], "user")
 
     def test_hand_typed_qualifier_tag_keeps_its_booru_spelling(self):
         """Typing evie_(stellar_blade) should read back with the parentheses."""

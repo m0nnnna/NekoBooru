@@ -392,6 +392,9 @@ export const api = {
   async autocomplete(q, options = {}) {
     const params = new URLSearchParams({ q })
     if (options.nameParts) params.set('nameParts', 'true')
+    // Tags this library does not have yet, from public boorus. The server
+    // ignores it unless booru suggestions are enabled in settings.
+    if (options.includeRemote) params.set('includeRemote', 'true')
     return request(`/tags/autocomplete?${params.toString()}`)
   },
 

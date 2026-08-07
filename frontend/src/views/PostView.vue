@@ -1735,11 +1735,14 @@ function onRawTagInput() {
 function tagAutocompleteOptions() {
   return {
     nameParts: localStorage.getItem(NAME_PART_AUTOCOMPLETE_KEY) === 'true',
+    // The server only acts on this when booru suggestions are switched on.
+    includeRemote: true,
   }
 }
 
 function selectRawTagSuggestion(tag) {
   if (!tag?.name) return
+  tagsStore.rememberRemoteTag(tag)
   const { start, end, rawToken } = rawTagTokenAtCursor()
   const prefix = rawToken.startsWith('-') ? '-' : ''
   const before = rawEditedTags.value.slice(0, start)
@@ -1787,7 +1790,14 @@ async function saveTags() {
     if (tagEditorMode.value === 'raw') {
       editedTags.value = parseRawTags(rawEditedTags.value)
     }
-    await api.updatePost(post.value.id, { tags: editedTags.value })
+    // Carry the category/spelling of any tag picked from a remote booru
+    // suggestion; the library has never seen it, so nothing else can.
+    const meta = tagsStore.tagMetadataFor(editedTags.value)
+    await api.updatePost(post.value.id, {
+      tags: editedTags.value,
+      tagCategories: meta.categories,
+      tagDisplayNames: meta.displayNames,
+    })
     await loadPost()
     showTagEditor.value = false
   } catch (e) {

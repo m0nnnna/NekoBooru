@@ -295,6 +295,10 @@ class AutoTagOptions:
     # character head is far more reliable than its copyright head, so this fills
     # in copyrights it missed. Off by default: it makes network calls.
     booruLookupEnabled: bool = False
+    # Offer tag-name completions from public boorus while typing, for tags this
+    # library does not have yet. Off by default: it sends the partial tag you
+    # are typing to a third party.
+    booruSuggestEnabled: bool = False
     generalThreshold: float = 0.35
     characterThreshold: float = 0.45
     maxTags: int = 40

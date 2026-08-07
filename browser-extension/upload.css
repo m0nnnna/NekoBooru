@@ -290,6 +290,22 @@ select:focus {
   font-size: 0.85rem;
 }
 
+/* Suggestions for tags not in the library: the category is why you would pick
+   one, and the count belongs to the source board, not to you. */
+.tag-category {
+  margin-left: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-style: normal;
+  opacity: 0.85;
+}
+
+.tag-count.remote {
+  font-size: 0.72rem;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
 .source-row {
   font-size: 0.85rem;
   color: var(--text-secondary);
