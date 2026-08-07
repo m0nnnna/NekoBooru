@@ -149,6 +149,16 @@ Everything lives in [backend/app/services/auto_tagger.py](backend/app/services/a
 
 `onnxruntime-gpu` bundles no CUDA libraries. `_prepare_onnx_cuda_runtime()` preloads cuDNN 9 and the CUDA 12 runtime out of the installed torch (or `nvidia-*`) wheels before the first session is built — without it every ONNX tagger silently falls back to CPU on Windows. Adding the directory to the DLL search path is not sufficient; the libraries must actually be resident.
 
+### Concurrency
+
+Three separate mechanisms, easy to conflate:
+
+- `_gpu_work_lock` serializes everything that touches the GPU — `tag_media()`'s local inference, model loads, and unloads. Held **per media item**, not per job, so a queued load still gets a turn between images. Remote-worker tagging deliberately skips it (that GPU is on another machine). Lock order is always `_gpu_work_lock` → the tagger's own `_lock`; do not invert it.
+- **Downloads** are one job with a dynamic queue. `start_model_download()` appends to the running job instead of failing, and the worker re-reads the pending list each pass. The job is finalized under `_download_lock` in the same critical section that finds the queue empty — otherwise a model enqueued at that instant would be stranded in a finished job.
+- **Model loads** are a `_load_queue` drained by a single worker thread. `start_model_load()` for a second model queues it; it must never return the in-flight job for a different model, which is what used to leave the UI polling a load that would never happen.
+
+Bulk auto-tag jobs (`auto_tag_jobs.create_job`) are still one-at-a-time and reject with a 409 while one runs — they are DB-backed and not part of the queue above.
+
 **ONNX helper toolkit** (reuse these rather than writing new preprocessing): `_create_onnx_session`, `_onnx_input_image_size`, `_generic_onnx_image_tensor`, `_imagenet_tensor`, `_flatten_onnx_scores`, `_cached_file`, `_cached_file_by_suffix`, `_cached_tag_metadata_file`, `_read_tag_rows_from_csv`, `_read_tag_rows_from_json`, `normalize_tag`, `safety_from_rating`.
 
 ### Adding a new tagger model

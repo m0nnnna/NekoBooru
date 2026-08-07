@@ -232,6 +232,13 @@ _download_lock = threading.Lock()
 _download_job: dict[str, Any] | None = None
 _load_lock = threading.Lock()
 _load_job: dict[str, Any] | None = None
+_load_queue: list[str] = []
+_load_worker: threading.Thread | None = None
+# Serializes everything that touches the GPU: inference and model loads/unloads.
+# Without it a bulk tag run and a "Load model" click allocate VRAM at the same
+# time and the process dies on an out-of-memory error mid-job. Held per media
+# item rather than per job so a queued load still gets a turn promptly.
+_gpu_work_lock = threading.RLock()
 _DOWNLOAD_ACTIVE_STATUSES = {"queued", "running", "cancelling"}
 _DOWNLOAD_TERMINAL_STATUSES = {"completed", "failed", "cancelled", "skipped"}
 
@@ -2206,7 +2213,9 @@ def status() -> dict:
 
 def current_model_load_job() -> dict | None:
     with _load_lock:
-        return json.loads(json.dumps(_load_job)) if _load_job else None
+        if not _load_job and not _load_queue:
+            return None
+        return _load_job_snapshot_locked()
 
 
 def _tagger_for_model(model_id: str):
@@ -2243,25 +2252,53 @@ def _semantic_tagger_for_options(opts: AutoTagOptions):
 def start_model_load(model_id: str = "wd") -> dict:
     tagger = _tagger_for_model(model_id)
 
-    global _load_job
+    global _load_job, _load_worker
     with _load_lock:
         if tagger.is_loaded():
             _load_job = _new_load_job(model_id, status="completed", progress=100, message="Model weights already loaded")
-            return json.loads(json.dumps(_load_job))
-        if _load_job and _load_job.get("status") in {"queued", "running"}:
-            return json.loads(json.dumps(_load_job))
-        _load_job = _new_load_job(model_id, status="queued", progress=0, message="Queued model weight load")
-        job_id = _load_job["id"]
-        snapshot = json.loads(json.dumps(_load_job))
+            return _load_job_snapshot_locked()
+        running = _load_job if _load_job and _load_job.get("status") in {"queued", "running"} else None
+        if running and running.get("modelId") == model_id:
+            return _load_job_snapshot_locked()
+        if model_id in _load_queue:
+            return _load_job_snapshot_locked()
+        if running:
+            # A different model is loading. Queue this one instead of handing
+            # back the in-flight job, which used to leave the UI polling a load
+            # that was never going to happen.
+            _load_queue.append(model_id)
+            return _load_job_snapshot_locked()
+        _load_queue.append(model_id)
+        if _load_worker is None or not _load_worker.is_alive():
+            _load_worker = threading.Thread(target=_run_model_load_queue, daemon=True)
+            _load_worker.start()
+        return _load_job_snapshot_locked()
 
-    thread = threading.Thread(target=_run_model_load_job, args=(job_id, model_id), daemon=True)
-    thread.start()
+
+def _load_job_snapshot_locked() -> dict:
+    """Current load job plus anything waiting behind it. Caller holds _load_lock."""
+    snapshot = json.loads(json.dumps(_load_job)) if _load_job else {}
+    snapshot["queued"] = list(_load_queue)
     return snapshot
+
+
+def _run_model_load_queue() -> None:
+    global _load_job
+    while True:
+        with _load_lock:
+            if not _load_queue:
+                return
+            model_id = _load_queue.pop(0)
+            _load_job = _new_load_job(model_id, status="queued", progress=0, message="Queued model weight load")
+            job_id = _load_job["id"]
+        _run_model_load_job(job_id, model_id)
 
 
 def unload_model(model_id: str) -> dict:
     tagger = _tagger_for_model(model_id)
-    was_loaded = bool(tagger.unload())
+    # Freeing weights out from under a running inference crashes the process.
+    with _gpu_work_lock:
+        was_loaded = bool(tagger.unload())
     return {
         "modelId": model_id,
         "model": MODEL_REGISTRY[model_id]["name"],
@@ -2434,15 +2471,23 @@ def _run_model_load_job(job_id: str, model_id: str) -> None:
     global _load_job
     try:
         progress("start", 3, "Preparing model runtime")
-        if model_id == "wd":
-            _wd_tagger.ensure_loaded(progress=progress)
-        else:
-            progress("load_weights", 15, f"Loading {MODEL_REGISTRY[model_id]['name']} weights into memory")
-            if model_id in QWEN_SEMANTIC_MODEL_IDS:
-                _tagger_for_model(model_id).ensure_loaded(load_options().torchDevice)
+        # Wait for any in-flight inference: allocating a second model's weights
+        # while a tag run is mid-image is how this used to OOM the process.
+        if not _gpu_work_lock.acquire(blocking=False):
+            progress("waiting", 5, "Waiting for the current tagging run to finish")
+            _gpu_work_lock.acquire()
+        try:
+            if model_id == "wd":
+                _wd_tagger.ensure_loaded(progress=progress)
             else:
-                _tagger_for_model(model_id).ensure_loaded()
-            progress("ready", 100, "Model weights loaded")
+                progress("load_weights", 15, f"Loading {MODEL_REGISTRY[model_id]['name']} weights into memory")
+                if model_id in QWEN_SEMANTIC_MODEL_IDS:
+                    _tagger_for_model(model_id).ensure_loaded(load_options().torchDevice)
+                else:
+                    _tagger_for_model(model_id).ensure_loaded()
+                progress("ready", 100, "Model weights loaded")
+        finally:
+            _gpu_work_lock.release()
         with _load_lock:
             if _load_job and _load_job.get("id") == job_id:
                 _load_job["status"] = "completed"
@@ -2900,7 +2945,16 @@ def start_model_download(model_ids: list[str]) -> dict:
     with _download_lock:
         _reconcile_download_job_locked()
         if _download_job and _download_job.get("status") in _DOWNLOAD_ACTIVE_STATUSES:
-            raise RuntimeError("A model download is already running")
+            # Queue onto the running job rather than rejecting: the user should
+            # be able to line several models up and walk away.
+            if _download_job.get("cancelRequested"):
+                raise RuntimeError("The current model download is being cancelled")
+            added = _enqueue_download_models_locked(model_ids)
+            snapshot = json.loads(json.dumps(_download_job))
+            if runtime_job:
+                snapshot["runtimeInstallJob"] = runtime_job
+            snapshot["queued"] = added
+            return snapshot
         job_id = str(uuid.uuid4())
         _download_job = {
             "id": job_id,
@@ -2932,9 +2986,42 @@ def start_model_download(model_ids: list[str]) -> dict:
     if runtime_job:
         snapshot["runtimeInstallJob"] = runtime_job
 
-    thread = threading.Thread(target=_run_model_download_job, args=(job_id, model_ids), daemon=True)
+    thread = threading.Thread(target=_run_model_download_job, args=(job_id,), daemon=True)
     thread.start()
     return snapshot
+
+
+def _enqueue_download_models_locked(model_ids: list[str]) -> list[str]:
+    """Add models to the running download job. Caller holds _download_lock."""
+    if not _download_job:
+        return []
+    added: list[str] = []
+    for model_id in model_ids:
+        row = _download_job["models"].get(model_id)
+        # Re-queue anything that is not already done or in flight, so retrying a
+        # failed model is just another download click.
+        if row and row.get("status") in {"queued", "running", "completed"}:
+            continue
+        if row and row.get("status") == "failed":
+            _download_job["failed"] = max(0, int(_download_job.get("failed") or 0) - 1)
+        _download_job["models"][model_id] = {
+            "id": model_id,
+            "name": MODEL_REGISTRY[model_id]["name"],
+            "repoId": MODEL_REGISTRY[model_id]["repoId"],
+            "status": "queued",
+            "bytesDownloaded": 0,
+            "bytesTotal": _expected_download_total(model_id),
+            "current": "",
+            "error": None,
+            "updatedAt": time.time(),
+        }
+        if model_id not in _download_job["modelIds"]:
+            _download_job["modelIds"].append(model_id)
+        added.append(model_id)
+    if added:
+        _download_job["total"] = len(_download_job["modelIds"])
+        _download_job["updatedAt"] = time.time()
+    return added
 
 
 def _ensure_download_runtime(model_ids: list[str]) -> dict | None:
@@ -2965,7 +3052,7 @@ def download_all_model_ids() -> list[str]:
     return ids
 
 
-def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
+def _run_model_download_job(job_id: str) -> None:
     from huggingface_hub import snapshot_download  # type: ignore
 
     global _download_job
@@ -2975,12 +3062,31 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
             _download_job["status"] = "running"
             _download_job["updatedAt"] = time.time()
 
-    for model_id in model_ids:
+    # Re-read the pending list every pass: start_model_download() can append
+    # more models while this job is already running.
+    while True:
         with _download_lock:
             if not _download_job or _download_job.get("id") != job_id:
                 return
             if _download_job.get("cancelRequested"):
                 _mark_download_job_cancelled_locked()
+                return
+            model_id = next(
+                (
+                    candidate
+                    for candidate in _download_job["modelIds"]
+                    if _download_job["models"].get(candidate, {}).get("status") == "queued"
+                ),
+                None,
+            )
+            if model_id is None:
+                # Finish under the same lock the enqueuer uses, so a model added
+                # right now either lands in this job (and is picked up above) or
+                # sees a finished job and starts a fresh one. Never both.
+                _download_job["status"] = "failed" if _download_job["failed"] else "completed"
+                _download_job["updatedAt"] = time.time()
+                _download_context["job_id"] = None
+                _download_context["model_id"] = None
                 return
         meta = MODEL_REGISTRY[model_id]
         _download_context["job_id"] = job_id
@@ -3062,16 +3168,6 @@ def _run_model_download_job(job_id: str, model_ids: list[str]) -> None:
             _download_context["job_id"] = None
             _download_context["model_id"] = None
 
-    with _download_lock:
-        if _download_job and _download_job.get("id") == job_id:
-            if _download_job.get("cancelRequested"):
-                _mark_download_job_cancelled_locked()
-            else:
-                _download_job["status"] = "failed" if _download_job["failed"] else "completed"
-            _download_job["updatedAt"] = time.time()
-    _download_context["job_id"] = None
-    _download_context["model_id"] = None
-
 
 def _mark_download_job_cancelled_locked(message: str = "Model download cancelled") -> None:
     if not _download_job:
@@ -3104,8 +3200,11 @@ def tag_media(path: Path, opts: AutoTagOptions | None = None) -> AutoTagResult:
     if not opts.enabled:
         return AutoTagResult(enabled=False, error="disabled")
     if opts.remoteEnabled and opts.remoteUrl:
+        # Remote work happens on the worker's GPU, so it must not queue behind
+        # the local lock.
         return _tag_media_remote(path, opts)
-    return _infer_local(path, opts)
+    with _gpu_work_lock:
+        return _infer_local(path, opts)
 
 
 def _infer_local(path: Path, opts: AutoTagOptions) -> AutoTagResult:

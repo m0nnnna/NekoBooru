@@ -855,23 +855,23 @@
               <div class="model-actions compact-actions">
                 <button
                   class="btn btn-secondary"
-                  :class="{ 'btn-danger': modelDownloadActiveFor(model.id) }"
-                  @click="modelDownloadActiveFor(model.id) ? cancelModelDownload() : downloadAutoTagModelById(model.id)"
-                  :disabled="(!modelDownloadActiveFor(model.id) && (modelDownloadRunning || model.downloaded)) || modelDownloadCancelling"
+                  :class="{ 'btn-danger': modelDownloadRunningFor(model.id) }"
+                  @click="modelDownloadRunningFor(model.id) ? cancelModelDownload() : downloadAutoTagModelById(model.id)"
+                  :disabled="modelDownloadCancelling || model.downloaded || modelDownloadQueuedFor(model.id)"
                 >
-                  {{ modelDownloadActiveFor(model.id) ? (modelDownloadCancelling ? 'Cancelling...' : 'Cancel') : (model.downloaded ? 'Downloaded' : 'Download') }}
+                  {{ modelDownloadButtonLabel(model) }}
                 </button>
                 <button
                   class="btn btn-secondary"
                   @click="model.loaded ? unloadAutoTagModelById(model.id) : loadAutoTagModelById(model.id)"
-                  :disabled="modelDownloadRunning || !model.downloaded || !model.runtimeAvailable || modelMemoryBusy"
+                  :disabled="modelDownloadActiveFor(model.id) || !model.downloaded || !model.runtimeAvailable || modelMemoryBusy || modelLoadQueuedFor(model.id)"
                 >
-                  {{ model.loaded ? 'Unload' : 'Load' }}
+                  {{ modelLoadButtonLabel(model) }}
                 </button>
                 <button
                   class="btn btn-danger"
                   @click="deleteAutoTagModelById(model.id)"
-                  :disabled="modelDownloadRunning || !model.downloaded || modelDeleteBusy"
+                  :disabled="modelDownloadActiveFor(model.id) || !model.downloaded || modelDeleteBusy"
                 >
                   Delete
                 </button>
@@ -1004,23 +1004,23 @@
             <div class="model-actions">
               <button
                 class="btn btn-secondary"
-                :class="{ 'btn-danger': modelDownloadActiveFor(model.id) }"
-                @click="modelDownloadActiveFor(model.id) ? cancelModelDownload() : downloadAutoTagModelById(model.id)"
-                :disabled="(!modelDownloadActiveFor(model.id) && (modelDownloadRunning || model.downloaded)) || modelDownloadCancelling"
+                :class="{ 'btn-danger': modelDownloadRunningFor(model.id) }"
+                @click="modelDownloadRunningFor(model.id) ? cancelModelDownload() : downloadAutoTagModelById(model.id)"
+                :disabled="modelDownloadCancelling || model.downloaded || modelDownloadQueuedFor(model.id)"
               >
-                {{ modelDownloadActiveFor(model.id) ? (modelDownloadCancelling ? 'Cancelling...' : 'Cancel') : (model.downloaded ? 'Downloaded' : 'Download') }}
+                {{ modelDownloadButtonLabel(model) }}
               </button>
               <button
                 class="btn btn-secondary"
                 @click="model.loaded ? unloadAutoTagModelById(model.id) : loadAutoTagModelById(model.id)"
-                :disabled="modelDownloadRunning || !model.downloaded || !model.runtimeAvailable || modelMemoryBusy"
+                :disabled="modelDownloadActiveFor(model.id) || !model.downloaded || !model.runtimeAvailable || modelMemoryBusy || modelLoadQueuedFor(model.id)"
               >
-                {{ model.loaded ? 'Unload' : 'Load' }}
+                {{ modelLoadButtonLabel(model) }}
               </button>
               <button
                 class="btn btn-danger"
                 @click="deleteAutoTagModelById(model.id)"
-                :disabled="modelDownloadRunning || !model.downloaded || modelDeleteBusy"
+                :disabled="modelDownloadActiveFor(model.id) || !model.downloaded || modelDeleteBusy"
               >
                 Delete
               </button>
@@ -2028,8 +2028,14 @@ const downloadJobTitle = computed(() => {
   return 'Downloading model weights'
 })
 
+const downloadJobQueued = computed(() =>
+  downloadJobModels.value.filter((model) => model.status === 'queued').length
+)
+
 const downloadJobCounts = computed(() =>
-  `${downloadJobCompleted.value}/${downloadJobTotal.value} done${downloadJobFailed.value ? `, ${downloadJobFailed.value} failed` : ''}`
+  `${downloadJobCompleted.value}/${downloadJobTotal.value} done`
+  + `${downloadJobQueued.value ? `, ${downloadJobQueued.value} queued` : ''}`
+  + `${downloadJobFailed.value ? `, ${downloadJobFailed.value} failed` : ''}`
 )
 
 const downloadJobDetail = computed(() => {
@@ -3073,6 +3079,38 @@ function modelDownloadState(id) {
 function modelDownloadActiveFor(id) {
   const state = modelDownloadState(id)
   return !!state && ['queued', 'running', 'cancelling'].includes(state.status)
+}
+
+function modelDownloadRunningFor(id) {
+  const state = modelDownloadState(id)
+  return !!state && ['running', 'cancelling'].includes(state.status)
+}
+
+function modelDownloadQueuedFor(id) {
+  return modelDownloadState(id)?.status === 'queued'
+}
+
+function modelDownloadButtonLabel(model) {
+  if (modelDownloadRunningFor(model.id)) return modelDownloadCancelling.value ? 'Cancelling...' : 'Cancel'
+  if (modelDownloadQueuedFor(model.id)) return 'Queued'
+  if (model.downloaded) return 'Downloaded'
+  // The backend appends to the running job, so this is a queue action, not an error.
+  return modelDownloadRunning.value ? 'Add to queue' : 'Download'
+}
+
+function modelLoadQueuedFor(id) {
+  return (autoTagStatus.value.loadJob?.queued || []).includes(id)
+}
+
+function modelLoadRunningFor(id) {
+  const job = autoTagStatus.value.loadJob
+  return !!job && job.modelId === id && ['queued', 'running'].includes(job.status)
+}
+
+function modelLoadButtonLabel(model) {
+  if (modelLoadRunningFor(model.id)) return 'Loading...'
+  if (modelLoadQueuedFor(model.id)) return 'Queued'
+  return model.loaded ? 'Unload' : 'Load'
 }
 
 function modelProgressPercent(id) {

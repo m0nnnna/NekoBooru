@@ -1176,6 +1176,160 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertEqual(result.error, "PixAI Tagger v0.9: model_not_downloaded")
         self.assertEqual(result.evidence["models"][0]["evidence"]["action"], "download_model")
 
+    def test_download_requests_queue_onto_a_running_job(self):
+        import threading
+        from app.services import auto_tagger
+
+        release = threading.Event()
+        repos = []
+
+        def fake_snapshot_download(**kwargs):
+            repos.append(kwargs["repo_id"])
+            release.wait(timeout=10)
+            return "/fake"
+
+        auto_tagger._download_job = None
+        try:
+            # downloaded=False keeps the reconciler from completing rows early.
+            with patch("huggingface_hub.snapshot_download", fake_snapshot_download),                  patch.object(auto_tagger, "model_cache_status", return_value={"downloaded": False, "files": {}}):
+                first = auto_tagger.start_model_download(["wd"])
+                for _ in range(100):
+                    if repos:
+                        break
+                    time.sleep(0.05)
+
+                queued = auto_tagger.start_model_download(["camie", "pixai"])
+                self.assertEqual(queued["id"], first["id"])
+                self.assertEqual(queued["queued"], ["camie", "pixai"])
+                self.assertEqual(queued["total"], 3)
+
+                # Asking for something already queued must not duplicate it.
+                self.assertEqual(auto_tagger.start_model_download(["camie"])["queued"], [])
+
+                release.set()
+                for _ in range(200):
+                    job = auto_tagger.current_download_job()
+                    if job["status"] in {"completed", "failed"}:
+                        break
+                    time.sleep(0.05)
+
+            job = auto_tagger.current_download_job()
+            self.assertEqual(job["status"], "completed")
+            self.assertEqual(job["completed"], 3)
+            self.assertEqual(len(repos), 3)
+        finally:
+            release.set()
+            auto_tagger._download_job = None
+
+    def test_second_model_load_queues_instead_of_returning_the_running_job(self):
+        import threading
+        from app.services import auto_tagger
+
+        gate = threading.Event()
+        order = []
+
+        class FakeTagger:
+            def __init__(self, name):
+                self.name = name
+                self._loaded = False
+
+            def is_loaded(self):
+                return self._loaded
+
+            def ensure_loaded(self, *args, **kwargs):
+                gate.wait(timeout=10)
+                self._loaded = True
+                order.append(self.name)
+                return True
+
+        fakes = {"wd": FakeTagger("wd"), "camie": FakeTagger("camie")}
+        auto_tagger._load_job = None
+        auto_tagger._load_queue.clear()
+        auto_tagger._load_worker = None
+        try:
+            with patch.object(auto_tagger, "_tagger_for_model", lambda mid: fakes[mid]),                  patch.object(auto_tagger, "_wd_tagger", fakes["wd"]):
+                auto_tagger.start_model_load("wd")
+                for _ in range(100):
+                    if auto_tagger.current_model_load_job().get("modelId") == "wd":
+                        break
+                    time.sleep(0.05)
+
+                # Used to hand back the in-flight wd job, so camie never loaded
+                # and the UI polled a load that was never going to happen.
+                second = auto_tagger.start_model_load("camie")
+                self.assertEqual(second["modelId"], "wd")
+                self.assertEqual(second["queued"], ["camie"])
+
+                gate.set()
+                for _ in range(200):
+                    job = auto_tagger.current_model_load_job()
+                    if not job["queued"] and job.get("modelId") == "camie" and job["status"] == "completed":
+                        break
+                    time.sleep(0.05)
+
+            self.assertEqual(order, ["wd", "camie"])
+        finally:
+            gate.set()
+            auto_tagger._load_job = None
+            auto_tagger._load_queue.clear()
+
+    def test_model_load_waits_for_in_flight_inference(self):
+        import threading
+        from app.services import auto_tagger
+
+        events = []
+        inference_started = threading.Event()
+        finish_inference = threading.Event()
+
+        def slow_infer(path, opts):
+            events.append("infer:start")
+            inference_started.set()
+            finish_inference.wait(timeout=10)
+            events.append("infer:end")
+            return auto_tagger.AutoTagResult(enabled=True, model="fake")
+
+        class FakeTagger:
+            _loaded = False
+
+            def is_loaded(self):
+                return self._loaded
+
+            def ensure_loaded(self, *args, **kwargs):
+                events.append("load:start")
+                self._loaded = True
+                return True
+
+        auto_tagger._load_job = None
+        auto_tagger._load_queue.clear()
+        auto_tagger._load_worker = None
+        try:
+            with patch.object(auto_tagger, "_infer_local", slow_infer),                  patch.object(auto_tagger, "_tagger_for_model", lambda mid: FakeTagger()):
+                tag_thread = threading.Thread(
+                    target=auto_tagger.tag_media,
+                    args=(Path("sample.png"), auto_tagger.AutoTagOptions(enabled=True)),
+                    daemon=True,
+                )
+                tag_thread.start()
+                self.assertTrue(inference_started.wait(timeout=5))
+
+                auto_tagger.start_model_load("camie")
+                time.sleep(0.3)
+                # Loading a second model mid-inference is what used to OOM the process.
+                self.assertEqual(events, ["infer:start"])
+
+                finish_inference.set()
+                tag_thread.join(timeout=5)
+                for _ in range(100):
+                    if "load:start" in events:
+                        break
+                    time.sleep(0.05)
+
+            self.assertEqual(events, ["infer:start", "infer:end", "load:start"])
+        finally:
+            finish_inference.set()
+            auto_tagger._load_job = None
+            auto_tagger._load_queue.clear()
+
     def test_onnx_cuda_preload_is_idempotent_and_optional(self):
         from app.services import auto_tagger
 
