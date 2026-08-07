@@ -131,7 +131,7 @@ def _ai_model_defaults_payload(raw: dict | None = None) -> dict:
 def _normalize_ai_model_default_stack(model_defaults: dict) -> dict:
     model_defaults = model_defaults if isinstance(model_defaults, dict) else {}
     normalized_model_defaults = {}
-    for key in ("wdEnabled", "pixaiEnabled", "characterModelEnabled", "clEnabled", "ocrEnabled", "whisperEnabled", "qwenEnabled", "semanticPoliticalEnabled"):
+    for key in ("wdEnabled", "pixaiEnabled", "characterModelEnabled", "clEnabled", "booruLookupEnabled", "ocrEnabled", "whisperEnabled", "qwenEnabled", "semanticPoliticalEnabled"):
         if key in model_defaults:
             normalized_model_defaults[key] = model_defaults.get(key) is True
     if "qwenEnabled" in normalized_model_defaults and "semanticPoliticalEnabled" not in normalized_model_defaults:

@@ -291,6 +291,10 @@ class AutoTagOptions:
     wdEnabled: bool = True
     pixaiEnabled: bool = False
     clEnabled: bool = False
+    # Ask a public booru for a character's series at tag time. The model's
+    # character head is far more reliable than its copyright head, so this fills
+    # in copyrights it missed. Off by default: it makes network calls.
+    booruLookupEnabled: bool = False
     generalThreshold: float = 0.35
     characterThreshold: float = 0.45
     maxTags: int = 40
@@ -3229,7 +3233,47 @@ def _infer_local(path: Path, opts: AutoTagOptions) -> AutoTagResult:
     """
     path = Path(path)
     with _gpu_work_lock:
-        return _infer_local_locked(path, opts)
+        result = _infer_local_locked(path, opts)
+    # Outside the lock on purpose: this is network I/O, and holding the GPU
+    # while waiting on a booru would stall every other tagging request.
+    if opts.booruLookupEnabled:
+        _add_booru_copyrights(result, opts)
+    return result
+
+
+def _add_booru_copyrights(result: AutoTagResult, opts: AutoTagOptions) -> None:
+    """Add series tags for recognised characters. Purely additive.
+
+    Never removes or reorders what the model produced, and never raises: a slow
+    or unreachable booru degrades to the model's own output.
+    """
+    if not result.character_tags:
+        return
+    try:
+        from .booru_lookup import copyrights_for_characters
+
+        found = copyrights_for_characters(
+            result.character_tags,
+            display_names=result.display_names,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("booru copyright lookup failed: %s", exc)
+        return
+
+    existing = {normalize_tag(tag) for tag in result.copyright_tags}
+    added: list[str] = []
+    for character, copyright_name in found.items():
+        tag = normalize_tag(copyright_name)
+        if not tag or tag in existing:
+            continue
+        existing.add(tag)
+        added.append(tag)
+        result.copyright_tags.append(tag)
+        result.categories[tag] = "copyright"
+        result.display_names.setdefault(tag, copyright_name.replace("_", " "))
+        logger.info("booru lookup added copyright %s for character %s", tag, character)
+    if added and isinstance(result.evidence, dict):
+        result.evidence["booruCopyrights"] = added
 
 
 def _infer_local_locked(path: Path, opts: AutoTagOptions) -> AutoTagResult:

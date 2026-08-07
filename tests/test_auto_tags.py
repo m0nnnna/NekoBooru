@@ -1421,6 +1421,65 @@ class AutoTagUnitTests(unittest.TestCase):
         tag.display_name = "miyu (blue archive)"
         self.assertEqual(_tag_detail(tag)["displayName"], "miyu (blue archive)")
 
+    def test_booru_lookup_only_adds_copyrights(self):
+        """The live series lookup must never replace what the model produced."""
+        from app.services import auto_tagger
+
+        result = auto_tagger.AutoTagResult(
+            tags=["1girl"],
+            character_tags=["c.c."],
+            copyright_tags=["goddess_of_victory:_nikke", "real_life"],
+            categories={"c.c.": "character", "goddess_of_victory:_nikke": "copyright"},
+            enabled=True,
+        )
+
+        with patch("app.services.booru_lookup.copyrights_for_characters",
+                   return_value={"c.c.": "code_geass"}):
+            auto_tagger._add_booru_copyrights(result, auto_tagger.AutoTagOptions(booruLookupEnabled=True))
+
+        self.assertEqual(
+            result.copyright_tags,
+            ["goddess_of_victory:_nikke", "real_life", "code_geass"],
+        )
+        self.assertEqual(result.character_tags, ["c.c."])
+        self.assertEqual(result.tags, ["1girl"])
+        self.assertEqual(result.categories["code_geass"], "copyright")
+        self.assertEqual(result.evidence["booruCopyrights"], ["code_geass"])
+
+    def test_booru_lookup_never_breaks_tagging(self):
+        from app.services import auto_tagger
+
+        result = auto_tagger.AutoTagResult(
+            character_tags=["c.c."], copyright_tags=["real_life"], enabled=True
+        )
+        opts = auto_tagger.AutoTagOptions(booruLookupEnabled=True)
+
+        # An unreachable or slow booru must degrade to the model's own output.
+        with patch("app.services.booru_lookup.copyrights_for_characters",
+                   side_effect=RuntimeError("network down")):
+            auto_tagger._add_booru_copyrights(result, opts)
+        self.assertEqual(result.copyright_tags, ["real_life"])
+
+        # A copyright the model already found is not duplicated.
+        with patch("app.services.booru_lookup.copyrights_for_characters",
+                   return_value={"c.c.": "real_life"}):
+            auto_tagger._add_booru_copyrights(result, opts)
+        self.assertEqual(result.copyright_tags, ["real_life"])
+
+    def test_booru_lookup_prefers_the_stored_spelling_over_guessing(self):
+        from app.services.booru_lookup import candidate_names
+
+        # With the tagger's own spelling the upstream name is a plain
+        # space-to-underscore swap, so it is tried first and no reconstruction
+        # is needed.
+        first = next(iter(candidate_names("miyu_blue_archive", "miyu (blue archive)")))
+        self.assertEqual(first, "miyu_(blue_archive)")
+
+        # Without it, the flattened name is tried before bracket guesses.
+        guesses = list(candidate_names("miyu_blue_archive"))
+        self.assertEqual(guesses[0], "miyu_blue_archive")
+        self.assertIn("miyu_(blue_archive)", guesses)
+
     def test_onnx_cuda_preload_is_idempotent_and_optional(self):
         from app.services import auto_tagger
 
