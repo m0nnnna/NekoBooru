@@ -331,6 +331,12 @@ onMountedHook(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown)
 })
+
+defineExpose({
+  // Where the playhead is, so a caller can pin the frame the AI analyses.
+  // Null for anything that is not a video.
+  currentVideoTime: () => (isVideo.value ? Number(mediaRef.value?.currentTime) || 0 : null),
+})
 </script>
 
 <style scoped>

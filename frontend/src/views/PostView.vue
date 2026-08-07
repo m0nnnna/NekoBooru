@@ -3,6 +3,7 @@
     <div class="post-content">
       <div class="media-container">
         <MediaViewer
+          ref="mediaViewer"
           :src="post.contentUrl"
           :alt="post.filename"
           :type="mediaType"
@@ -156,6 +157,18 @@
             <small>Adds the series for recognised characters. Only adds tags; never replaces model output.</small>
           </span>
         </label>
+        <div v-if="mediaType === 'video'" class="frame-picker">
+          <span class="frame-picker-label">{{ framePickerLabel }}</span>
+          <button type="button" class="btn btn-secondary frame-picker-btn" @click="pinCurrentFrame">
+            Analyse this frame
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary frame-picker-btn"
+            :disabled="videoFrameTime === null"
+            @click="videoFrameTime = null"
+          >Auto</button>
+        </div>
         <div v-if="autoTagLoading" class="ai-inline-status">
           <div class="ai-inline-status-head">
             <strong>{{ autoTagStageTitle }}</strong>
@@ -867,6 +880,10 @@ const savedAutoTagProfileDefaults = ref({ custom: {}, anime: {}, realistic: {} }
 const activeAutoTagProfile = ref('')
 const previewAutoTagProfile = ref('post')
 const autoModelPickerOpen = ref(false)
+const mediaViewer = ref(null)
+// Seconds into the video to analyse, taken from the player's scrubber.
+// null keeps the automatic frame sampling.
+const videoFrameTime = ref(null)
 const showAutoProcessModal = ref(false)
 const autoTagStage = ref('idle')
 const autoTagStageMessage = ref('')
@@ -1928,9 +1945,22 @@ function autoTagRunSettings() {
     ...postAutoTagSettings.value,
     qwenEnabled,
     semanticPoliticalEnabled: qwenEnabled,
+    videoFrameTime: mediaType.value === 'video' ? videoFrameTime.value : null,
     enabled: true,
   }
 }
+
+function pinCurrentFrame() {
+  const time = mediaViewer.value?.currentVideoTime?.()
+  videoFrameTime.value = Number.isFinite(time) ? Math.max(0, time) : null
+}
+
+const framePickerLabel = computed(() => {
+  if (videoFrameTime.value === null) return 'AI samples frames automatically'
+  const total = Math.max(0, videoFrameTime.value)
+  const minutes = Math.floor(total / 60)
+  return `AI analyses ${minutes}:${(total - minutes * 60).toFixed(1).padStart(4, '0')}`
+})
 
 function enabledModelRows() {
   return postModelRows.value.filter((model) => Boolean(postAutoTagSettings.value[model.settingKey]))
@@ -2742,6 +2772,30 @@ function tweetIdFromUrl(raw) {
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   background: var(--bg-primary);
+}
+
+.frame-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+}
+
+.frame-picker-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.frame-picker-btn {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 
 .booru-lookup-row {

@@ -306,6 +306,39 @@ select:focus {
   white-space: nowrap;
 }
 
+.preview-load-btn {
+  display: block;
+  margin: 0.6rem auto 0;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.8rem;
+}
+
+/* Which frame the AI looks at. Sits under the player so the timecode reads
+   against the scrubber it came from. */
+.frame-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--bg-secondary);
+}
+
+.frame-picker-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.frame-picker-btn {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
 .source-row {
   font-size: 0.85rem;
   color: var(--text-secondary);

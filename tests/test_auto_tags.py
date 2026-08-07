@@ -274,6 +274,28 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertEqual([row["name"] for row in response.json()], ["plain_probe_local"])
         suggest.assert_not_called()
 
+    def test_pending_upload_is_served_for_preview(self):
+        """The popup can only preview yt-dlp media by asking the server for it."""
+        from app.routers.uploads import remove_upload_token
+
+        token = self._upload_image_token()
+        try:
+            response = self.client.get(f"/api/uploads/{token}/content")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.headers["content-type"], "image/png")
+            self.assertTrue(response.content)
+
+            # Scrubbing a video needs range requests to work.
+            ranged = self.client.get(f"/api/uploads/{token}/content", headers={"Range": "bytes=0-9"})
+            self.assertEqual(ranged.status_code, 206, ranged.text)
+            self.assertEqual(len(ranged.content), 10)
+        finally:
+            remove_upload_token(token)
+
+    def test_unknown_upload_token_has_no_content(self):
+        response = self.client.get("/api/uploads/not-a-token/content")
+        self.assertEqual(response.status_code, 404, response.text)
+
     def test_user_category_exists_for_social_handles(self):
         response = self.client.get("/api/tag-categories")
         self.assertEqual(response.status_code, 200, response.text)
@@ -1189,6 +1211,24 @@ class AutoTagUnitTests(unittest.TestCase):
         from app.services.auto_tagger import AutoTagOptions, _timestamps
 
         self.assertEqual(_timestamps(6.0, AutoTagOptions(videoMaxFrames=1)), [3.0])
+
+    def test_pinned_video_frame_replaces_sampling(self):
+        from app.services.auto_tagger import AutoTagOptions, _timestamps
+
+        opts = AutoTagOptions(videoMaxFrames=4, videoFrameTime=7.25)
+        self.assertEqual(_timestamps(30.0, opts), [7.25])
+        # Past the end clamps to the last usable frame rather than failing.
+        self.assertEqual(_timestamps(10.0, AutoTagOptions(videoFrameTime=99.0)), [9.95])
+        # Unset keeps the old behaviour.
+        self.assertEqual(_timestamps(6.0, AutoTagOptions(videoMaxFrames=1)), [3.0])
+
+    def test_pinned_video_frame_is_validated(self):
+        from app.services.auto_tagger import validate_options
+
+        self.assertEqual(validate_options({"videoFrameTime": "12.5"}).videoFrameTime, 12.5)
+        self.assertEqual(validate_options({"videoFrameTime": -3}).videoFrameTime, 0.0)
+        for empty in (None, "", "nonsense"):
+            self.assertIsNone(validate_options({"videoFrameTime": empty}).videoFrameTime, empty)
 
     def test_video_timestamp_strategy_samples_multiple_for_edits(self):
         from app.services.auto_tagger import AutoTagOptions, _timestamps

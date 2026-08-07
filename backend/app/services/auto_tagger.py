@@ -314,6 +314,11 @@ class AutoTagOptions:
     previewByDefault: bool = True
     videoFrameStrategy: str = "multi"
     videoMaxFrames: int = 4
+    # Seconds into the video to analyse, chosen by the user scrubbing the
+    # preview. None keeps the automatic sampling. A pinned frame beats any
+    # sampling heuristic when the shot that identifies the subject is not where
+    # the sampler happens to look.
+    videoFrameTime: float | None = None
     qwenVideoUseFps: bool = False
     qwenVideoMaxFrames: int = 20
     videoMaxDurationSeconds: int = 900
@@ -2102,6 +2107,11 @@ def validate_options(raw: dict) -> AutoTagOptions:
         data[key] = min(1.0, max(0.0, float(data[key])))
     data["maxTags"] = min(200, max(1, int(data["maxTags"])))
     data["videoMaxFrames"] = min(8, max(1, int(data["videoMaxFrames"])))
+    try:
+        frame_time = data.get("videoFrameTime")
+        data["videoFrameTime"] = None if frame_time in (None, "") else max(0.0, float(frame_time))
+    except (TypeError, ValueError):
+        data["videoFrameTime"] = None
     data["qwenVideoUseFps"] = bool(data.get("qwenVideoUseFps"))
     data["qwenVideoMaxFrames"] = min(64, max(1, int(data["qwenVideoMaxFrames"])))
     data["videoMaxDurationSeconds"] = min(7200, max(1, int(data["videoMaxDurationSeconds"])))
@@ -4331,6 +4341,10 @@ def _probe_duration(path: Path) -> float | None:
 def _timestamps(duration: float | None, opts: AutoTagOptions) -> list[float]:
     if not duration or duration <= 0:
         return []
+    # A frame the user picked replaces the sampling entirely - they looked at
+    # the video, the heuristic did not.
+    if opts.videoFrameTime is not None:
+        return [max(0.0, min(duration - 0.05, float(opts.videoFrameTime)))]
     frame_count = max(1, min(8, int(opts.videoMaxFrames or 1)))
     if opts.videoFrameStrategy == "middle" or frame_count == 1:
         points = [0.5]

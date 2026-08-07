@@ -9,6 +9,7 @@ import html as html_module
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..config import settings
@@ -136,6 +137,38 @@ def ytdlp_error_detail(message: str, url: str, raw_error: str = "") -> dict:
         "hint": "Try updating yt-dlp, uploading cookies for login-gated sites, or right-clicking the actual media element instead of the page.",
         "rawError": raw_error[:1000],
     }
+
+
+UPLOAD_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".webm": "video/webm",
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska",
+}
+
+
+@router.get("/{token}/content")
+async def get_upload_content(token: str):
+    """Serve a pending upload's file.
+
+    The browser extension cannot preview media it never had a playable URL for
+    - anything routed through yt-dlp arrives as a page URL, which is why videos
+    never appeared in the popup. Once the server has fetched the file it can
+    hand it back, which also gives the popup something to scrub for frame
+    selection. FileResponse answers Range requests, so seeking works.
+    """
+    temp_path = get_upload_path(token)
+    if not temp_path or not temp_path.exists():
+        raise HTTPException(status_code=404, detail="Invalid or expired content token")
+    return FileResponse(
+        temp_path,
+        media_type=UPLOAD_MEDIA_TYPES.get(temp_path.suffix.lower(), "application/octet-stream"),
+    )
 
 
 @router.get("/{token}/auto-tags")
