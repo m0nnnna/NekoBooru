@@ -482,9 +482,38 @@ select:focus {
   margin-top: 0.2rem;
 }
 
-/* Sits in the model list but is an enrichment step, not a model. */
-.booru-lookup-toggle {
-  margin-top: 0.35rem;
+/* Kept beside the profile buttons rather than inside the collapsed advanced
+   panel: it changes what a run produces, so it has to be visible without
+   expanding anything. */
+.booru-lookup-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin: 0.6rem 0 0;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+
+.booru-lookup-row input {
+  margin-top: 0.2rem;
+}
+
+.booru-lookup-row strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+}
+
+.booru-lookup-row small {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.35;
 }
 
 .qwen-video-toggle strong {

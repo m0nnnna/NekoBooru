@@ -113,6 +113,8 @@ const els = {
   aiProfileButtons: Array.from(document.querySelectorAll('[data-ai-profile]')),
   submit: document.getElementById('submit'),
   aiModelPicker: document.getElementById('ai-model-picker'),
+  booruLookupRow: document.getElementById('booru-lookup-row'),
+  booruLookup: document.getElementById('booru-lookup'),
   aiModelList: document.getElementById('ai-model-list'),
   qwenVideoControls: document.getElementById('qwen-video-controls'),
   aiPreview: document.getElementById('ai-preview'),
@@ -207,6 +209,9 @@ async function init() {
 
   els.submit.addEventListener('click', doUpload)
   els.aiProfileButtons.forEach((button) => button.addEventListener('click', runAiTag))
+  els.booruLookup.addEventListener('change', () => {
+    setBooruLookup(els.booruLookup.checked, { fromUser: true })
+  })
 }
 
 async function checkBackendHealth() {
@@ -256,6 +261,7 @@ function setBooruLookup(value, { fromUser = false } = {}) {
   booruLookupEnabled = value === true
   if (fromUser) booruLookupTouched = true
   autoTagSettings.booruLookupEnabled = booruLookupEnabled
+  if (els.booruLookup && !fromUser) els.booruLookup.checked = booruLookupEnabled
 }
 
 function applyExtensionModelDefaults(modelDefaults = {}) {
@@ -1359,6 +1365,7 @@ function formatDurationMs(ms) {
 function applyAiVisibility(enabled) {
   els.aiTag.classList.toggle('hidden', !enabled)
   els.aiModelPicker.classList.toggle('hidden', !enabled)
+  if (els.booruLookupRow) els.booruLookupRow.classList.toggle('hidden', !enabled)
   if (!enabled) els.aiPreview.classList.add('hidden')
 }
 
@@ -1437,7 +1444,6 @@ function renderAiModelPicker() {
     note.className = 'picker-note'
     note.textContent = 'No models reported by the backend.'
     els.aiModelList.appendChild(note)
-    renderBooruLookupToggle()
     return
   }
 
@@ -1495,30 +1501,7 @@ function renderAiModelPicker() {
     row.append(enabled, text, load)
     els.aiModelList.appendChild(row)
   })
-  renderBooruLookupToggle()
   renderQwenVideoControls()
-}
-
-// Rendered with the models but deliberately not one of them: it enriches
-// whatever they produced rather than running a model of its own.
-function renderBooruLookupToggle() {
-  const row = document.createElement('label')
-  row.className = 'qwen-video-toggle booru-lookup-toggle'
-  const checkbox = document.createElement('input')
-  checkbox.type = 'checkbox'
-  checkbox.id = 'ai-booru-lookup'
-  checkbox.checked = booruLookupEnabled
-  checkbox.addEventListener('change', () => {
-    setBooruLookup(checkbox.checked, { fromUser: true })
-  })
-  const copy = document.createElement('span')
-  const title = document.createElement('strong')
-  title.textContent = 'Booru series lookup'
-  const note = document.createElement('small')
-  note.textContent = 'Looks each recognised character up on Danbooru and adds its series. Only adds tags, never replaces what the models found.'
-  copy.append(title, note)
-  row.append(checkbox, copy)
-  els.aiModelList.appendChild(row)
 }
 
 function renderQwenVideoControls() {
