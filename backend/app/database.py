@@ -56,6 +56,11 @@ def _migrate(conn):
     """
     import uuid as uuid_lib
 
+    # Source spelling of a tag before normalize_tag() flattened it, so the UI
+    # can show "miyu (blue archive)" for the stored "miyu_blue_archive".
+    if not _column_exists(conn, "tags", "display_name"):
+        conn.exec_driver_sql("ALTER TABLE tags ADD COLUMN display_name VARCHAR(255)")
+
     # Soft-delete marker on posts.
     if not _column_exists(conn, "posts", "deleted_at"):
         conn.exec_driver_sql("ALTER TABLE posts ADD COLUMN deleted_at DATETIME")

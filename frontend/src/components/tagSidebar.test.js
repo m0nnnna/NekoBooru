@@ -38,6 +38,20 @@ describe('TagSidebar', () => {
     expect(link.attributes('title')).toBe('kouzuki_kallen')
   })
 
+  it('prefers the spelling the tagger reported over the flattened name', () => {
+    const wrapper = mountSidebar([
+      { name: 'miyu_blue_archive', displayName: 'miyu (blue archive)', category: 'character', categoryColor: '#00c853' },
+      { name: 'miyu_swimsuit_blue_archive', displayName: 'miyu (swimsuit) (blue archive)', category: 'character', categoryColor: '#00c853' },
+    ])
+    const names = wrapper.findAll('.tag-name')
+    expect(names.map((el) => el.text())).toEqual([
+      'miyu (blue archive)',
+      'miyu (swimsuit) (blue archive)',
+    ])
+    // The link still targets the stored name, not the display spelling.
+    expect(names[0].attributes('title')).toBe('miyu_blue_archive')
+  })
+
   it('abbreviates large counts', () => {
     const counts = mountSidebar(SAMPLE).findAll('.tag-count').map((el) => el.text())
     expect(counts).toContain('6')

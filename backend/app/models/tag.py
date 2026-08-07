@@ -30,6 +30,12 @@ class Tag(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), unique=True, nullable=False, index=True)
+    # The source spelling before normalize_tag() flattened it, e.g.
+    # "miyu (blue archive)" for the stored "miyu_blue_archive". Display only -
+    # "name" stays the key, so search and dedupe are unaffected. Null for tags
+    # that arrived without one (hand-typed, older rows), and the UI falls back
+    # to swapping underscores for spaces.
+    display_name = Column(String(255), nullable=True)
     category_id = Column(Integer, ForeignKey("tag_categories.id"), default=1)
     usage_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -54,6 +60,7 @@ class Tag(Base):
         return {
             "id": self.id,
             "name": self.name,
+            "displayName": self.display_name or self.name.replace("_", " "),
             "category": self.category.name if self.category else "general",
             "categoryColor": self.category.color if self.category else "#808080",
             "usageCount": self.usage_count,

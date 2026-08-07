@@ -202,7 +202,7 @@ async def analyze_and_maybe_apply(db, post: Post, *, opts: AutoTagOptions, job: 
     db.add(suggestion)
 
     if not dry_run and changed:
-        await replace_tags_for_post(db, post, merged_tags, categories=categories)
+        await replace_tags_for_post(db, post, merged_tags, categories=categories, display_names=result.display_names)
         post.safety = suggested_safety
         if getattr(opts, "saveSemanticAnalysis", False):
             await save_analysis_from_result(db, post.id, result, opts=opts, profile=f"bulk:{job.mode}" if job else "bulk")

@@ -338,6 +338,9 @@ class AutoTagResult:
     rating: dict[str, float] = field(default_factory=dict)
     safety: str | None = None
     categories: dict[str, str] = field(default_factory=dict)
+    # normalized tag -> the model's own spelling, e.g.
+    # "miyu_blue_archive" -> "miyu (blue archive)". Display only.
+    display_names: dict[str, str] = field(default_factory=dict)
     evidence: dict = field(default_factory=dict)
     model: str = ""
     enabled: bool = False
@@ -541,11 +544,13 @@ class PixAiTagger:
             "artist": [],
             "rating": [],
         }
+        display_names: dict[str, str] = {}
         for (name, category), score in zip(self._tag_rows, scores):
             confidence = float(score)
             tag = normalize_tag(name)
             if not tag:
                 continue
+            display_names[tag] = name
             if category == "character":
                 threshold = max(float(opts.characterThreshold), float(MODEL_REGISTRY["pixai"].get("characterThreshold") or 0.85))
             elif category in {"copyright", "artist"}:
@@ -578,6 +583,7 @@ class PixAiTagger:
             rating=rating,
             safety=safety_from_rating(rating, opts) if rating else None,
             categories=categories,
+            display_names={tag: raw for tag, raw in display_names.items() if tag in categories},
             evidence={
                 "kind": "pixai",
                 "topTags": [{"tag": n, "confidence": c} for n, c in by_category.get("general", [])[:10]],
@@ -654,6 +660,7 @@ class CamieTagger:
         logits = outputs[1] if len(outputs) >= 2 else outputs[0]
         probs = 1.0 / (1.0 + np.exp(-logits[0]))
 
+        display_names: dict[str, str] = {}
         by_category: dict[str, list[tuple[str, float]]] = {
             "general": [],
             "character": [],
@@ -677,7 +684,9 @@ class CamieTagger:
             category = self._tag_to_category.get(tag, "general")
             confidence = float(score)
             if confidence >= threshold_by_category.get(category, opts.generalThreshold):
-                by_category.setdefault(category, []).append((normalize_tag(tag), confidence))
+                normalized = normalize_tag(tag)
+                display_names[normalized] = tag
+                by_category.setdefault(category, []).append((normalized, confidence))
 
         for category in by_category:
             by_category[category].sort(key=lambda item: item[1], reverse=True)
@@ -703,6 +712,7 @@ class CamieTagger:
             rating=rating,
             safety=safety,
             categories=categories,
+            display_names={tag: raw for tag, raw in display_names.items() if tag in categories},
             evidence={
                 "kind": "camie",
                 "topTags": [{"tag": n, "confidence": c} for n, c in by_category.get("general", [])[:10]],
@@ -797,6 +807,7 @@ class ClTagger:
 
         general_threshold = max(float(opts.generalThreshold), CL_MIN_THRESHOLD)
         character_threshold = max(float(opts.characterThreshold), CL_MIN_THRESHOLD)
+        display_names: dict[str, str] = {}
         by_category: dict[str, list[tuple[str, float]]] = {
             "general": [],
             "character": [],
@@ -814,6 +825,7 @@ class ClTagger:
             tag = normalize_tag(raw_tag)
             if not tag:
                 continue
+            display_names[tag] = raw_tag
             confidence = float(score)
             if category == "rating":
                 if confidence >= 0.01:
@@ -834,6 +846,7 @@ class ClTagger:
         categories = {tag: "general" for tag in tags}
         categories.update({tag: "character" for tag in character_tags})
         categories.update({tag: "copyright" for tag in copyright_tags})
+        kept = set(categories)
 
         return AutoTagResult(
             tags=tags,
@@ -842,6 +855,7 @@ class ClTagger:
             rating=rating,
             safety=_camie_safety(rating, opts) if rating else None,
             categories=categories,
+            display_names={tag: raw for tag, raw in display_names.items() if tag in kept},
             evidence={
                 "kind": "cl",
                 "version": CL_MODEL_VERSION,
@@ -3448,6 +3462,7 @@ def _combine_results(results: list[AutoTagResult]) -> AutoTagResult:
         combined.character_tags.extend(result.character_tags)
         combined.copyright_tags.extend(result.copyright_tags)
         combined.categories.update(result.categories)
+        combined.display_names.update(result.display_names)
         combined.rating.update(result.rating)
         combined.safety = _higher_safety(combined.safety, result.safety)
         evidence_models.append({

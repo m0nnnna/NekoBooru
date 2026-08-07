@@ -16,6 +16,9 @@ def _tag_detail(tag) -> dict:
         category = tag.category
     return {
         "name": tag.name,
+        # Source spelling when the tagger supplied one ("miyu (blue archive)"),
+        # otherwise the flattened name made readable.
+        "displayName": tag.display_name or tag.name.replace("_", " "),
         "category": category.name if category else "general",
         "categoryColor": category.color if category else "#808080",
         "usageCount": tag.usage_count or 0,

@@ -7,14 +7,14 @@
           <router-link
             class="tag-wiki"
             :to="{ path: '/tags', query: { q: tag.name } }"
-            :title="`Show ${displayName(tag.name)} in the tag list`"
+            :title="`Show ${displayName(tag)} in the tag list`"
           >?</router-link>
           <router-link
             class="tag-name"
             :style="{ color: group.color }"
             :to="{ path: '/', query: { q: tag.name } }"
             :title="tag.name"
-          >{{ displayName(tag.name) }}</router-link>
+          >{{ displayName(tag) }}</router-link>
           <span v-if="tag.usageCount" class="tag-count">{{ formatCount(tag.usageCount) }}</span>
         </li>
       </ul>
@@ -75,8 +75,11 @@ const groups = computed(() => {
     })
 })
 
-function displayName(name) {
-  return String(name || '').replace(/_/g, ' ')
+function displayName(tag) {
+  // Prefer the spelling the tagger reported, e.g. "miyu (blue archive)" for the
+  // stored "miyu_blue_archive"; fall back to the readable flattened name.
+  const entry = typeof tag === 'string' ? { name: tag } : (tag || {})
+  return entry.displayName || String(entry.name || '').replace(/_/g, ' ')
 }
 
 function formatCount(count) {

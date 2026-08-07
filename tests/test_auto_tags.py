@@ -1378,6 +1378,49 @@ class AutoTagUnitTests(unittest.TestCase):
             auto_tagger._load_job = None
             auto_tagger._load_queue.clear()
 
+    def test_source_spellings_survive_result_merging(self):
+        """The model's own spelling is kept so the UI can show "miyu (blue archive)"."""
+        from app.services.auto_tagger import AutoTagResult, _combine_results
+
+        first = AutoTagResult(
+            tags=["blue_archive"],
+            character_tags=["miyu_blue_archive"],
+            categories={"blue_archive": "copyright", "miyu_blue_archive": "character"},
+            display_names={"blue_archive": "blue archive", "miyu_blue_archive": "miyu (blue archive)"},
+            model="cl-tagger-v2",
+            enabled=True,
+        )
+        second = AutoTagResult(
+            tags=["halo"],
+            categories={"halo": "general"},
+            display_names={"halo": "halo"},
+            model="camie-tagger-v2",
+            enabled=True,
+        )
+
+        combined = _combine_results([first, second])
+
+        self.assertEqual(combined.display_names["miyu_blue_archive"], "miyu (blue archive)")
+        self.assertEqual(combined.display_names["blue_archive"], "blue archive")
+        self.assertEqual(combined.display_names["halo"], "halo")
+
+    def test_tag_detail_falls_back_when_no_spelling_was_stored(self):
+        from app.models import Tag, TagCategory
+        from app.models.post import _tag_detail
+
+        # A real (transient) instance: _tag_detail inspects the ORM state to
+        # tell an unloaded relationship from an absent one.
+        tag = Tag(name="miyu_blue_archive", usage_count=3)
+        tag.category = TagCategory(name="character", color="#00c853")
+
+        # Hand-typed and pre-existing tags have no stored spelling.
+        detail = _tag_detail(tag)
+        self.assertEqual(detail["displayName"], "miyu blue archive")
+        self.assertEqual(detail["category"], "character")
+
+        tag.display_name = "miyu (blue archive)"
+        self.assertEqual(_tag_detail(tag)["displayName"], "miyu (blue archive)")
+
     def test_onnx_cuda_preload_is_idempotent_and_optional(self):
         from app.services import auto_tagger
 

@@ -187,6 +187,7 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
             from ..services.auto_tagger import merge_with_existing, promote_safety, tag_media
             auto_result = tag_media(final_path, opts)
             final_tags, auto_categories = merge_with_existing(final_tags, auto_result, opts)
+            auto_display_names = dict(auto_result.display_names)
             final_safety = promote_safety(final_safety, auto_result.safety, opts)
             # Surface a warning if tagging was requested but produced nothing due
             # to an error (e.g. the remote GPU worker was offline). The post is
@@ -195,6 +196,7 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
                 auto_warning = auto_result.error
         else:
             auto_categories = {}
+            auto_display_names = {}
 
         # Create post record
         post = Post(
@@ -221,7 +223,7 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
             raise _duplicate_post_exception(existing_post, sha256)
 
         # Process tags using direct inserts (avoids lazy loading issues)
-        await apply_tags_for_post(db, post.id, final_tags, categories=auto_categories)
+        await apply_tags_for_post(db, post.id, final_tags, categories=auto_categories, display_names=auto_display_names)
         if should_auto_tag and getattr(opts, "saveSemanticAnalysis", False):
             from ..services.ai_analysis import save_analysis_from_result
 
