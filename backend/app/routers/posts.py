@@ -91,7 +91,7 @@ class BulkOptimizeMediaRequest(BaseModel):
 async def _post_by_sha256(db: AsyncSession, sha256: str) -> Post | None:
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags), selectinload(Post.favorite))
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
         .where(Post.sha256 == sha256)
     )
     return result.scalars().first()
@@ -241,7 +241,7 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
         # Reload with relationships for response
         result = await db.execute(
             select(Post)
-            .options(selectinload(Post.tags), selectinload(Post.favorite))
+            .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
             .where(Post.id == post.id)
         )
         post = result.scalars().first()
@@ -323,7 +323,7 @@ async def list_duplicate_groups(db: AsyncSession = Depends(get_db)):
     rows = (
         await db.execute(
             select(Post)
-            .options(selectinload(Post.tags), selectinload(Post.favorite))
+            .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
             .where(Post.phash.in_(dup_hashes), Post.deleted_at.is_(None))
             .order_by(Post.phash, Post.id)
         )
@@ -372,7 +372,7 @@ async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
     """Get a single post by ID."""
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags), selectinload(Post.favorite))
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
         .where(Post.id == post_id)
     )
     post = result.scalars().first()
@@ -460,7 +460,7 @@ async def delete_saved_post_ai_analysis(post_id: int, db: AsyncSession = Depends
 async def update_post(post_id: int, request: UpdatePostRequest, db: AsyncSession = Depends(get_db)):
     """Update a post."""
     result = await db.execute(
-        select(Post).options(selectinload(Post.tags)).where(Post.id == post_id)
+        select(Post).options(selectinload(Post.tags).selectinload(Tag.category)).where(Post.id == post_id)
     )
     post = result.scalars().first()
 
@@ -486,7 +486,7 @@ async def update_post(post_id: int, request: UpdatePostRequest, db: AsyncSession
     # Reload for response
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags), selectinload(Post.favorite))
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
         .where(Post.id == post_id)
     )
     post = result.scalars().first()
@@ -498,7 +498,7 @@ async def restore_post(post_id: int, db: AsyncSession = Depends(get_db)):
     """Restore a soft-deleted post so duplicate uploads can recover it."""
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags), selectinload(Post.favorite))
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
         .where(Post.id == post_id)
     )
     post = result.scalars().first()
@@ -513,7 +513,7 @@ async def restore_post(post_id: int, db: AsyncSession = Depends(get_db)):
 
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags), selectinload(Post.favorite))
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
         .where(Post.id == post_id)
     )
     post = result.scalars().first()
@@ -621,7 +621,7 @@ async def bulk_update_posts(request: BulkUpdateRequest, db: AsyncSession = Depen
 
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags))
+        .options(selectinload(Post.tags).selectinload(Tag.category))
         .where(Post.id.in_(request.postIds), Post.deleted_at.is_(None))
     )
     posts = list(result.scalars().all())
@@ -832,7 +832,7 @@ async def _bulk_optimize_posts_impl(
     image_quality = max(1, min(100, int(request.imageQuality or 85)))
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags), selectinload(Post.favorite))
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
         .where(Post.id.in_(request.postIds), Post.deleted_at.is_(None))
     )
     posts = list(result.scalars().all())

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database import get_db
-from ..models import Pool, PoolPost, Post
+from ..models import Pool, PoolPost, Post, Tag
 
 router = APIRouter(prefix="/api/pools", tags=["pools"])
 
@@ -73,7 +73,7 @@ async def get_pool(pool_id: int, db: AsyncSession = Depends(get_db)):
             # Eager-load both children of each pooled post: to_dict() reads
             # post.tags AND post.favorite, and a lazy load of either explodes
             # with MissingGreenlet under the async engine.
-            selectinload(Pool.posts).selectinload(PoolPost.post).selectinload(Post.tags),
+            selectinload(Pool.posts).selectinload(PoolPost.post).selectinload(Post.tags).selectinload(Tag.category),
             selectinload(Pool.posts).selectinload(PoolPost.post).selectinload(Post.favorite),
         )
         .where(Pool.id == pool_id)

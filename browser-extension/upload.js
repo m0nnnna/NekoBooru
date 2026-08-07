@@ -1093,12 +1093,7 @@ function renderAiPreview(suggestion) {
   const timing = formatDurationMs(suggestion.durationMs ?? suggestion.evidence?.durationMs)
   els.aiPreviewTiming.textContent = timing ? `Completed in ${timing}` : ''
   els.aiPreviewSafety.textContent = suggestion.suggestedSafety || 'unchanged'
-  els.aiPreviewTags.innerHTML = ''
-  ;(suggestion.suggestedTags || []).slice(0, 60).forEach((tag) => {
-    const pill = document.createElement('span')
-    pill.textContent = tag
-    els.aiPreviewTags.appendChild(pill)
-  })
+  renderAiPreviewTags(suggestion)
 
   renderSemanticPreview(suggestion)
 
@@ -1123,6 +1118,68 @@ function renderAiPreview(suggestion) {
   })
 
   els.aiPreview.classList.remove('hidden')
+}
+
+// Danbooru sidebar order and colours, kept in step with the tag_categories
+// defaults the backend seeds and with frontend/src/components/TagSidebar.vue.
+const AI_TAG_CATEGORIES = [
+  { category: 'artist', label: 'Artist', color: '#f8a100' },
+  { category: 'character', label: 'Character', color: '#00c853' },
+  { category: 'copyright', label: 'Copyright', color: '#d500f9' },
+  { category: 'meta', label: 'Metadata', color: '#ff5252' },
+  { category: 'general', label: 'Tag', color: '#0075f8' },
+]
+
+function renderAiPreviewTags(suggestion) {
+  els.aiPreviewTags.innerHTML = ''
+  const tags = suggestion.suggestedTags || []
+  if (!tags.length) return
+
+  // The preview response already carries a tag -> category map; it used to be
+  // dropped and every tag rendered as an identical pill.
+  const categories = suggestion.categories || {}
+  const grouped = new Map()
+  tags.forEach((tag) => {
+    const category = categories[tag] || 'general'
+    if (!grouped.has(category)) grouped.set(category, [])
+    grouped.get(category).push(tag)
+  })
+
+  const known = AI_TAG_CATEGORIES.map((entry) => entry.category)
+  const extra = [...grouped.keys()]
+    .filter((category) => !known.includes(category))
+    .sort()
+    .map((category) => ({ category, label: category.replace(/[_-]+/g, ' '), color: '#0075f8' }))
+
+  ;[...AI_TAG_CATEGORIES, ...extra].forEach((entry) => {
+    const entryTags = grouped.get(entry.category)
+    if (!entryTags?.length) return
+
+    const group = document.createElement('div')
+    group.className = 'ai-tag-group'
+
+    const heading = document.createElement('h5')
+    heading.className = 'ai-tag-heading'
+    heading.style.color = entry.color
+    heading.textContent = entry.label
+    group.appendChild(heading)
+
+    const list = document.createElement('ul')
+    list.className = 'ai-tag-rows'
+    entryTags.slice(0, 60).sort((a, b) => a.localeCompare(b)).forEach((tag) => {
+      const row = document.createElement('li')
+      row.className = 'ai-tag-row'
+      const name = document.createElement('span')
+      name.className = 'ai-tag-name'
+      name.style.color = entry.color
+      name.textContent = String(tag).replace(/_/g, ' ')
+      name.title = tag
+      row.appendChild(name)
+      list.appendChild(row)
+    })
+    group.appendChild(list)
+    els.aiPreviewTags.appendChild(group)
+  })
 }
 
 function renderSemanticPreview(suggestion) {

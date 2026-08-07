@@ -128,7 +128,7 @@
 
       <div class="sidebar-section">
         <h3>Tags</h3>
-        <TagList :tags="post.tags" />
+        <TagSidebar :tags="post.tagDetails || post.tags" />
         <button class="btn btn-secondary edit-tags-btn" @click="openTagEditor">
           Edit Tags
         </button>
@@ -735,7 +735,7 @@ import api from '../api/client'
 import { usePostsStore } from '../stores/posts'
 import { useTagsStore } from '../stores/tags'
 import MediaViewer from '../components/MediaViewer.vue'
-import TagList from '../components/TagList.vue'
+import TagSidebar from '../components/TagSidebar.vue'
 import TagInput from '../components/TagInput.vue'
 import CommentSection from '../components/CommentSection.vue'
 import MediaOptimizeProfiles from '../components/MediaOptimizeProfiles.vue'

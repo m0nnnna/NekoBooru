@@ -644,20 +644,37 @@ select:focus {
 }
 
 .ai-preview-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  max-height: 96px;
+  display: block;
+  max-height: 240px;
   overflow: auto;
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
-.ai-preview-tags span {
-  padding: 0.25rem 0.45rem;
-  border: 1px solid var(--accent);
-  border-radius: 0.35rem;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 0.78rem;
+.ai-tag-group + .ai-tag-group {
+  margin-top: 0.6rem;
+}
+
+.ai-tag-heading {
+  margin: 0 0 0.15rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.ai-tag-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ai-tag-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.ai-tag-name {
+  overflow-wrap: anywhere;
 }
 
 .ai-preview-semantic {

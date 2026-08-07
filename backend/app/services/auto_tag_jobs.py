@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from ..database import async_session
-from ..models import AutoTagJob, AutoTagSuggestion, Post
+from ..models import AutoTagJob, AutoTagSuggestion, Post, Tag
 from ..models.post import PostTag
 from .auto_tagger import (
     AutoTagOptions,
@@ -139,7 +139,7 @@ async def run_job(job_id: int, candidates: list[int]) -> None:
                 post = (
                     await db.execute(
                         select(Post)
-                        .options(selectinload(Post.tags))
+                        .options(selectinload(Post.tags).selectinload(Tag.category))
                         .where(Post.id == post_id, Post.deleted_at.is_(None))
                     )
                 ).scalars().first()
@@ -214,7 +214,7 @@ async def preview_post(post_id: int, overrides: dict | None = None) -> dict:
     async with async_session() as db:
         post = (
             await db.execute(
-                select(Post).options(selectinload(Post.tags)).where(Post.id == post_id, Post.deleted_at.is_(None))
+                select(Post).options(selectinload(Post.tags).selectinload(Tag.category)).where(Post.id == post_id, Post.deleted_at.is_(None))
             )
         ).scalars().first()
         if not post:
@@ -250,7 +250,7 @@ async def apply_post(
     async with async_session() as db:
         post = (
             await db.execute(
-                select(Post).options(selectinload(Post.tags), selectinload(Post.favorite)).where(Post.id == post_id, Post.deleted_at.is_(None))
+                select(Post).options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite)).where(Post.id == post_id, Post.deleted_at.is_(None))
             )
         ).scalars().first()
         if not post:
@@ -314,7 +314,7 @@ async def apply_job_suggestions(job_id: int) -> dict:
             post = (
                 await db.execute(
                     select(Post)
-                    .options(selectinload(Post.tags), selectinload(Post.favorite))
+                    .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
                     .where(Post.id == suggestion.post_id, Post.deleted_at.is_(None))
                 )
             ).scalars().first()

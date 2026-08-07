@@ -1,8 +1,25 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Table, inspect
 from sqlalchemy.orm import relationship
 
 from ..database import Base
+
+
+def _tag_detail(tag) -> dict:
+    """Serialize a tag with its category, tolerating an unloaded relationship.
+
+    Post queries eager-load Tag.category, but touching it when a caller forgot
+    would raise MissingGreenlet under async rather than just losing a colour.
+    """
+    category = None
+    if "category" not in inspect(tag).unloaded:
+        category = tag.category
+    return {
+        "name": tag.name,
+        "category": category.name if category else "general",
+        "categoryColor": category.color if category else "#808080",
+        "usageCount": tag.usage_count or 0,
+    }
 
 
 # Junction table for posts and tags
@@ -70,6 +87,11 @@ class Post(Base):
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
             "deletedAt": self.deleted_at.isoformat() if self.deleted_at else None,
             "tags": [tag.name for tag in self.tags] if self.tags else [],
+            # Category/colour/count for the grouped tag sidebar. Post queries
+            # eager-load Tag.category for this; _tag_detail() degrades to an
+            # uncategorised entry rather than raising if some caller forgets,
+            # because lazy-loading here would fail under async.
+            "tagDetails": [_tag_detail(tag) for tag in self.tags] if self.tags else [],
             "isFavorited": self.favorite is not None,
             "contentUrl": f"/api/media/posts/{self.content_path}",
             "thumbUrl": f"/api/media/thumbs/{self.thumb_path}",

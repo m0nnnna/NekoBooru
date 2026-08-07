@@ -322,7 +322,7 @@ async def search_posts(
     """Search posts with tag-based query syntax."""
     # Base query with eager loading
     stmt = select(Post).options(
-        selectinload(Post.tags),
+        selectinload(Post.tags).selectinload(Tag.category),
         selectinload(Post.favorite),
     )
 
