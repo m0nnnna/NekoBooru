@@ -23,7 +23,6 @@ const AI_TAG_PROFILES = {
       pixaiEnabled: true,
       characterModelEnabled: true,
       clEnabled: false,
-      booruLookupEnabled: false,
       ocrEnabled: true,
       whisperEnabled: false,
       qwenEnabled: false,
@@ -40,7 +39,6 @@ const AI_TAG_PROFILES = {
       pixaiEnabled: true,
       characterModelEnabled: true,
       clEnabled: false,
-      booruLookupEnabled: false,
       ocrEnabled: true,
       whisperEnabled: true,
       qwenEnabled: false,
@@ -58,7 +56,6 @@ const AI_TAG_PROFILES = {
       pixaiEnabled: false,
       characterModelEnabled: false,
       clEnabled: false,
-      booruLookupEnabled: false,
       ocrEnabled: true,
       whisperEnabled: false,
       qwenEnabled: false,
@@ -75,7 +72,6 @@ const AI_TAG_PROFILES = {
       pixaiEnabled: false,
       characterModelEnabled: false,
       clEnabled: false,
-      booruLookupEnabled: false,
       ocrEnabled: true,
       whisperEnabled: true,
       qwenEnabled: false,
@@ -138,6 +134,12 @@ let autoTagSuggestion = null
 let autoTagSuggestionProfile = 'extension'
 let autoTagModelOverrides = {}
 let extensionUploadDefaults = {}
+// Booru lookup is not a model, so it is not part of a profile's model stack and
+// AI_TAG_PROFILES must not carry it: profiles are re-applied on every run, which
+// would silently undo the popup's checkbox. Saved settings and extension
+// defaults seed it; once the user touches the checkbox their choice wins.
+let booruLookupEnabled = false
+let booruLookupTouched = false
 let modelLoadPollTimer = null
 let bootPromise = null
 let viewportTooltip = null
@@ -249,14 +251,23 @@ function applyExtensionUploadDefaults(defaults = {}) {
   applyExtensionModelDefaults(defaults.modelDefaults)
 }
 
+function setBooruLookup(value, { fromUser = false } = {}) {
+  if (booruLookupTouched && !fromUser) return
+  booruLookupEnabled = value === true
+  if (fromUser) booruLookupTouched = true
+  autoTagSettings.booruLookupEnabled = booruLookupEnabled
+}
+
 function applyExtensionModelDefaults(modelDefaults = {}) {
   if (!modelDefaults || typeof modelDefaults !== 'object') return
+  if (Object.prototype.hasOwnProperty.call(modelDefaults, 'booruLookupEnabled')) {
+    setBooruLookup(modelDefaults.booruLookupEnabled)
+  }
   const keys = [
     'wdEnabled',
     'pixaiEnabled',
     'characterModelEnabled',
     'clEnabled',
-    'booruLookupEnabled',
     'qwenEnabled',
     'semanticPoliticalEnabled',
     'ocrEnabled',
@@ -1389,6 +1400,7 @@ async function _loadAutoTagControls() {
     autoTagSavedSettings.qwenVideoUseFps = autoTagSavedSettings.qwenVideoUseFps === true
     autoTagSavedSettings.qwenVideoMaxFrames = Number(autoTagSavedSettings.qwenVideoMaxFrames || 20)
     autoTagSettings = { ...autoTagSavedSettings, ...autoTagModelOverrides }
+    setBooruLookup(autoTagSavedSettings.booruLookupEnabled)
     applyExtensionModelDefaults(extensionUploadDefaults.modelDefaults)
     applyAiVisibility(Boolean(autoTagSavedSettings.enabled))
     if (autoTagSavedSettings.enabled) {
@@ -1425,6 +1437,7 @@ function renderAiModelPicker() {
     note.className = 'picker-note'
     note.textContent = 'No models reported by the backend.'
     els.aiModelList.appendChild(note)
+    renderBooruLookupToggle()
     return
   }
 
@@ -1482,7 +1495,30 @@ function renderAiModelPicker() {
     row.append(enabled, text, load)
     els.aiModelList.appendChild(row)
   })
+  renderBooruLookupToggle()
   renderQwenVideoControls()
+}
+
+// Rendered with the models but deliberately not one of them: it enriches
+// whatever they produced rather than running a model of its own.
+function renderBooruLookupToggle() {
+  const row = document.createElement('label')
+  row.className = 'qwen-video-toggle booru-lookup-toggle'
+  const checkbox = document.createElement('input')
+  checkbox.type = 'checkbox'
+  checkbox.id = 'ai-booru-lookup'
+  checkbox.checked = booruLookupEnabled
+  checkbox.addEventListener('change', () => {
+    setBooruLookup(checkbox.checked, { fromUser: true })
+  })
+  const copy = document.createElement('span')
+  const title = document.createElement('strong')
+  title.textContent = 'Booru series lookup'
+  const note = document.createElement('small')
+  note.textContent = 'Looks each recognised character up on Danbooru and adds its series. Only adds tags, never replaces what the models found.'
+  copy.append(title, note)
+  row.append(checkbox, copy)
+  els.aiModelList.appendChild(row)
 }
 
 function renderQwenVideoControls() {
@@ -1626,6 +1662,12 @@ function applyAiTagProfile(profileId) {
     ...profile.settings,
     ...profileDefaultStack(rootProfileId),
   }
+  // Route it through the sticky setter and out of the generic loop, so a
+  // per-profile default seeds the checkbox without overriding a manual tick.
+  if (Object.prototype.hasOwnProperty.call(settings, 'booruLookupEnabled')) {
+    setBooruLookup(settings.booruLookupEnabled)
+    delete settings.booruLookupEnabled
+  }
   if (mediaType !== 'video') settings.whisperEnabled = false
   if (mediaType === 'video') {
     settings.qwenVideoUseFps = Object.prototype.hasOwnProperty.call(autoTagModelOverrides, 'qwenVideoUseFps')
@@ -1683,6 +1725,7 @@ function autoTagRunSettings() {
     ...autoTagSettings,
     qwenEnabled,
     semanticPoliticalEnabled: qwenEnabled,
+    booruLookupEnabled,
     enabled: true,
   }
 }

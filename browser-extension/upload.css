@@ -482,6 +482,11 @@ select:focus {
   margin-top: 0.2rem;
 }
 
+/* Sits in the model list but is an enrichment step, not a model. */
+.booru-lookup-toggle {
+  margin-top: 0.35rem;
+}
+
 .qwen-video-toggle strong {
   display: block;
   color: var(--text-primary);

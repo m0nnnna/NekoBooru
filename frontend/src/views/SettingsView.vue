@@ -1027,6 +1027,18 @@
             </div>
           </div>
         </div>
+
+        <label class="toggle-card booru-lookup-toggle">
+          <input type="checkbox" v-model="autoTagSettings.booruLookupEnabled" @change="saveAutoTagSettings" />
+          <span>
+            <strong>Booru series lookup</strong>
+            <small>
+              After tagging, look each recognised character up on Danbooru (Safebooru as a fallback) and add its series.
+              Purely additive - it never removes or replaces what the models found. Makes a network call per new character;
+              results are cached until the server restarts.
+            </small>
+          </span>
+        </label>
       </div>
 
       <div class="config-panel">
@@ -4209,6 +4221,11 @@ function startYtdlpPolling() {
 .toggle-card input,
 .model-toggle-row input {
   margin-top: 0.15rem;
+}
+
+/* Not a model row: it enriches whatever the models above produced. */
+.booru-lookup-toggle {
+  margin-top: 0.85rem;
 }
 
 .toggle-card strong,
