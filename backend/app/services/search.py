@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from ..models import Post, Tag, PostTag, Favorite, PoolPost
 from .ai_analysis import semantic_analysis_condition
+from .tagging import normalize_tag
 
 
 class TokenType(Enum):
@@ -192,7 +193,16 @@ def _escape_like(value: str) -> str:
 
 
 def _normalize_tag_query(value: str) -> str:
-    return re.sub(r"\s+", "_", str(value or "").strip().lower()).strip("_")
+    """Normalize a searched tag exactly the way a written tag is normalized.
+
+    Tags are stored through tagging.normalize_tag(), which flattens the booru
+    qualifier syntax: both the model's ``miyu (blue archive)`` and Danbooru's
+    ``miyu_(blue_archive)`` become ``miyu_blue_archive``. Searching used to only
+    collapse whitespace, so a name pasted from a booru — or copied out of the
+    model's own output — found nothing. Delegating keeps query and storage from
+    drifting apart again.
+    """
+    return normalize_tag(value)
 
 
 def _semantic_tag_name_condition(normalized: str):
@@ -234,7 +244,12 @@ async def _semantic_expansion_conditions(session: AsyncSession, query: str) -> l
 
     groups = []
     for word in words[:6]:
-        normalized = re.sub(r"[^\w:.-]+", "_", word).strip("_")
+        # Same normalizer as tag writes: this used to collapse the booru
+        # qualifier syntax without merging the runs it created, so
+        # "shimakaze_(kancolle)" became "shimakaze__kancolle" and matched
+        # nothing. Semantic expansion replaces the plain tag conditions
+        # entirely, so a miss here silently returned zero results.
+        normalized = normalize_tag(word)
         if not normalized:
             continue
         rows = (
