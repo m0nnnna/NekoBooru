@@ -50,6 +50,14 @@
               </a>
             </dd>
           </template>
+          <template v-if="pixivUrl">
+            <dt>Pixiv</dt>
+            <dd>
+              <a class="external-link" :href="pixivUrl" target="_blank" rel="noopener noreferrer">
+                Open in Pixiv
+              </a>
+            </dd>
+          </template>
           <template v-if="booruSourceLink">
             <dt>{{ booruSourceLink.label }}</dt>
             <dd>
@@ -835,6 +843,7 @@ import {
   requestExtensionReverseSearch,
   submitSearchFile,
 } from '../utils/onlineImageSearch'
+import { pixivArtworkUrlFromPost } from '../utils/sourceLinks'
 
 const route = useRoute()
 const router = useRouter()
@@ -1013,6 +1022,7 @@ const tweetUrl = computed(() => {
   const id = tweetIdFromPost(post.value)
   return id ? `https://x.com/i/status/${id}` : ''
 })
+const pixivUrl = computed(() => pixivArtworkUrlFromPost(post.value))
 const booruSourceLink = computed(() => booruSourceLinkFromPost(post.value))
 const postCurrentMaxSide = computed(() => Math.max(Number(post.value?.width || 0), Number(post.value?.height || 0)))
 const postCurrentVideoBitrate = computed(() => estimatedVideoBitrateKbps(post.value))
