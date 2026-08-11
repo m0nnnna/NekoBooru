@@ -190,6 +190,14 @@
     return candidates[0] || null
   }
 
+  function selectedSiteImportMedia(media, selectedIndexes) {
+    const selected = new Set(Array.from(selectedIndexes || []).map((value) => Number(value)))
+    return Array.from(media || []).filter((item, arrayIndex) => {
+      const mediaIndex = Number.isInteger(item?.index) ? item.index : arrayIndex
+      return selected.has(mediaIndex)
+    })
+  }
+
   const api = {
     normalizeTag,
     pixivArtworkId,
@@ -198,6 +206,7 @@
     pixivSafety,
     selectGelbooruActionFavorite,
     selectPixivShareControl,
+    selectedSiteImportMedia,
     siteImportPostBody,
   }
   root.NekoBooruSiteImport = api

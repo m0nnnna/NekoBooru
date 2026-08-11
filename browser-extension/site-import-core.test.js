@@ -90,5 +90,10 @@ assert.equal(
   core.selectPixivShareControl([pixivLike, pixivHeart, unlabeledPixivShare, pixivMore]),
   unlabeledPixivShare,
 )
+assert.deepEqual(
+  core.selectedSiteImportMedia(job.media, [1]),
+  [job.media[1]],
+)
+assert.ok(core.selectedSiteImportMedia(job.media, [1])[0].tags.includes('pixiv_122812376_p2'))
 
 console.log('site-import-core tests passed')

@@ -8,6 +8,7 @@ const els = {
   items: document.getElementById('items'),
   openGroup: document.getElementById('open-group'),
   openOptions: document.getElementById('open-options'),
+  startImport: document.getElementById('start-import'),
 }
 let instanceUrl = ''
 const siteImportCore = globalThis.NekoBooruSiteImport
@@ -80,30 +81,33 @@ async function resolveGelbooru(job) {
 }
 
 async function importAll(job) {
-  const media = Array.isArray(job.media) ? job.media : []
-  if (!media.length) throw new Error('The source returned no original-resolution files.')
+  const allMedia = Array.isArray(job.media) ? job.media : []
+  if (!allMedia.length) throw new Error('The source returned no original-resolution files.')
   els.title.textContent = job.title || 'Site import'
   els.detail.textContent = job.kind === 'pixiv'
-    ? `${media.length} original Pixiv page${media.length === 1 ? '' : 's'} · Pixiv tags included · AI tagging enabled`
+    ? `${allMedia.length} original Pixiv page${allMedia.length === 1 ? '' : 's'} · Choose pages below · Pixiv tags included · AI tagging enabled`
     : 'Original Gelbooru file · source tags included · AI disabled'
-  renderItems(media)
+  renderItems(allMedia, job.kind === 'pixiv')
+
+  const media = job.kind === 'pixiv' ? await choosePixivMedia(allMedia) : allMedia
 
   const results = []
   let failed = 0
   for (let index = 0; index < media.length; index += 1) {
     const item = media[index]
+    const rowIndex = Number.isInteger(item.index) ? item.index : allMedia.indexOf(item)
     setStatus(`Importing ${index + 1} of ${media.length} at original resolution…`, 'working')
-    setItem(index, 'working', 'Downloading original…')
+    setItem(rowIndex, 'working', 'Downloading original…')
     try {
       const result = await importOne(job, item)
       results.push(result)
       const savedTags = job.kind === 'pixiv' ? 'AI tags saved' : 'source tags saved'
-      setItem(index, 'done', result.duplicate
+      setItem(rowIndex, 'done', result.duplicate
         ? `Already existed · ${savedTags} · post #${result.id}`
         : `Imported · ${savedTags} · post #${result.id}`)
     } catch (error) {
       failed += 1
-      setItem(index, 'failed', error?.message || String(error))
+      setItem(rowIndex, 'failed', error?.message || String(error))
     }
     els.progressBar.style.width = `${Math.round(((index + 1) / media.length) * 100)}%`
   }
@@ -120,6 +124,36 @@ async function importAll(job) {
     setStatus(`Finished: ${results.length} original file${results.length === 1 ? '' : 's'} imported or already present.`, 'success')
     notify('NekoBooru site import complete', `${results.length} original file${results.length === 1 ? '' : 's'} processed.`)
   }
+}
+
+function choosePixivMedia(media) {
+  const inputs = Array.from(els.items.querySelectorAll('input[type="checkbox"][data-media-index]'))
+  setStatus('Select the Pixiv pages to import, then start the download.', 'working')
+  els.startImport.classList.remove('hidden')
+
+  return new Promise((resolve) => {
+    const updateCount = () => {
+      const count = inputs.filter((input) => input.checked).length
+      els.startImport.textContent = `Import selected (${count})`
+      els.startImport.disabled = count === 0
+    }
+    inputs.forEach((input) => input.addEventListener('change', updateCount))
+    updateCount()
+
+    els.startImport.addEventListener('click', () => {
+      const selectedIndexes = inputs
+        .filter((input) => input.checked)
+        .map((input) => Number(input.dataset.mediaIndex))
+      const selected = siteImportCore.selectedSiteImportMedia(media, selectedIndexes)
+      if (!selected.length) return
+      inputs.forEach((input) => {
+        input.disabled = true
+        if (!input.checked) setItem(Number(input.dataset.mediaIndex), 'skipped', 'Skipped')
+      })
+      els.startImport.classList.add('hidden')
+      resolve(selected)
+    }, { once: true })
+  })
 }
 
 async function importOne(job, item) {
@@ -192,12 +226,28 @@ function formatError(detail) {
   return detail?.message || JSON.stringify(detail || 'Unknown error')
 }
 
-function renderItems(media) {
+function renderItems(media, selectable = false) {
   els.items.innerHTML = ''
   media.forEach((item, index) => {
     const row = document.createElement('li')
+    const mediaIndex = Number.isInteger(item.index) ? item.index : index
     const dimensions = item.width && item.height ? ` · ${item.width}×${item.height}` : ''
-    row.innerHTML = `<span>Page ${index + 1}${dimensions}</span><strong>Waiting</strong>`
+    const description = document.createElement('span')
+    description.textContent = `Page ${mediaIndex + 1}${dimensions}`
+    if (selectable) {
+      const label = document.createElement('label')
+      const input = document.createElement('input')
+      input.type = 'checkbox'
+      input.checked = true
+      input.dataset.mediaIndex = String(mediaIndex)
+      label.append(input, description)
+      row.appendChild(label)
+    } else {
+      row.appendChild(description)
+    }
+    const state = document.createElement('strong')
+    state.textContent = 'Waiting'
+    row.appendChild(state)
     els.items.appendChild(row)
   })
 }

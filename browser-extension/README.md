@@ -53,7 +53,8 @@ uses the app directly and does not require the extension.
 
 On a Pixiv artwork page, the NekoBooru download icon appears immediately to the
 right of Pixiv's Share button using the same native control styling. It imports
-every page using Pixiv's `original` image URL. Each post keeps the Pixiv artwork
+selected pages using Pixiv's `original` image URLs; the popup starts with every
+page checked and waits for **Import selected**. Each post keeps the Pixiv artwork
 link, shared `pixiv_<id>` tag, page-specific `pixiv_<id>_p<n>` tag, artist reference, and
 the readable artist name in the artist category, plus Pixiv tags. On Gelbooru
 post pages, **NekoBooru** appears as a native-style text link directly
