@@ -56,6 +56,38 @@ class SiteImportTests(unittest.TestCase):
             with self.assertRaisesRegex(PermissionError, "not configured"):
                 asyncio.run(site_imports.gelbooru_post_for_import(123))
 
+    def test_fetch_uses_httpx_params_and_returns_json(self):
+        from app.services import site_imports
+
+        class FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"post": [{"id": 123}]}
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def get(self, url, *, params):
+                self.calls.append((url, params))
+                return FakeResponse()
+
+        client = FakeClient()
+        with patch.object(site_imports.httpx, "AsyncClient", return_value=client):
+            result = asyncio.run(site_imports._fetch_json({"api_key": "secret", "id": 123}, 10.0))
+
+        self.assertEqual(result["post"][0]["id"], 123)
+        self.assertEqual(client.calls[0][0], "https://gelbooru.com/index.php")
+        self.assertEqual(client.calls[0][1]["api_key"], "secret")
+
 
 if __name__ == "__main__":
     unittest.main()

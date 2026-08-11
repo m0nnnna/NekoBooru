@@ -1,11 +1,7 @@
 """Metadata needed by one-click imports from supported source sites."""
 from __future__ import annotations
 
-import asyncio
-import json
-import urllib.error
-import urllib.parse
-import urllib.request
+import httpx
 
 from .booru_suggest import gelbooru_credentials
 
@@ -33,26 +29,28 @@ def _rows(payload, key: str) -> list[dict]:
     return [row for row in (rows or []) if isinstance(row, dict)]
 
 
-def _fetch_json_sync(params: dict[str, str | int], timeout: float):
-    # urllib is intentional here: unlike the application's httpx INFO logger,
-    # it does not print the full request URL (and therefore the saved API key).
-    url = f"{GELBOORU}/index.php?" + urllib.parse.urlencode(params)
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        if exc.code in {401, 403}:
-            raise PermissionError("Gelbooru rejected the saved API credentials") from exc
-        raise RuntimeError(f"Gelbooru returned HTTP {exc.code}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError("Gelbooru could not be reached") from exc
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Gelbooru returned an invalid response") from exc
-
-
 async def _fetch_json(params: dict[str, str | int], timeout: float):
-    return await asyncio.to_thread(_fetch_json_sync, params, timeout)
+    # booru_suggest installs an httpx logging filter that redacts api_key. Use
+    # params separately as well, so credentials never become a string built or
+    # logged by this service. httpx's CA bundle is also more reliable than the
+    # host Python urllib trust chain on Windows.
+    try:
+        async with httpx.AsyncClient(
+            headers={"User-Agent": USER_AGENT},
+            timeout=timeout,
+            follow_redirects=True,
+        ) as client:
+            response = await client.get(f"{GELBOORU}/index.php", params=params)
+    except httpx.HTTPError as exc:
+        raise RuntimeError("Gelbooru could not be reached") from exc
+    if response.status_code in {401, 403}:
+        raise PermissionError("Gelbooru rejected the saved API credentials")
+    if response.status_code >= 400:
+        raise RuntimeError(f"Gelbooru returned HTTP {response.status_code}")
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise RuntimeError("Gelbooru returned an invalid response") from exc
 
 
 def _auth_params() -> dict[str, str]:
