@@ -138,10 +138,11 @@
   }
 
   function selectPixivShareControl(controls) {
-    const candidates = Array.from(controls || []).filter((node) => {
+    const allControls = Array.from(controls || [])
+    const labelFor = (node) => {
       const datasetValues = node?.dataset ? Object.values(node.dataset) : []
       const nestedLabel = node?.querySelector?.('[aria-label], title')
-      const label = [
+      return [
         node?.textContent,
         node?.title,
         node?.getAttribute?.('aria-label'),
@@ -151,13 +152,42 @@
         nestedLabel?.textContent,
         ...datasetValues,
       ].map((part) => String(part || '')).join(' ')
-      return /(^|[^a-z])(share|シェア|共有)([^a-z]|$)/i.test(label)
-    })
-    const visible = candidates.find((node) => {
+    }
+    const visibleRect = (node) => {
       const rect = node?.getBoundingClientRect?.()
-      return rect && rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0
+      return rect && rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 ? rect : null
+    }
+    const candidates = allControls.filter((node) => (
+      /(^|[^a-z])(share|シェア|共有)([^a-z]|$)/i.test(labelFor(node))
+    ))
+    const visible = candidates.find((node) => {
+      return visibleRect(node)
     })
-    return visible || candidates[0] || null
+    if (visible) return visible
+
+    // Pixiv sometimes renders this row as unlabeled icon buttons. Locate the
+    // visible Like control, then choose the control immediately left of the
+    // rightmost (three-dot) control on the same horizontal line.
+    const like = allControls.find((node) => (
+      /(^|[^a-z])(like|いいね)([^a-z]|$)/i.test(labelFor(node)) && visibleRect(node)
+    ))
+    const likeRect = visibleRect(like)
+    if (likeRect) {
+      const likeCenter = likeRect.top + (likeRect.height / 2)
+      const tolerance = Math.max(14, likeRect.height * 0.75)
+      const row = allControls
+        .map((node) => ({ node, rect: visibleRect(node) }))
+        .filter(({ rect }) => (
+          rect && rect.left >= likeRect.left - 4 &&
+          Math.abs((rect.top + (rect.height / 2)) - likeCenter) <= tolerance
+        ))
+        .filter(({ node }, index, entries) => !entries.some(({ node: other }, otherIndex) => (
+          otherIndex !== index && other?.contains?.(node)
+        )))
+        .sort((first, second) => first.rect.left - second.rect.left)
+      if (row.length >= 3) return row.at(-2).node
+    }
+    return candidates[0] || null
   }
 
   const api = {

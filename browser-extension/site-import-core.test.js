@@ -73,4 +73,22 @@ const pixivShare = {
 }
 assert.equal(core.selectPixivShareControl([unrelatedPixivControl, pixivShare]), pixivShare)
 
+const pixivRowControl = (textContent, left, width = 32) => ({
+  contains: () => false,
+  dataset: {},
+  getAttribute: () => '',
+  getBoundingClientRect: () => ({ left, right: left + width, top: 10, bottom: 42, width, height: 32 }),
+  querySelector: () => null,
+  textContent,
+  title: '',
+})
+const pixivLike = pixivRowControl('Like', 10, 50)
+const pixivHeart = pixivRowControl('', 68)
+const unlabeledPixivShare = pixivRowControl('', 108)
+const pixivMore = pixivRowControl('', 148)
+assert.equal(
+  core.selectPixivShareControl([pixivLike, pixivHeart, unlabeledPixivShare, pixivMore]),
+  unlabeledPixivShare,
+)
+
 console.log('site-import-core tests passed')
