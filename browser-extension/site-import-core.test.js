@@ -90,6 +90,27 @@ assert.equal(
   core.selectPixivShareControl([pixivLike, pixivHeart, unlabeledPixivShare, pixivMore]),
   unlabeledPixivShare,
 )
+
+const pixivToolbarWrapper = {
+  ...pixivRowControl('Share', 0, 190),
+  contains: (node) => [pixivLike, pixivHeart, unlabeledPixivShare, pixivMore].includes(node),
+}
+pixivMore.getAttribute = (name) => name === 'aria-label' ? 'More' : ''
+assert.equal(
+  core.selectPixivShareControl([
+    pixivToolbarWrapper,
+    pixivLike,
+    pixivHeart,
+    unlabeledPixivShare,
+    pixivMore,
+  ]),
+  unlabeledPixivShare,
+)
+const iconOnlyLike = pixivRowControl('', 10, 50)
+assert.equal(
+  core.selectPixivShareControl([iconOnlyLike, pixivHeart, unlabeledPixivShare, pixivMore]),
+  unlabeledPixivShare,
+)
 assert.deepEqual(
   core.selectedSiteImportMedia(job.media, [1]),
   [job.media[1]],

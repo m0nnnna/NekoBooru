@@ -155,9 +155,21 @@
     }
     const visibleRect = (node) => {
       const rect = node?.getBoundingClientRect?.()
-      return rect && rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 ? rect : null
+      if (!rect || rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0) return null
+      const view = node?.ownerDocument?.defaultView
+      const style = view?.getComputedStyle?.(node)
+      if (style && (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0)) return null
+      if (Number.isFinite(view?.innerWidth) && rect.left >= view.innerWidth) return null
+      if (Number.isFinite(view?.innerHeight) && rect.top >= view.innerHeight) return null
+      return rect
     }
-    const candidates = allControls.filter((node) => (
+    // Some Pixiv artwork layouts put role=button on a wrapper around the real
+    // controls. Keep the innermost controls so a labelled toolbar wrapper does
+    // not get mistaken for the Share button itself.
+    const innerControls = allControls.filter((node, index, entries) => !entries.some((other, otherIndex) => (
+      otherIndex !== index && node?.contains?.(other)
+    )))
+    const candidates = innerControls.filter((node) => (
       /(^|[^a-z])(share|シェア|共有)([^a-z]|$)/i.test(labelFor(node))
     ))
     const visible = candidates.find((node) => {
@@ -165,29 +177,49 @@
     })
     if (visible) return visible
 
+    // Newer/icon-only toolbars may expose only the final menu's accessible
+    // label. In that layout Share is the visible control immediately before it.
+    const more = innerControls.find((node) => (
+      /(^|[^a-z])(more|menu|その他|メニュー)([^a-z]|$)/i.test(labelFor(node)) && visibleRect(node)
+    ))
+    const moreRect = visibleRect(more)
+    if (moreRect) {
+      const moreCenter = moreRect.top + (moreRect.height / 2)
+      const tolerance = Math.max(14, moreRect.height * 0.75)
+      const rowBeforeMore = innerControls
+        .map((node) => ({ node, rect: visibleRect(node) }))
+        .filter(({ rect }) => (
+          rect && rect.left <= moreRect.left &&
+          Math.abs((rect.top + (rect.height / 2)) - moreCenter) <= tolerance
+        ))
+        .sort((first, second) => first.rect.left - second.rect.left)
+      if (rowBeforeMore.length >= 2) return rowBeforeMore.at(-2).node
+    }
+
     // Pixiv sometimes renders this row as unlabeled icon buttons. Locate the
     // visible Like control, then choose the control immediately left of the
     // rightmost (three-dot) control on the same horizontal line.
-    const like = allControls.find((node) => (
+    const like = innerControls.find((node) => (
       /(^|[^a-z])(like|いいね)([^a-z]|$)/i.test(labelFor(node)) && visibleRect(node)
     ))
     const likeRect = visibleRect(like)
     if (likeRect) {
       const likeCenter = likeRect.top + (likeRect.height / 2)
       const tolerance = Math.max(14, likeRect.height * 0.75)
-      const row = allControls
+      const row = innerControls
         .map((node) => ({ node, rect: visibleRect(node) }))
         .filter(({ rect }) => (
           rect && rect.left >= likeRect.left - 4 &&
           Math.abs((rect.top + (rect.height / 2)) - likeCenter) <= tolerance
         ))
-        .filter(({ node }, index, entries) => !entries.some(({ node: other }, otherIndex) => (
-          otherIndex !== index && other?.contains?.(node)
-        )))
         .sort((first, second) => first.rect.left - second.rect.left)
+      const moreIndex = row.findIndex(({ node }) => (
+        /(^|[^a-z])(more|menu|その他|メニュー)([^a-z]|$)/i.test(labelFor(node))
+      ))
+      if (moreIndex > 0) return row[moreIndex - 1].node
       if (row.length >= 3) return row.at(-2).node
     }
-    return candidates[0] || null
+    return null
   }
 
   function selectedSiteImportMedia(media, selectedIndexes) {
