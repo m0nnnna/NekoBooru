@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NekoBooru",
-  "version": "4.4.0",
+  "version": "4.5.0",
   "description": "Right-click to upload web images/videos to your NekoBooru instance, or browse your instance and insert media into whatever you're posting.",
   "permissions": ["contextMenus", "storage", "notifications", "clipboardWrite", "downloads", "nativeMessaging", "cookies", "scripting"],
   "host_permissions": ["*://*/*"],
@@ -20,6 +20,11 @@
       "js": ["track-cursor.js"],
       "run_at": "document_start",
       "all_frames": true
+    },
+    {
+      "matches": ["*://pixiv.net/*", "*://*.pixiv.net/*", "*://gelbooru.com/*", "*://*.gelbooru.com/*"],
+      "js": ["site-import-core.js", "site-import-buttons.js"],
+      "run_at": "document_idle"
     }
   ],
   "action": {

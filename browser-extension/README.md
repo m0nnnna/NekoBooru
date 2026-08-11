@@ -50,6 +50,14 @@ to open SauceNAO, IQDB, TinEye, Google Lens, trace.moe, or all of them at once.
 The same full stack is available from **Search Online → Full stack** on every
 NekoBooru post page. **Quick Lens** opens only Google Lens, while **Exact lookup**
 uses the app directly and does not require the extension.
+
+On a Pixiv artwork page, **Import all to NekoBooru** imports every page using
+Pixiv's `original` image URL. Each post keeps the Pixiv artwork link, shared
+`pixiv_<id>` tag, page-specific `pixiv_<id>_p<n>` tag, artist reference, and
+the readable artist name in the artist category, plus Pixiv tags. On Gelbooru
+post pages, **NekoBooru original** appears beside the favorite control and
+imports Gelbooru's authenticated `file_url` plus its tag categories, with AI
+tagging disabled.
 Most services use temporary extension helper pages that submit the image/frame
 bytes directly instead of relying on a public image URL. TinEye and trace.moe
 open their official UIs and inject the captured image into their upload controls. The menu also includes

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Import originals to NekoBooru</title>
+  <link rel="stylesheet" href="site-import.css" />
+</head>
+<body>
+  <header>
+    <img src="icons/icon48.png" alt="" />
+    <div><strong>NekoBooru</strong><span>Original-resolution import</span></div>
+  </header>
+  <main>
+    <section class="summary">
+      <h1 id="title">Preparing import…</h1>
+      <p id="detail">Reading source metadata.</p>
+    </section>
+    <div id="progress-track"><div id="progress-bar"></div></div>
+    <p id="status" class="working">Starting…</p>
+    <ol id="items"></ol>
+    <a id="open-group" class="button hidden" target="_blank" rel="noopener">Open imported posts</a>
+    <button id="open-options" class="button secondary hidden" type="button">Open extension settings</button>
+  </main>
+  <script src="site-import.js"></script>
+</body>
+</html>

@@ -24,6 +24,7 @@ const REVERSE_UPLOAD_STORE = 'reverseSearchUploads'
 const POPUP_WIDTH = 500
 const POPUP_HEIGHT = 680
 const X_MEDIA_CACHE_KEY = 'nekobooruXMediaCache'
+const SITE_IMPORT_JOB_PREFIX = 'nekobooruSiteImportJob:'
 const X_MEDIA_CACHE_MAX_AGE_MS = 60 * 60 * 1000
 const REVERSE_SEARCH_SERVICES = [
   {
@@ -334,6 +335,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return
   }
 
+  if (msg && msg.type === 'nekobooru-open-site-import') {
+    ;(async () => {
+      try {
+        const job = sanitizeSiteImportJob(msg.job, sender.tab?.url || '')
+        const key = SITE_IMPORT_JOB_PREFIX + crypto.randomUUID()
+        await chrome.storage.local.set({ [key]: { ...job, createdAt: Date.now() } })
+        await openPopup('site-import.html', new URLSearchParams({ job: key }), sender.tab)
+        sendResponse({ ok: true })
+      } catch (error) {
+        sendResponse({ ok: false, error: error?.message || String(error) })
+      }
+    })()
+    return true
+  }
+
   if (msg && msg.type === 'nekobooru-open-reverse-search') {
     ;(async () => {
       try {
@@ -442,6 +458,56 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 })
+
+function sanitizeSiteImportJob(raw, senderUrl) {
+  const sender = new URL(senderUrl)
+  const job = raw && typeof raw === 'object' ? raw : {}
+  if (job.kind === 'pixiv') {
+    if (sender.hostname !== 'pixiv.net' && !sender.hostname.endsWith('.pixiv.net')) {
+      throw new Error('Pixiv imports can only start from a Pixiv artwork page.')
+    }
+    const artworkId = sender.pathname.match(/\/artworks\/(\d+)/)?.[1] || ''
+    if (!artworkId || String(job.artworkId) !== artworkId) throw new Error('Pixiv artwork ID mismatch.')
+    const media = (Array.isArray(job.media) ? job.media : []).slice(0, 200).map((item, index) => {
+      const url = new URL(item?.url || '')
+      if (url.protocol !== 'https:' || (url.hostname !== 'pximg.net' && !url.hostname.endsWith('.pximg.net'))) {
+        throw new Error(`Pixiv page ${index + 1} did not provide a trusted original URL.`)
+      }
+      return {
+        ...item,
+        url: url.href,
+        tags: (item.tags || []).map(String).filter(Boolean).slice(0, 500),
+        tagCategories: item.tagCategories || {},
+        tagDisplayNames: item.tagDisplayNames || {},
+      }
+    })
+    if (!media.length) throw new Error('Pixiv returned no original pages.')
+    return {
+      kind: 'pixiv', artworkId, media,
+      title: String(job.title || `Pixiv ${artworkId}`).slice(0, 300),
+      artist: String(job.artist || '').slice(0, 200),
+      canonicalUrl: `https://www.pixiv.net/en/artworks/${artworkId}`,
+      groupTag: `pixiv_${artworkId}`,
+    }
+  }
+  if (job.kind === 'gelbooru') {
+    if (sender.hostname.replace(/^www\./, '') !== 'gelbooru.com') {
+      throw new Error('Gelbooru imports can only start from Gelbooru.')
+    }
+    const senderId = sender.searchParams.get('page') === 'post' ? sender.searchParams.get('id') : ''
+    if (!/^\d+$/.test(senderId || '') || String(job.postId) !== senderId) {
+      throw new Error('Gelbooru post ID mismatch.')
+    }
+    return {
+      kind: 'gelbooru', postId: senderId,
+      title: `Gelbooru #${senderId}`,
+      pageUrl: `https://gelbooru.com/index.php?page=post&s=view&id=${senderId}`,
+      fallbackOriginalUrl: String(job.fallbackOriginalUrl || ''),
+      groupTag: `gelbooru_${senderId}`,
+    }
+  }
+  throw new Error('Unsupported site import request.')
+}
 
 async function sendPasteMediaMessage(tabId, frameId, payload) {
   const first = await sendMessageToFrame(tabId, frameId, payload)

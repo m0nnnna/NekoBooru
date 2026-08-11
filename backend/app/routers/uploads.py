@@ -26,6 +26,7 @@ PLEROMA_FORKS = {"pleroma", "akkoma"}
 class UrlFetchRequest(BaseModel):
     url: str
     cookies: str | None = None
+    referer: str | None = None
 
 
 class FediverseRequest(BaseModel):
@@ -329,10 +330,18 @@ async def upload_from_url(request: UrlFetchRequest):
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
             # Use common browser headers to avoid blocks
+            referer = f"{parsed.scheme}://{parsed.netloc}/"
+            if request.referer:
+                try:
+                    parsed_referer = urlparse(request.referer)
+                    if parsed_referer.scheme in {"http", "https"} and parsed_referer.netloc:
+                        referer = request.referer
+                except ValueError:
+                    pass
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'image/*,video/*,*/*',
-                'Referer': f"{parsed.scheme}://{parsed.netloc}/",
+                'Referer': referer,
             }
 
             response = await client.get(url, headers=headers)
