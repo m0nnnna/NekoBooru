@@ -352,6 +352,96 @@ class BooruSuggestRateLimitTests(unittest.TestCase):
         )
         booru_suggest._cool_down("danbooru", 10_000)
         self.assertTrue(booru_suggest._cooling_down("danbooru"))
+class HashSearchTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        backend_path = str(Path(__file__).resolve().parents[1] / "backend")
+        if backend_path not in sys.path:
+            sys.path.insert(0, backend_path)
+
+    def test_complete_bare_hashes_are_filters_but_short_values_are_tags(self):
+        from app.services.search import TokenType, tokenize
+
+        md5 = "5b0a745707109a96fe76320c74aa04ab"
+        sha256 = "a" * 64
+        for value in (md5, md5.upper(), sha256):
+            with self.subTest(value=value):
+                token = tokenize(value)[0]
+                self.assertEqual(token.type, TokenType.FILTER)
+                self.assertEqual(token.filter_key, "hash")
+
+        token = tokenize("deadbeef")[0]
+        self.assertEqual(token.type, TokenType.TAG)
+
+    def test_hash_queries_match_content_filename_and_source_hashes(self):
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from app.database import Base
+        from app.models import Post
+        from app.services.search import search_posts
+
+        filename_md5 = "5b0a745707109a96fe76320c74aa04ab"
+        source_md5 = "bf25b66d031d7658d9790cdf73a73e2e"
+        content_sha = "abcdef12" + "3" * 56
+
+        async def exercise():
+            engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+            try:
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+                sessions = async_sessionmaker(engine, expire_on_commit=False)
+                async with sessions() as session:
+                    session.add_all([
+                        Post(
+                            sha256=content_sha,
+                            filename=f"sample_{filename_md5}.jpg",
+                            extension=".jpg",
+                            file_size=1,
+                            safety="safe",
+                        ),
+                        Post(
+                            sha256="4" * 64,
+                            filename="renamed.jpg",
+                            extension=".jpg",
+                            file_size=1,
+                            safety="unsafe",
+                            source=f"https://img4.gelbooru.com/images/bf/25/{source_md5}.png",
+                        ),
+                        Post(
+                            sha256="5" * 64,
+                            filename="unrelated.jpg",
+                            extension=".jpg",
+                            file_size=1,
+                            safety="safe",
+                        ),
+                    ])
+                    await session.commit()
+
+                    cases = {
+                        filename_md5: 1,
+                        filename_md5.upper(): 1,
+                        f"md5:{filename_md5}": 1,
+                        f"hash:{filename_md5}": 1,
+                        source_md5: 1,
+                        f"md5:{source_md5}": 1,
+                        content_sha: 1,
+                        "hash:abcdef12": 1,
+                        "sha256:abcdef12": 1,
+                        f"hash:{filename_md5} safety:safe": 1,
+                        f"hash:{filename_md5} safety:unsafe": 0,
+                        f"-hash:{filename_md5}": 2,
+                        "hash:not-a-hash": 0,
+                        "md5:abcdef12": 0,
+                    }
+                    for query, expected in cases.items():
+                        with self.subTest(query=query):
+                            posts, total = await search_posts(session, query=query)
+                            self.assertEqual(total, expected)
+                            self.assertEqual(len(posts), expected)
+            finally:
+                await engine.dispose()
+
+        asyncio.run(exercise())
 
 
 if __name__ == "__main__":

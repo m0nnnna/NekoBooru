@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import select, and_, or_, not_, func
+from sqlalchemy import select, and_, or_, not_, func, false
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -38,7 +38,14 @@ FILTER_KEYS = {
     "pool",
     "type",
     "sort",
+    "hash",
+    "md5",
+    "sha256",
 }
+
+
+_BARE_HASH_RE = re.compile(r"^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{64})$")
+_HASH_PREFIX_RE = re.compile(r"^[0-9a-fA-F]{8,64}$")
 
 
 def _is_filter_key(key: str) -> bool:
@@ -89,6 +96,12 @@ def tokenize(query: str) -> list[Token]:
         # Check for negated tag
         elif part.startswith("-"):
             tokens.append(Token(TokenType.NEGATED_TAG, part[1:]))
+        # A complete MD5 or SHA-256 pasted into the search bar is a hash
+        # lookup, not a very improbable tag name. Short prefixes remain tags
+        # unless the user opts in with hash: so ordinary hexadecimal-looking
+        # tags do not unexpectedly change meaning.
+        elif _BARE_HASH_RE.fullmatch(part):
+            tokens.append(Token(TokenType.FILTER, part, filter_key="hash", filter_op="="))
         # Check for filter (key:value)
         elif ":" in part:
             token = _parse_filter(part, TokenType.FILTER)
@@ -493,6 +506,29 @@ def apply_filter(token: Token):
             return Post.extension == ".gif"
         elif value == "video":
             return Post.extension.in_([".webm", ".mp4"])
+
+    elif key in ("hash", "md5", "sha256"):
+        normalized = str(value or "").strip().lower()
+        valid = _HASH_PREFIX_RE.fullmatch(normalized)
+        if not valid:
+            # Invalid explicit filters must return no posts rather than being
+            # silently ignored and exposing the entire library.
+            return false()
+        if key == "md5" and len(normalized) != 32:
+            return false()
+
+        escaped = _escape_like(normalized)
+        external_hash = or_(
+            func.lower(Post.filename).like(f"%{escaped}%", escape="\\"),
+            func.lower(func.coalesce(Post.source, "")).like(f"%{escaped}%", escape="\\"),
+        )
+        if key == "md5":
+            # NekoBooru stores content SHA-256, but booru downloads commonly
+            # preserve the remote MD5 in sample_<md5>.jpg or the source URL.
+            return external_hash
+
+        content_hash = func.lower(Post.sha256).like(f"{escaped}%", escape="\\")
+        return or_(content_hash, external_hash)
 
     elif key == "sort":
         # Sorting is handled separately
