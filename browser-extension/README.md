@@ -47,6 +47,9 @@ import stays silent.
 
 Right-click an image, GIF, or video and choose **NekoBooru reverse image search**
 to open SauceNAO, IQDB, TinEye, Google Lens, trace.moe, or all of them at once.
+The same full stack is available from **Search Online → Full stack** on every
+NekoBooru post page. **Quick Lens** opens only Google Lens, while **Exact lookup**
+uses the app directly and does not require the extension.
 Most services use temporary extension helper pages that submit the image/frame
 bytes directly instead of relying on a public image URL. TinEye and trace.moe
 open their official UIs and inject the captured image into their upload controls. The menu also includes

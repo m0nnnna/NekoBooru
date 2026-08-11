@@ -334,6 +334,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return
   }
 
+  if (msg && msg.type === 'nekobooru-open-reverse-search') {
+    ;(async () => {
+      try {
+        if (!await isTrustedNekoBooruPage(sender.tab?.url || '')) {
+          throw new Error('Reverse search requests are only accepted from your NekoBooru instance.')
+        }
+        const pageUrl = new URL(sender.tab.url)
+        const src = new URL(msg.src || '', pageUrl)
+        if (src.origin !== pageUrl.origin) {
+          throw new Error('The post media must come from the same NekoBooru instance.')
+        }
+        const info = {
+          srcUrl: src.href,
+          pageUrl: pageUrl.href,
+          mediaType: msg.mediaType || 'image',
+          frameId: 0,
+        }
+        const services = msg.mode === 'all'
+          ? REVERSE_SEARCH_SERVICES
+          : REVERSE_SEARCH_SERVICES.filter((item) => item.id === msg.mode)
+        if (!services.length) throw new Error('Unknown reverse-search mode.')
+        services.forEach((service, index) => {
+          openReverseUpload(service, sender.tab, info, index === 0)
+        })
+        sendResponse({ ok: true, count: services.length })
+      } catch (error) {
+        sendResponse({ ok: false, error: error?.message || String(error) })
+      }
+    })()
+    return true
+  }
+
   if (msg && msg.type === 'nekobooru-booru-tags') {
     ;(async () => {
       try {
@@ -603,6 +635,18 @@ function documentPatternsForInstanceUrl(raw) {
     return [`${protocol}://${url.hostname}/*`]
   } catch {
     return []
+  }
+}
+
+async function isTrustedNekoBooruPage(raw) {
+  try {
+    const page = new URL(raw)
+    if (['localhost', '127.0.0.1'].includes(page.hostname)) return true
+    const stored = await chrome.storage.sync.get('instanceUrl')
+    if (!stored?.instanceUrl) return false
+    return page.origin === new URL(stored.instanceUrl).origin
+  } catch {
+    return false
   }
 }
 

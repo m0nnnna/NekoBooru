@@ -62,6 +62,10 @@ export const api = {
     return request(`/posts/${id}/similar${query ? `?${query}` : ''}`)
   },
 
+  async getPostOnlineMatches(id) {
+    return request(`/posts/${id}/online-matches`)
+  },
+
   async getDuplicateGroups() {
     return request('/posts/duplicates')
   },

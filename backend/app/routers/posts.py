@@ -402,6 +402,23 @@ async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
     return post.to_dict()
 
 
+@router.get("/posts/{post_id}/online-matches")
+async def get_post_online_matches(post_id: int, db: AsyncSession = Depends(get_db)):
+    """Look for byte-exact copies without uploading the post anywhere."""
+    result = await db.execute(select(Post).where(Post.id == post_id, Post.deleted_at.is_(None)))
+    post = result.scalars().first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    file_path = settings.posts_dir / post.content_path
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Post file not found")
+
+    from ..services.online_image_search import find_exact_online_matches
+
+    return await find_exact_online_matches(file_path)
+
+
 @router.get("/posts/{post_id}/ai-analysis")
 async def get_post_ai_analysis(post_id: int, db: AsyncSession = Depends(get_db)):
     """Return saved semantic/Qwen analysis for a post."""

@@ -17,6 +17,40 @@
 // player) and a touch off the element still counts.
 let lastEditableTarget = null
 
+// A post page can request the same reverse-search stack as the native context
+// menu. The background worker validates the sender against the saved instance
+// URL before acting; this listener is only the isolated-world bridge.
+window.addEventListener('message', (event) => {
+  const message = event.data
+  if (event.source !== window || event.origin !== location.origin) return
+  if (message?.type !== 'nekobooru-reverse-search-request' || message.source !== 'nekobooru-app') return
+  try {
+    chrome.runtime.sendMessage({
+      type: 'nekobooru-open-reverse-search',
+      requestId: message.requestId,
+      mode: message.mode,
+      src: message.mediaUrl,
+      mediaType: message.mediaType,
+      filename: message.filename,
+    }, (response) => {
+      const error = chrome.runtime.lastError
+      window.postMessage({
+        type: 'nekobooru-reverse-search-result',
+        requestId: message.requestId,
+        ok: !error && response?.ok === true,
+        error: error?.message || response?.error || '',
+      }, location.origin)
+    })
+  } catch (error) {
+    window.postMessage({
+      type: 'nekobooru-reverse-search-result',
+      requestId: message.requestId,
+      ok: false,
+      error: error?.message || 'The extension context is unavailable.',
+    }, location.origin)
+  }
+})
+
 function elementsUnder(x, y) {
   try {
     return document.elementsFromPoint(x, y)

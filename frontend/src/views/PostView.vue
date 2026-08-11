@@ -251,6 +251,60 @@
         </div>
       </div>
 
+      <div class="sidebar-section online-search-section">
+        <h3>Search Online</h3>
+        <p class="online-search-intro">
+          Check exact booru files locally, or upload this post/frame to a visual search provider.
+        </p>
+        <div class="online-search-actions">
+          <button class="btn btn-secondary" @click="findExactOnlineMatches" :disabled="onlineExactLoading">
+            {{ onlineExactLoading ? 'Checking...' : 'Exact lookup' }}
+          </button>
+          <button class="btn btn-secondary" @click="quickLensSearch" :disabled="onlineSearchBusy !== ''">
+            {{ onlineSearchBusy === 'lens' ? 'Preparing...' : 'Quick Lens' }}
+          </button>
+          <button class="btn" @click="fullReverseSearch" :disabled="onlineSearchBusy !== ''">
+            {{ onlineSearchBusy === 'full' ? 'Starting...' : 'Full stack' }}
+          </button>
+        </div>
+        <small class="online-search-hint">
+          Exact lookup sends only an MD5 to Danbooru/Gelbooru. Quick Lens opens one tab. Full stack uses the NekoBooru extension.
+        </small>
+        <p v-if="onlineSearchMessage" class="online-search-message" :class="onlineSearchMessageKind">
+          {{ onlineSearchMessage }}
+        </p>
+        <div v-if="onlineExactResult" class="online-exact-results">
+          <div class="online-exact-summary">
+            <strong>
+              {{ onlineExactResult.matches.length
+                ? `${onlineExactResult.matches.length} exact match${onlineExactResult.matches.length === 1 ? '' : 'es'}`
+                : 'No byte-exact matches' }}
+            </strong>
+            <code>{{ onlineExactResult.md5 }}</code>
+          </div>
+          <a
+            v-for="match in onlineExactResult.matches"
+            :key="`${match.provider}-${match.id}`"
+            class="online-match-row"
+            :href="match.postUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <span>
+              <strong>{{ match.providerLabel }} #{{ match.id }}</strong>
+              <small>{{ match.width && match.height ? `${match.width} × ${match.height}` : 'Dimensions unknown' }}{{ match.rating ? ` · ${match.rating}` : '' }}</small>
+            </span>
+            <span aria-hidden="true">↗</span>
+          </a>
+          <small v-if="onlineExactUnavailableProviders.length" class="online-provider-warning">
+            Unavailable: {{ onlineExactUnavailableProviders.join(', ') }}. Try again later or use visual search.
+          </small>
+          <small v-else-if="!onlineExactResult.matches.length">
+            Resizing or recompression changes the MD5; use Quick Lens or Full stack next.
+          </small>
+        </div>
+      </div>
+
       <div class="sidebar-section actions">
         <details class="post-optimize-menu" open>
           <summary class="post-optimize-summary">
@@ -776,6 +830,11 @@ import {
   mediaOptimizeProfileSettings,
   mediaOptimizeSavings,
 } from '../utils/mediaOptimize'
+import {
+  openSearchTarget,
+  requestExtensionReverseSearch,
+  submitSearchFile,
+} from '../utils/onlineImageSearch'
 
 const route = useRoute()
 const router = useRouter()
@@ -789,6 +848,11 @@ const loading = ref(true)
 const similar = ref([])
 const similarLoading = ref(false)
 const similarLoaded = ref(false)
+const onlineExactLoading = ref(false)
+const onlineExactResult = ref(null)
+const onlineSearchBusy = ref('')
+const onlineSearchMessage = ref('')
+const onlineSearchMessageKind = ref('success')
 const postAiAnalyses = ref([])
 const editingAiAnalysisId = ref(null)
 const aiAnalysisDescriptionDraft = ref('')
@@ -938,6 +1002,12 @@ const mediaType = computed(() => {
   if (ext === '.gif') return 'gif'
   return 'image'
 })
+
+const onlineExactUnavailableProviders = computed(() => (
+  (onlineExactResult.value?.providers || [])
+    .filter((provider) => !provider.available)
+    .map((provider) => provider.label)
+))
 
 const tweetUrl = computed(() => {
   const id = tweetIdFromPost(post.value)
@@ -1249,6 +1319,9 @@ watch(() => route.params.id, async () => {
   loadNeighbors()
   similar.value = []
   similarLoaded.value = false
+  onlineExactResult.value = null
+  onlineSearchMessage.value = ''
+  onlineSearchBusy.value = ''
   optimizeStatus.value = ''
   optimizePreview.value = null
   optimizePreviewOpen.value = false
@@ -1285,6 +1358,83 @@ async function loadSimilar() {
     alert('Failed to find similar posts: ' + e.message)
   } finally {
     similarLoading.value = false
+  }
+}
+
+function setOnlineSearchMessage(message, kind = 'success') {
+  onlineSearchMessage.value = message
+  onlineSearchMessageKind.value = kind
+}
+
+async function findExactOnlineMatches() {
+  if (!post.value?.id || onlineExactLoading.value) return
+  onlineExactLoading.value = true
+  setOnlineSearchMessage('Checking exact MD5 matches on Danbooru and Gelbooru...')
+  try {
+    onlineExactResult.value = await api.getPostOnlineMatches(post.value.id)
+    const count = onlineExactResult.value.matches?.length || 0
+    setOnlineSearchMessage(
+      count ? `Found ${count} byte-exact online match${count === 1 ? '' : 'es'}.` : 'Exact lookup finished; no identical files were found.',
+      count ? 'success' : 'neutral',
+    )
+  } catch (error) {
+    setOnlineSearchMessage('Exact lookup failed: ' + error.message, 'error')
+  } finally {
+    onlineExactLoading.value = false
+  }
+}
+
+async function fileForQuickVisualSearch() {
+  if (mediaType.value === 'video') {
+    const frame = await mediaViewer.value?.captureCurrentFrame?.()
+    if (!frame) throw new Error('The current video frame is not ready yet.')
+    const name = (post.value.filename || 'nekobooru-video').replace(/\.[^.]+$/, '')
+    return new File([frame], `${name}-frame.png`, { type: 'image/png' })
+  }
+
+  const response = await fetch(post.value.contentUrl, { credentials: 'same-origin' })
+  if (!response.ok) throw new Error(`Could not read the post image (HTTP ${response.status}).`)
+  const blob = await response.blob()
+  return new File([blob], post.value.filename || 'nekobooru-search-image', {
+    type: blob.type || 'application/octet-stream',
+  })
+}
+
+async function quickLensSearch() {
+  if (!post.value || onlineSearchBusy.value) return
+  let searchTarget = null
+  onlineSearchBusy.value = 'lens'
+  setOnlineSearchMessage('Preparing one Google Lens search tab...')
+  try {
+    // Open synchronously while the click still owns popup permission; media
+    // preparation can safely continue afterwards without being blocked.
+    searchTarget = openSearchTarget('google')
+    const file = await fileForQuickVisualSearch()
+    submitSearchFile('google', searchTarget.targetName, file)
+    setOnlineSearchMessage('Google Lens search opened.', 'success')
+  } catch (error) {
+    try { searchTarget?.targetWindow?.close() } catch { /* best effort */ }
+    setOnlineSearchMessage('Quick visual search failed: ' + error.message, 'error')
+  } finally {
+    onlineSearchBusy.value = ''
+  }
+}
+
+async function fullReverseSearch() {
+  if (!post.value || onlineSearchBusy.value) return
+  onlineSearchBusy.value = 'full'
+  setOnlineSearchMessage('Asking the NekoBooru extension to open the full reverse-search stack...')
+  try {
+    await requestExtensionReverseSearch({
+      mediaUrl: new URL(post.value.contentUrl, window.location.href).href,
+      mediaType: mediaType.value,
+      filename: post.value.filename,
+    })
+    setOnlineSearchMessage('Full reverse-search stack started in new tabs.', 'success')
+  } catch (error) {
+    setOnlineSearchMessage(error.message, 'error')
+  } finally {
+    onlineSearchBusy.value = ''
   }
 }
 
@@ -2734,6 +2884,104 @@ function booruSourceLinkFromPost(value) {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.online-search-intro {
+  margin: 0 0 0.65rem;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.online-search-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.online-search-actions .btn {
+  min-width: 0;
+  padding: 0.55rem 0.35rem;
+  font-size: 0.76rem;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.online-search-hint,
+.online-exact-results > small {
+  display: block;
+  margin-top: 0.55rem;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.online-search-message {
+  margin: 0.65rem 0 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 0.45rem;
+  background: rgba(34, 197, 94, 0.08);
+  color: #86efac;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.online-search-message.neutral {
+  border-color: var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.online-search-message.error,
+.online-provider-warning {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+  color: #fca5a5;
+}
+
+.online-exact-results {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.online-exact-summary {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.online-exact-summary code {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 0.66rem;
+}
+
+.online-match-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.online-match-row:hover {
+  border-color: var(--accent);
+}
+
+.online-match-row > span:first-child {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.online-match-row small {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
 }
 
 .ai-profile-actions {
