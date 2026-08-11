@@ -3,6 +3,7 @@ import time
 import uuid
 import asyncio
 import logging
+import zipfile
 import aiofiles
 import httpx
 import html as html_module
@@ -13,6 +14,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..config import settings
+from ..services.media import check_ffmpeg_available
+from ..services.pixiv_ugoira import convert_ugoira_zip_to_mp4, normalize_frames, validate_pixiv_ugoira_url
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,11 @@ class UrlFetchRequest(BaseModel):
 
 class FediverseRequest(BaseModel):
     url: str
+
+
+class PixivUgoiraRequest(BaseModel):
+    url: str
+    frames: list[dict]
 
 
 class UploadAutoTagPreviewRequest(BaseModel):
@@ -422,6 +430,66 @@ def _normalize_fetch_url(url: str) -> str:
     except Exception:
         pass
     return url
+
+
+@router.post("/from-pixiv-ugoira")
+async def upload_from_pixiv_ugoira(request: PixivUgoiraRequest):
+    """Download a trusted Pixiv ugoira frame ZIP and convert it to MP4."""
+    try:
+        url = validate_pixiv_ugoira_url(request.url)
+        frames = normalize_frames(request.frames)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not check_ffmpeg_available():
+        raise HTTPException(status_code=503, detail="FFmpeg is required to import Pixiv animations")
+
+    token = str(uuid.uuid4())
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = settings.uploads_dir / f"{token}.ugoira.zip"
+    output_path = settings.uploads_dir / f"{token}.mp4"
+    max_download_bytes = 512 * 1024 * 1024
+    try:
+        timeout = httpx.Timeout(120.0, connect=20.0)
+        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+            async with client.stream("GET", url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+                "Accept": "application/zip,application/octet-stream,*/*",
+                "Referer": "https://www.pixiv.net/",
+            }) as response:
+                response.raise_for_status()
+                validate_pixiv_ugoira_url(str(response.url))
+                declared_size = int(response.headers.get("content-length") or 0)
+                if declared_size > max_download_bytes:
+                    raise HTTPException(status_code=413, detail="Pixiv animation archive is too large")
+                downloaded = 0
+                async with aiofiles.open(archive_path, "wb") as output:
+                    async for chunk in response.aiter_bytes(1024 * 1024):
+                        downloaded += len(chunk)
+                        if downloaded > max_download_bytes:
+                            raise HTTPException(status_code=413, detail="Pixiv animation archive is too large")
+                        await output.write(chunk)
+
+        await asyncio.to_thread(convert_ugoira_zip_to_mp4, archive_path, frames, output_path)
+        upload_tokens[token] = output_path
+        return {
+            "token": token,
+            "filename": f"pixiv-ugoira-{token}.mp4",
+            "size": output_path.stat().st_size,
+            "frameCount": len(frames),
+            "url": url,
+        }
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch Pixiv animation: HTTP {exc.response.status_code}") from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch Pixiv animation: {exc}") from exc
+    except (ValueError, zipfile.BadZipFile) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        archive_path.unlink(missing_ok=True)
+        if token not in upload_tokens:
+            output_path.unlink(missing_ok=True)
 
 
 @router.post("/from-ytdlp")

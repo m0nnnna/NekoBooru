@@ -473,9 +473,23 @@ function sanitizeSiteImportJob(raw, senderUrl) {
       if (url.protocol !== 'https:' || (url.hostname !== 'pximg.net' && !url.hostname.endsWith('.pximg.net'))) {
         throw new Error(`Pixiv page ${index + 1} did not provide a trusted original URL.`)
       }
+      const type = item?.type === 'ugoira' ? 'ugoira' : 'image'
+      const frames = type === 'ugoira' ? (Array.isArray(item.frames) ? item.frames : []).slice(0, 2000).map((frame) => {
+        const file = String(frame?.file || '')
+        const delay = Math.round(Number(frame?.delay))
+        if (!/^[^\\/]+\.(?:jpe?g|png)$/i.test(file) || !Number.isFinite(delay) || delay < 1 || delay > 60000) {
+          throw new Error('Pixiv returned invalid animation frame data.')
+        }
+        return { file, delay }
+      }) : []
+      if (type === 'ugoira' && (!url.pathname.toLowerCase().endsWith('.zip') || !frames.length)) {
+        throw new Error('Pixiv returned incomplete animation data.')
+      }
       return {
         ...item,
+        type,
         url: url.href,
+        frames,
         tags: (item.tags || []).map(String).filter(Boolean).slice(0, 500),
         tagCategories: item.tagCategories || {},
         tagDisplayNames: item.tagDisplayNames || {},
@@ -488,6 +502,7 @@ function sanitizeSiteImportJob(raw, senderUrl) {
       artist: String(job.artist || '').slice(0, 200),
       canonicalUrl: `https://www.pixiv.net/en/artworks/${artworkId}`,
       groupTag: `pixiv_${artworkId}`,
+      isUgoira: media.some((item) => item.type === 'ugoira'),
     }
   }
   if (job.kind === 'gelbooru') {

@@ -85,7 +85,9 @@ async function importAll(job) {
   if (!allMedia.length) throw new Error('The source returned no original-resolution files.')
   els.title.textContent = job.title || 'Site import'
   els.detail.textContent = job.kind === 'pixiv'
-    ? `${allMedia.length} original Pixiv page${allMedia.length === 1 ? '' : 's'} · Choose pages below · Pixiv tags included · AI tagging enabled`
+    ? (job.isUgoira
+      ? 'Original Pixiv animation · MP4 conversion · Pixiv tags included · AI tagging enabled'
+      : `${allMedia.length} original Pixiv page${allMedia.length === 1 ? '' : 's'} · Choose pages below · Pixiv tags included · AI tagging enabled`)
     : 'Original Gelbooru file · source tags included · AI disabled'
   renderItems(allMedia, job.kind === 'pixiv')
 
@@ -96,8 +98,10 @@ async function importAll(job) {
   for (let index = 0; index < media.length; index += 1) {
     const item = media[index]
     const rowIndex = Number.isInteger(item.index) ? item.index : allMedia.indexOf(item)
-    setStatus(`Importing ${index + 1} of ${media.length} at original resolution…`, 'working')
-    setItem(rowIndex, 'working', 'Downloading original…')
+    setStatus(item.type === 'ugoira'
+      ? 'Downloading and converting the original animation…'
+      : `Importing ${index + 1} of ${media.length} at original resolution…`, 'working')
+    setItem(rowIndex, 'working', item.type === 'ugoira' ? 'Converting to MP4…' : 'Downloading original…')
     try {
       const result = await importOne(job, item)
       results.push(result)
@@ -158,10 +162,14 @@ function choosePixivMedia(media) {
 
 async function importOne(job, item) {
   if (!/^https:\/\//i.test(item.url || '')) throw new Error('Missing original file URL.')
-  const upload = await api(`${instanceUrl}/api/uploads/from-url`, {
+  const uploadPath = item.type === 'ugoira' ? 'from-pixiv-ugoira' : 'from-url'
+  const uploadPayload = item.type === 'ugoira'
+    ? { url: item.url, frames: item.frames }
+    : { url: item.url, referer: item.referer || job.canonicalUrl }
+  const upload = await api(`${instanceUrl}/api/uploads/${uploadPath}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: item.url, referer: item.referer || job.canonicalUrl }),
+    body: JSON.stringify(uploadPayload),
   })
   const body = siteImportCore.siteImportPostBody(job, item, upload.token)
 
@@ -233,7 +241,9 @@ function renderItems(media, selectable = false) {
     const mediaIndex = Number.isInteger(item.index) ? item.index : index
     const dimensions = item.width && item.height ? ` · ${item.width}×${item.height}` : ''
     const description = document.createElement('span')
-    description.textContent = `Page ${mediaIndex + 1}${dimensions}`
+    description.textContent = item.type === 'ugoira'
+      ? `Animation${dimensions} · ${item.frameCount || item.frames?.length || 0} frames`
+      : `Page ${mediaIndex + 1}${dimensions}`
     if (selectable) {
       const label = document.createElement('label')
       const input = document.createElement('input')

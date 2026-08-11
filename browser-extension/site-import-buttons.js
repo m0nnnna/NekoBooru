@@ -74,7 +74,18 @@
     if (!metaResponse.ok || !pagesResponse.ok) {
       throw new Error(`Pixiv metadata request failed (HTTP ${!metaResponse.ok ? metaResponse.status : pagesResponse.status}).`)
     }
-    return core.pixivImportJob(await metaResponse.json(), await pagesResponse.json(), location.href)
+    const metaPayload = await metaResponse.json()
+    const pagesPayload = await pagesResponse.json()
+    let ugoiraPayload = null
+    if (Number(metaPayload?.body?.illustType) === 2) {
+      const ugoiraResponse = await fetch(`/ajax/illust/${artworkId}/ugoira_meta?lang=en`, {
+        credentials: 'include',
+        cache: 'no-store',
+      })
+      if (!ugoiraResponse.ok) throw new Error(`Pixiv animation metadata failed (HTTP ${ugoiraResponse.status}).`)
+      ugoiraPayload = await ugoiraResponse.json()
+    }
+    return core.pixivImportJob(metaPayload, pagesPayload, location.href, ugoiraPayload)
   }
 
   function gelbooruOriginalFallback() {

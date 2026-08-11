@@ -38,6 +38,37 @@ assert.equal(job.media[0].tagCategories.pixiv_user_55, 'artist')
 assert.equal(job.media[0].tagDisplayNames.artist_name, 'Artist Name')
 assert.equal(job.media[0].source, 'https://www.pixiv.net/en/artworks/122812376')
 
+const ugoiraJob = core.pixivImportJob(
+  {
+    body: {
+      illustTitle: 'Animated work',
+      illustType: 2,
+      userId: '55',
+      userName: 'Artist Name',
+      tags: { tags: [{ tag: 'うごイラ' }] },
+    },
+  },
+  { body: [{ urls: { original: 'https://i.pximg.net/preview.jpg' }, width: 1920, height: 1080 }] },
+  'https://www.pixiv.net/en/artworks/92781927',
+  {
+    body: {
+      originalSrc: 'https://i.pximg.net/img-zip-ugoira/original.zip',
+      frames: [{ file: '000000.jpg', delay: 60 }, { file: '000001.jpg', delay: 120 }],
+    },
+  },
+)
+assert.equal(ugoiraJob.isUgoira, true)
+assert.equal(ugoiraJob.media.length, 1)
+assert.equal(ugoiraJob.media[0].type, 'ugoira')
+assert.equal(ugoiraJob.media[0].url, 'https://i.pximg.net/img-zip-ugoira/original.zip')
+assert.equal(ugoiraJob.media[0].frameCount, 2)
+assert.deepEqual(ugoiraJob.media[0].frames, [
+  { file: '000000.jpg', delay: 60 },
+  { file: '000001.jpg', delay: 120 },
+])
+assert.ok(ugoiraJob.media[0].tags.includes('ugoira'))
+assert.equal(ugoiraJob.media[0].source, 'https://www.pixiv.net/en/artworks/92781927')
+
 const pixivPostBody = core.siteImportPostBody(job, job.media[0], 'pixiv-token')
 assert.equal(pixivPostBody.autoTag, true)
 assert.equal(pixivPostBody.autoTagProfile, 'pixiv_import')

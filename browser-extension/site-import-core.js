@@ -39,7 +39,7 @@
     return normalizeTag(translated || entry?.tag || '')
   }
 
-  function pixivImportJob(metaPayload, pagesPayload, pageUrl) {
+  function pixivImportJob(metaPayload, pagesPayload, pageUrl, ugoiraPayload = null) {
     const artworkId = pixivArtworkId(pageUrl)
     if (!artworkId) throw new Error('This is not a Pixiv artwork page.')
     if (metaPayload?.error || pagesPayload?.error) {
@@ -48,6 +48,7 @@
     const meta = metaPayload?.body || metaPayload || {}
     const pages = pagesPayload?.body || pagesPayload || []
     if (!Array.isArray(pages) || !pages.length) throw new Error('Pixiv returned no artwork pages.')
+    const isUgoira = Number(meta.illustType) === 2
 
     const tags = []
     const tagCategories = {}
@@ -83,9 +84,42 @@
       tags.push('multiple_images')
       tagCategories.multiple_images = 'meta'
     }
+    if (isUgoira) {
+      if (!tags.includes('ugoira')) tags.push('ugoira')
+      tagCategories.ugoira = 'meta'
+    }
 
     const canonicalUrl = `https://www.pixiv.net/en/artworks/${artworkId}`
-    const media = pages.map((page, index) => {
+    let media
+    if (isUgoira) {
+      if (ugoiraPayload?.error) throw new Error(ugoiraPayload.message || 'Pixiv did not return the animation data.')
+      const ugoira = ugoiraPayload?.body || ugoiraPayload || {}
+      const original = String(ugoira.originalSrc || ugoira.src || '').trim()
+      const frames = Array.isArray(ugoira.frames) ? ugoira.frames.map((frame) => ({
+        file: String(frame?.file || ''),
+        delay: Number(frame?.delay),
+      })) : []
+      if (!/^https:\/\//i.test(original) || !frames.length) {
+        throw new Error('Pixiv returned incomplete animation data.')
+      }
+      const page = pages[0] || {}
+      const pageTag = `pixiv_${artworkId}_p1`
+      media = [{
+        type: 'ugoira',
+        url: original,
+        referer: 'https://www.pixiv.net/',
+        index: 0,
+        width: page.width || null,
+        height: page.height || null,
+        frameCount: frames.length,
+        frames,
+        source: canonicalUrl,
+        tags: [...tags, pageTag],
+        tagCategories: { ...tagCategories, [pageTag]: 'meta' },
+        tagDisplayNames: { ...tagDisplayNames },
+        safety: pixivSafety(meta),
+      }]
+    } else media = pages.map((page, index) => {
       const original = String(page?.urls?.original || '').trim()
       if (!/^https:\/\//i.test(original)) throw new Error(`Pixiv page ${index + 1} has no original image URL.`)
       const pageTag = `pixiv_${artworkId}_p${index + 1}`
@@ -110,6 +144,7 @@
       artist: String(meta.userName || ''),
       canonicalUrl,
       groupTag: artworkTag,
+      isUgoira,
       media,
     }
   }
