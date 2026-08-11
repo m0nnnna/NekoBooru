@@ -22,6 +22,8 @@
       .nekobooru-site-import-button:disabled { cursor: wait; opacity: .72; }
       .nekobooru-site-import-floating { bottom: 24px; position: fixed; right: 24px; }
       .nekobooru-site-import-button svg { height: 16px; width: 16px; }
+      .nekobooru-site-import-inline { cursor: pointer; font: inherit; white-space: nowrap; }
+      .nekobooru-site-import-inline[data-nekobooru-busy="true"] { cursor: wait; opacity: .65; }
     `
     document.documentElement.appendChild(style)
   }
@@ -38,6 +40,20 @@
     button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5"></path><path d="M5 16v2.2A2.8 2.8 0 0 0 7.8 21h8.4a2.8 2.8 0 0 0 2.8-2.8V16"></path></svg><span>${label}</span>`
     button.addEventListener('click', handleImportClick)
     return button
+  }
+
+  function createInlineLink(label, kind) {
+    const link = document.createElement('a')
+    link.href = '#'
+    link.className = 'nekobooru-site-import-inline'
+    link.dataset.nekobooruSiteImport = kind
+    link.title = 'Import Gelbooru\'s original-resolution file and tags to NekoBooru'
+    link.setAttribute('aria-label', link.title)
+    const text = document.createElement('span')
+    text.textContent = label
+    link.appendChild(text)
+    link.addEventListener('click', handleImportClick)
+    return link
   }
 
   async function pixivJob() {
@@ -81,10 +97,11 @@
     event.preventDefault()
     event.stopPropagation()
     const button = event.currentTarget
-    if (button.disabled) return
+    if (button.dataset.nekobooruBusy === 'true') return
     const label = button.querySelector('span')
     const originalLabel = label.textContent
-    button.disabled = true
+    button.dataset.nekobooruBusy = 'true'
+    if ('disabled' in button) button.disabled = true
     label.textContent = 'Preparing…'
     try {
       const job = button.dataset.nekobooruSiteImport === 'pixiv' ? await pixivJob() : gelbooruJob()
@@ -96,20 +113,25 @@
       button.title = error?.message || String(error)
     } finally {
       setTimeout(() => {
-        button.disabled = false
+        button.dataset.nekobooruBusy = 'false'
+        if ('disabled' in button) button.disabled = false
         label.textContent = originalLabel
       }, 2200)
     }
   }
 
-  function favoriteControl() {
-    return Array.from(document.querySelectorAll('a, button, input[type="button"], input[type="submit"]')).find((node) => {
+  function favoriteControls() {
+    return Array.from(document.querySelectorAll('a, button, input[type="button"], input[type="submit"]')).filter((node) => {
       if (node.closest?.('[data-nekobooru-site-import]')) return false
       const label = [node.id, node.className, node.textContent, node.value, node.title, node.getAttribute('aria-label')]
         .map((part) => String(part || ''))
         .join(' ')
       return /favou?rite/i.test(label)
     })
+  }
+
+  function gelbooruActionFavoriteControl() {
+    return core.selectGelbooruActionFavorite(favoriteControls())
   }
 
   function injectPixivButton() {
@@ -123,20 +145,13 @@
   function injectGelbooruButton() {
     if (!core.gelbooruPostId(location.href)) return
     if (document.querySelector('[data-nekobooru-site-import="gelbooru"]')) return
-    const button = createButton('NekoBooru original', 'gelbooru')
-    const favorite = favoriteControl()
-    const item = favorite?.closest('li')
-    if (item?.parentElement) {
-      const wrapper = document.createElement('li')
-      wrapper.dataset.nekobooruSiteImport = 'wrapper'
-      wrapper.appendChild(button)
-      item.insertAdjacentElement('afterend', wrapper)
-    } else if (favorite?.parentElement) {
-      favorite.insertAdjacentElement('afterend', button)
-    } else {
-      button.classList.add('nekobooru-site-import-floating')
-      document.body.appendChild(button)
-    }
+    const favorite = gelbooruActionFavoriteControl()
+    if (!favorite?.parentElement) return
+    const wrapper = document.createElement('span')
+    wrapper.dataset.nekobooruSiteImport = 'wrapper'
+    wrapper.appendChild(document.createTextNode(' | '))
+    wrapper.appendChild(createInlineLink('NekoBooru original', 'gelbooru'))
+    favorite.insertAdjacentElement('afterend', wrapper)
   }
 
   function scan() {

@@ -51,4 +51,11 @@ const gelbooruPostBody = core.siteImportPostBody(
 assert.equal(gelbooruPostBody.autoTag, false)
 assert.equal(gelbooruPostBody.autoTagProfile, 'gelbooru_import')
 
+const sidebarFavorite = { parentElement: { textContent: 'Add to favorites' } }
+const actionFavorite = { parentElement: { textContent: 'Edit | Leave a Comment | Unfavorite' } }
+assert.equal(
+  core.selectGelbooruActionFavorite([sidebarFavorite, actionFavorite]),
+  actionFavorite,
+)
+
 console.log('site-import-core tests passed')

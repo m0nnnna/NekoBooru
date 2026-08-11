@@ -128,12 +128,22 @@
     }
   }
 
+  function selectGelbooruActionFavorite(controls) {
+    const candidates = Array.from(controls || [])
+    const inActionRow = candidates.find((node) => {
+      const rowText = String(node?.parentElement?.textContent || '')
+      return /\bedit\b/i.test(rowText) && /leave a comment/i.test(rowText)
+    })
+    return inActionRow || candidates.at(-1) || null
+  }
+
   const api = {
     normalizeTag,
     pixivArtworkId,
     gelbooruPostId,
     pixivImportJob,
     pixivSafety,
+    selectGelbooruActionFavorite,
     siteImportPostBody,
   }
   root.NekoBooruSiteImport = api

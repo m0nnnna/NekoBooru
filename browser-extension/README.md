@@ -55,9 +55,10 @@ On a Pixiv artwork page, **Import all to NekoBooru** imports every page using
 Pixiv's `original` image URL. Each post keeps the Pixiv artwork link, shared
 `pixiv_<id>` tag, page-specific `pixiv_<id>_p<n>` tag, artist reference, and
 the readable artist name in the artist category, plus Pixiv tags. On Gelbooru
-post pages, **NekoBooru original** appears beside the favorite control and
-imports Gelbooru's authenticated `file_url` plus its tag categories, with AI
-tagging disabled. Pixiv imports explicitly run and save AI tags, including when
+post pages, **NekoBooru original** appears as a native-style text link directly
+to the right of the post action row's Favorite/Unfavorite link. It imports
+Gelbooru's authenticated `file_url` plus its tag categories, with AI tagging
+disabled. Pixiv imports explicitly run and save AI tags, including when
 an original already exists; Gelbooru imports never invoke AI.
 Most services use temporary extension helper pages that submit the image/frame
 bytes directly instead of relying on a public image URL. TinEye and trace.moe
