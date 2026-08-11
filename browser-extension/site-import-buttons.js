@@ -169,9 +169,18 @@
 
   function injectPixivButton() {
     if (!core.pixivArtworkId(location.href)) return
-    if (document.querySelector('[data-nekobooru-site-import="pixiv"]')) return
     const share = pixivShareControl()
     if (!share?.parentElement) return
+    const parent = share.parentElement
+    const existing = Array.from(parent.children).find((node) => (
+      node.dataset?.nekobooruSiteImport === 'pixiv'
+    ))
+    if (existing) {
+      // Pixiv can reorder or replace controls without removing the toolbar.
+      // Keep our existing button immediately after the current Share control.
+      if (existing.previousElementSibling !== share) share.insertAdjacentElement('afterend', existing)
+      return
+    }
     share.insertAdjacentElement('afterend', createPixivIconButton(share))
   }
 

@@ -142,6 +142,13 @@ assert.equal(
   core.selectPixivShareControl([iconOnlyLike, pixivHeart, unlabeledPixivShare, pixivMore]),
   unlabeledPixivShare,
 )
+const pixivBookmark = pixivRowControl('', 68)
+pixivBookmark.getAttribute = (name) => name === 'aria-label' ? 'Add to bookmarks' : ''
+const unlabeledMore = pixivRowControl('', 148)
+assert.equal(
+  core.selectPixivShareControl([pixivBookmark, unlabeledPixivShare, unlabeledMore]),
+  unlabeledPixivShare,
+)
 assert.deepEqual(
   core.selectedSiteImportMedia(job.media, [1]),
   [job.media[1]],

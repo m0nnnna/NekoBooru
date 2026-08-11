@@ -232,20 +232,20 @@
     }
 
     // Pixiv sometimes renders this row as unlabeled icon buttons. Locate the
-    // visible Like control, then choose the control immediately left of the
-    // rightmost (three-dot) control on the same horizontal line.
-    const like = innerControls.find((node) => (
-      /(^|[^a-z])(like|いいね)([^a-z]|$)/i.test(labelFor(node)) && visibleRect(node)
+    // visible Like or Bookmark control, then choose the control immediately
+    // left of the rightmost (three-dot) control on the same horizontal line.
+    const actionAnchor = innerControls.find((node) => (
+      /(^|[^a-z])(likes?|liked|bookmarks?|いいね|ブックマーク|收藏|북마크)([^a-z]|$)/i.test(labelFor(node)) && visibleRect(node)
     ))
-    const likeRect = visibleRect(like)
-    if (likeRect) {
-      const likeCenter = likeRect.top + (likeRect.height / 2)
-      const tolerance = Math.max(14, likeRect.height * 0.75)
+    const anchorRect = visibleRect(actionAnchor)
+    if (anchorRect) {
+      const anchorCenter = anchorRect.top + (anchorRect.height / 2)
+      const tolerance = Math.max(14, anchorRect.height * 0.75)
       const row = innerControls
         .map((node) => ({ node, rect: visibleRect(node) }))
         .filter(({ rect }) => (
-          rect && rect.left >= likeRect.left - 4 &&
-          Math.abs((rect.top + (rect.height / 2)) - likeCenter) <= tolerance
+          rect && rect.left >= anchorRect.left - 4 &&
+          Math.abs((rect.top + (rect.height / 2)) - anchorCenter) <= tolerance
         ))
         .sort((first, second) => first.rect.left - second.rect.left)
       const moreIndex = row.findIndex(({ node }) => (
