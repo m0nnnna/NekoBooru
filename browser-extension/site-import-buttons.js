@@ -11,35 +11,10 @@
     const style = document.createElement('style')
     style.id = 'nekobooru-site-import-style'
     style.textContent = `
-      .nekobooru-site-import-button {
-        align-items: center; background: #ff5c9a; border: 0; border-radius: 999px;
-        box-shadow: 0 5px 18px rgba(0,0,0,.24); box-sizing: border-box;
-        color: #fff !important; cursor: pointer; display: inline-flex; font: 700 13px/1.2 system-ui,sans-serif;
-        gap: 6px; justify-content: center; margin: 0 6px; min-height: 32px; padding: 8px 13px;
-        text-decoration: none !important; white-space: nowrap; z-index: 2147483646;
-      }
-      .nekobooru-site-import-button:hover { background: #ff3f87; }
-      .nekobooru-site-import-button:disabled { cursor: wait; opacity: .72; }
-      .nekobooru-site-import-floating { bottom: 24px; position: fixed; right: 24px; }
-      .nekobooru-site-import-button svg { height: 16px; width: 16px; }
       .nekobooru-site-import-inline { cursor: pointer; font: inherit; white-space: nowrap; }
-      .nekobooru-site-import-inline[data-nekobooru-busy="true"] { cursor: wait; opacity: .65; }
+      [data-nekobooru-site-import][data-nekobooru-busy="true"] { cursor: wait !important; opacity: .65; }
     `
     document.documentElement.appendChild(style)
-  }
-
-  function createButton(label, kind) {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.className = 'nekobooru-site-import-button'
-    button.dataset.nekobooruSiteImport = kind
-    button.title = kind === 'pixiv'
-      ? 'Import every original-resolution page to NekoBooru'
-      : 'Import Gelbooru\'s original-resolution file and tags to NekoBooru'
-    button.setAttribute('aria-label', button.title)
-    button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5"></path><path d="M5 16v2.2A2.8 2.8 0 0 0 7.8 21h8.4a2.8 2.8 0 0 0 2.8-2.8V16"></path></svg><span>${label}</span>`
-    button.addEventListener('click', handleImportClick)
-    return button
   }
 
   function createInlineLink(label, kind) {
@@ -50,10 +25,43 @@
     link.title = 'Import Gelbooru\'s original-resolution file and tags to NekoBooru'
     link.setAttribute('aria-label', link.title)
     const text = document.createElement('span')
+    text.dataset.nekobooruImportLabel = 'true'
     text.textContent = label
     link.appendChild(text)
     link.addEventListener('click', handleImportClick)
     return link
+  }
+
+  function createPixivIconButton(share) {
+    const button = share.cloneNode(true)
+    button.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id'))
+    button.removeAttribute('id')
+    button.removeAttribute('onclick')
+    button.removeAttribute('aria-expanded')
+    button.removeAttribute('aria-haspopup')
+    button.removeAttribute('aria-controls')
+    if (button.tagName === 'BUTTON') button.type = 'button'
+    if (button.tagName === 'A') button.href = '#'
+    button.dataset.nekobooruSiteImport = 'pixiv'
+    button.dataset.nekobooruBusy = 'false'
+    button.title = 'Import every original-resolution page to NekoBooru'
+    button.setAttribute('aria-label', button.title)
+
+    let icon = button.querySelector('svg')
+    if (!icon) {
+      icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      button.replaceChildren(icon)
+    }
+    icon.setAttribute('viewBox', '0 0 24 24')
+    icon.setAttribute('fill', 'none')
+    icon.setAttribute('stroke', 'currentColor')
+    icon.setAttribute('stroke-width', '2')
+    icon.setAttribute('stroke-linecap', 'round')
+    icon.setAttribute('stroke-linejoin', 'round')
+    icon.setAttribute('aria-hidden', 'true')
+    icon.innerHTML = '<path d="M12 3v12"></path><path d="m7.5 10.5 4.5 4.5 4.5-4.5"></path><path d="M5 17.5v.7A2.8 2.8 0 0 0 7.8 21h8.4a2.8 2.8 0 0 0 2.8-2.8v-.7"></path>'
+    button.addEventListener('click', handleImportClick)
+    return button
   }
 
   async function pixivJob() {
@@ -98,24 +106,31 @@
     event.stopPropagation()
     const button = event.currentTarget
     if (button.dataset.nekobooruBusy === 'true') return
-    const label = button.querySelector('span')
-    const originalLabel = label.textContent
+    const label = button.querySelector('[data-nekobooru-import-label]')
+    const originalLabel = label?.textContent || ''
+    const originalTitle = button.title
+    const originalAriaLabel = button.getAttribute('aria-label') || ''
     button.dataset.nekobooruBusy = 'true'
     if ('disabled' in button) button.disabled = true
-    label.textContent = 'Preparing…'
+    if (label) label.textContent = 'Preparing…'
+    button.title = 'Preparing NekoBooru import…'
+    button.setAttribute('aria-label', button.title)
     try {
       const job = button.dataset.nekobooruSiteImport === 'pixiv' ? await pixivJob() : gelbooruJob()
       const response = await chrome.runtime.sendMessage({ type: 'nekobooru-open-site-import', job })
       if (!response?.ok) throw new Error(response?.error || 'The NekoBooru import window could not be opened.')
-      label.textContent = 'Import opened'
+      if (label) label.textContent = 'Import opened'
+      button.title = 'NekoBooru import opened'
     } catch (error) {
-      label.textContent = 'Import failed'
+      if (label) label.textContent = 'Import failed'
       button.title = error?.message || String(error)
     } finally {
       setTimeout(() => {
         button.dataset.nekobooruBusy = 'false'
         if ('disabled' in button) button.disabled = false
-        label.textContent = originalLabel
+        if (label) label.textContent = originalLabel
+        button.title = originalTitle
+        button.setAttribute('aria-label', originalAriaLabel)
       }, 2200)
     }
   }
@@ -134,12 +149,19 @@
     return core.selectGelbooruActionFavorite(favoriteControls())
   }
 
+  function pixivShareControl() {
+    const controls = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter((node) => (
+      !node.closest?.('[data-nekobooru-site-import]')
+    ))
+    return core.selectPixivShareControl(controls)
+  }
+
   function injectPixivButton() {
     if (!core.pixivArtworkId(location.href)) return
     if (document.querySelector('[data-nekobooru-site-import="pixiv"]')) return
-    const button = createButton('Import all to NekoBooru', 'pixiv')
-    button.classList.add('nekobooru-site-import-floating')
-    document.body.appendChild(button)
+    const share = pixivShareControl()
+    if (!share?.parentElement) return
+    share.insertAdjacentElement('afterend', createPixivIconButton(share))
   }
 
   function injectGelbooruButton() {
@@ -150,7 +172,7 @@
     const wrapper = document.createElement('span')
     wrapper.dataset.nekobooruSiteImport = 'wrapper'
     wrapper.appendChild(document.createTextNode(' | '))
-    wrapper.appendChild(createInlineLink('NekoBooru original', 'gelbooru'))
+    wrapper.appendChild(createInlineLink('NekoBooru', 'gelbooru'))
     favorite.insertAdjacentElement('afterend', wrapper)
   }
 

@@ -137,6 +137,29 @@
     return inActionRow || candidates.at(-1) || null
   }
 
+  function selectPixivShareControl(controls) {
+    const candidates = Array.from(controls || []).filter((node) => {
+      const datasetValues = node?.dataset ? Object.values(node.dataset) : []
+      const nestedLabel = node?.querySelector?.('[aria-label], title')
+      const label = [
+        node?.textContent,
+        node?.title,
+        node?.getAttribute?.('aria-label'),
+        node?.getAttribute?.('data-gtm-action'),
+        node?.getAttribute?.('data-click-label'),
+        nestedLabel?.getAttribute?.('aria-label'),
+        nestedLabel?.textContent,
+        ...datasetValues,
+      ].map((part) => String(part || '')).join(' ')
+      return /(^|[^a-z])(share|シェア|共有)([^a-z]|$)/i.test(label)
+    })
+    const visible = candidates.find((node) => {
+      const rect = node?.getBoundingClientRect?.()
+      return rect && rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0
+    })
+    return visible || candidates[0] || null
+  }
+
   const api = {
     normalizeTag,
     pixivArtworkId,
@@ -144,6 +167,7 @@
     pixivImportJob,
     pixivSafety,
     selectGelbooruActionFavorite,
+    selectPixivShareControl,
     siteImportPostBody,
   }
   root.NekoBooruSiteImport = api

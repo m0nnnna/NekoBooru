@@ -51,11 +51,12 @@ The same full stack is available from **Search Online → Full stack** on every
 NekoBooru post page. **Quick Lens** opens only Google Lens, while **Exact lookup**
 uses the app directly and does not require the extension.
 
-On a Pixiv artwork page, **Import all to NekoBooru** imports every page using
-Pixiv's `original` image URL. Each post keeps the Pixiv artwork link, shared
-`pixiv_<id>` tag, page-specific `pixiv_<id>_p<n>` tag, artist reference, and
+On a Pixiv artwork page, the NekoBooru download icon appears immediately to the
+right of Pixiv's Share button using the same native control styling. It imports
+every page using Pixiv's `original` image URL. Each post keeps the Pixiv artwork
+link, shared `pixiv_<id>` tag, page-specific `pixiv_<id>_p<n>` tag, artist reference, and
 the readable artist name in the artist category, plus Pixiv tags. On Gelbooru
-post pages, **NekoBooru original** appears as a native-style text link directly
+post pages, **NekoBooru** appears as a native-style text link directly
 to the right of the post action row's Favorite/Unfavorite link. It imports
 Gelbooru's authenticated `file_url` plus its tag categories, with AI tagging
 disabled. Pixiv imports explicitly run and save AI tags, including when

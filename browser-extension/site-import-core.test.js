@@ -58,4 +58,19 @@ assert.equal(
   actionFavorite,
 )
 
+const unrelatedPixivControl = {
+  dataset: {},
+  getAttribute: () => '',
+  getBoundingClientRect: () => ({ width: 32, height: 32, bottom: 100, right: 100 }),
+  querySelector: () => null,
+  textContent: 'Like',
+  title: '',
+}
+const pixivShare = {
+  ...unrelatedPixivControl,
+  getAttribute: (name) => name === 'aria-label' ? 'Share' : '',
+  textContent: '',
+}
+assert.equal(core.selectPixivShareControl([unrelatedPixivControl, pixivShare]), pixivShare)
+
 console.log('site-import-core tests passed')
