@@ -126,7 +126,9 @@ function onInput() {
       suggestions.value = []
       selectedIndex.value = -1
     }
-  }, 150)
+    // With remote suggestions on, this query can reach a public booru, so it
+    // waits for a pause in typing rather than firing on every keystroke.
+  }, 300)
 }
 
 function removeTag(tag) {

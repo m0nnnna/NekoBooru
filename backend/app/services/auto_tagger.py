@@ -446,10 +446,14 @@ class WdTagger:
         general: list[tuple[str, float]] = []
         characters: list[tuple[str, float]] = []
         rating: dict[str, float] = {}
+        display_names: dict[str, str] = {}
 
         for (name, category), score in zip(self._tag_rows, scores):
             confidence = float(score)
             norm = normalize_tag(name)
+            qualified = qualified_display_name(name)
+            if qualified:
+                display_names[norm] = qualified
             if category == 0 and confidence >= opts.generalThreshold:
                 general.append((norm, confidence))
             elif category == 4 and confidence >= opts.characterThreshold:
@@ -473,6 +477,7 @@ class WdTagger:
             rating=rating,
             safety=safety,
             categories=categories,
+            display_names={tag: raw for tag, raw in display_names.items() if tag in categories},
             evidence={
                 "kind": "image",
                 "topTags": [{"tag": n, "confidence": c} for n, c in general[:10]],
@@ -563,7 +568,9 @@ class PixAiTagger:
             tag = normalize_tag(name)
             if not tag:
                 continue
-            display_names[tag] = name
+            qualified = qualified_display_name(name)
+            if qualified:
+                display_names[tag] = qualified
             if category == "character":
                 threshold = max(float(opts.characterThreshold), float(MODEL_REGISTRY["pixai"].get("characterThreshold") or 0.85))
             elif category in {"copyright", "artist"}:
@@ -698,7 +705,9 @@ class CamieTagger:
             confidence = float(score)
             if confidence >= threshold_by_category.get(category, opts.generalThreshold):
                 normalized = normalize_tag(tag)
-                display_names[normalized] = tag
+                qualified = qualified_display_name(tag)
+                if qualified:
+                    display_names[normalized] = qualified
                 by_category.setdefault(category, []).append((normalized, confidence))
 
         for category in by_category:
@@ -838,7 +847,9 @@ class ClTagger:
             tag = normalize_tag(raw_tag)
             if not tag:
                 continue
-            display_names[tag] = raw_tag
+            qualified = qualified_display_name(raw_tag)
+            if qualified:
+                display_names[tag] = qualified
             confidence = float(score)
             if category == "rating":
                 if confidence >= 0.01:
@@ -3284,7 +3295,9 @@ def _add_booru_copyrights(result: AutoTagResult, opts: AutoTagOptions) -> None:
         added.append(tag)
         result.copyright_tags.append(tag)
         result.categories[tag] = "copyright"
-        result.display_names.setdefault(tag, copyright_name.replace("_", " "))
+        qualified = qualified_display_name(copyright_name)
+        if qualified:
+            result.display_names.setdefault(tag, qualified)
         logger.info("booru lookup added copyright %s for character %s", tag, character)
     if added and isinstance(result.evidence, dict):
         result.evidence["booruCopyrights"] = added
@@ -3612,6 +3625,26 @@ def normalize_tag(raw: str) -> str:
     tag = re.sub(r"[^\w:.-]+", "_", tag)
     tag = re.sub(r"_+", "_", tag)
     return tag.strip("_")
+
+
+def qualified_display_name(raw: str) -> str | None:
+    """The readable spelling of a tagger vocabulary name, or None if it has none.
+
+    Every tagger vocabulary here is Danbooru-shaped: ``nami_(one_piece)``, which
+    normalize_tag() flattens to ``nami_one_piece``. That flattening is what makes
+    both spellings find each other in search, but it drops the qualifier's
+    parentheses, and the UI's fallback (underscores become spaces) cannot put
+    them back. Keep them for qualified names only - a plain tag's fallback
+    already reads correctly, so storing one for it is noise.
+
+    Mirrors services/tagging.qualifier_display_name, which does the same for
+    hand-typed and imported tags; this module deliberately stays free of the DB
+    layer, the way it already keeps its own copy of normalize_tag().
+    """
+    text = re.sub(r"\s+", " ", str(raw or "").strip().lower())
+    if "(" not in text or ")" not in text:
+        return None
+    return text.replace("_", " ").strip()
 
 
 def _dedupe_tags(tags: list[str]) -> list[str]:

@@ -183,8 +183,11 @@
       <label class="toggle-card">
         <input type="checkbox" v-model="extensionSettings.saveTweetTag" />
         <span>
-          <strong>Save tweet ID as tag</strong>
-          <small>Adds tags like <code>twitter_2063698076431200361</code> when uploading from X/Twitter.</small>
+          <strong>Save tweet/booru post ID as tag</strong>
+          <small>
+            Adds tags like <code>twitter_2063698076431200361</code> when uploading from X/Twitter, or
+            <code>danbooru_12345</code> when uploading from a supported booru's post page.
+          </small>
         </span>
       </label>
       <label class="toggle-card">

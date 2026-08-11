@@ -1602,6 +1602,23 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertEqual(combined.display_names["blue_archive"], "blue archive")
         self.assertEqual(combined.display_names["halo"], "halo")
 
+    def test_qualified_display_name_keeps_only_the_parentheses(self):
+        """Every tagger vocabulary is Danbooru-shaped, so one rule covers them all."""
+        from app.services.auto_tagger import normalize_tag, qualified_display_name
+
+        # WD/PixAI/Camie write underscores; CL writes spaces. Same spelling.
+        self.assertEqual(qualified_display_name("nami_(one_piece)"), "nami (one piece)")
+        self.assertEqual(qualified_display_name("nami (one piece)"), "nami (one piece)")
+        self.assertEqual(
+            qualified_display_name("aris_(maid)_(blue_archive)"), "aris (maid) (blue archive)"
+        )
+        # Plain tags need nothing: "looking at viewer" is the UI's own fallback.
+        self.assertIsNone(qualified_display_name("looking_at_viewer"))
+        self.assertIsNone(qualified_display_name("1girl"))
+        self.assertIsNone(qualified_display_name(""))
+        # The display name must still normalize back to the stored key.
+        self.assertEqual(normalize_tag(qualified_display_name("nami_(one_piece)")), "nami_one_piece")
+
     def test_tag_detail_falls_back_when_no_spelling_was_stored(self):
         from app.models import Tag, TagCategory
         from app.models.post import _tag_detail

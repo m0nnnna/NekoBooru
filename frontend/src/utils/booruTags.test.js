@@ -58,6 +58,19 @@ describe('cleanBooruTagName', () => {
     // "2girls" and "fate/stay_night" must survive the post-count trim.
     expect(booru.cleanBooruTagName('2girls')).toBe('2girls')
   })
+
+  it('keeps a qualifier that ends in digits, like a numeric-handle artist tag', () => {
+    // "shiki_(kisikisi1007)" is a real Danbooru/Gelbooru artist tag: the
+    // disambiguator is the artist's numeric Twitter handle. With no real
+    // count to strip (the sidebar keeps that in its own element), a bare
+    // \s* let the count-stripper eat the qualifier's own trailing digits and
+    // its closing paren, corrupting the tag to "shiki_(kisikisi".
+    expect(booru.cleanBooruTagName('shiki (kisikisi1007)')).toBe('shiki_(kisikisi1007)')
+    expect(booru.cleanBooruTagName('shiki_(kisikisi1007)')).toBe('shiki_(kisikisi1007)')
+    // A real trailing count (always whitespace-separated in practice) must
+    // still be stripped even when the tag itself ends in digits.
+    expect(booru.cleanBooruTagName('shiki (kisikisi1007) 127')).toBe('shiki_(kisikisi1007)')
+  })
 })
 
 describe('parsers', () => {

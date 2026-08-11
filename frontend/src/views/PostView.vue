@@ -50,6 +50,14 @@
               </a>
             </dd>
           </template>
+          <template v-if="booruSourceLink">
+            <dt>{{ booruSourceLink.label }}</dt>
+            <dd>
+              <a class="external-link" :href="booruSourceLink.url" target="_blank" rel="noopener noreferrer">
+                Open on {{ booruSourceLink.label }}
+              </a>
+            </dd>
+          </template>
           <dt>Rating</dt>
           <dd class="safety-buttons">
             <button
@@ -935,6 +943,7 @@ const tweetUrl = computed(() => {
   const id = tweetIdFromPost(post.value)
   return id ? `https://x.com/i/status/${id}` : ''
 })
+const booruSourceLink = computed(() => booruSourceLinkFromPost(post.value))
 const postCurrentMaxSide = computed(() => Math.max(Number(post.value?.width || 0), Number(post.value?.height || 0)))
 const postCurrentVideoBitrate = computed(() => estimatedVideoBitrateKbps(post.value))
 const postOptimizeExtension = computed(() => String(post.value?.extension || '').toLowerCase())
@@ -2503,6 +2512,44 @@ function tweetIdFromUrl(raw) {
   } catch {
     return ''
   }
+}
+
+// Mirrors BOORU_SITES in browser-extension/booru-tags.js - keep the host
+// lists in step. Only used to label a link back to post.source, so it needs
+// no post-id parsing of its own: several of these siteIds (gelbooru,
+// moebooru) cover multiple actual domains, so there is no way to rebuild a
+// working URL from a saved "gelbooru_12345"-style tag alone. post.source -
+// the exact page the post was downloaded from - is the only reliable source.
+const BOORU_SOURCE_HOSTS = [
+  { label: 'Danbooru', matches: (host) => host === 'donmai.us' || host.endsWith('.donmai.us') },
+  { label: 'e621', matches: (host) => host === 'e621.net' || host === 'e926.net' },
+  { label: 'Moebooru', matches: (host) => ['yande.re', 'konachan.com', 'konachan.net'].includes(host) },
+  {
+    label: 'Gelbooru',
+    matches: (host) => [
+      'gelbooru.com',
+      'safebooru.org',
+      'rule34.xxx',
+      'tbib.org',
+      'xbooru.com',
+      'realbooru.com',
+      'hypnohub.net',
+    ].includes(host),
+  },
+]
+
+function booruSourceLinkFromPost(value) {
+  const raw = value?.source
+  if (!raw) return null
+  let url
+  try {
+    url = new URL(raw)
+  } catch {
+    return null
+  }
+  const host = url.hostname.replace(/^www\./, '').toLowerCase()
+  const site = BOORU_SOURCE_HOSTS.find((entry) => entry.matches(host))
+  return site ? { url: raw, label: site.label } : null
 }
 </script>
 

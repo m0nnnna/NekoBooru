@@ -147,7 +147,14 @@ function cleanBooruTagName(raw) {
     .replace(/ /g, ' ')
     .trim()
     .replace(/^[?+\-\s]+/, '')
-    .replace(/\s*\(?\d[\d,.kKmM]*\)?$/, '')
+    // The count is only ever a separate token after whitespace (every real
+    // markup sample keeps it in its own element, never glued onto the tag).
+    // A bare \s* here used to also eat a qualifier's own trailing digits, e.g.
+    // an artist disambiguated by a numeric handle - "shiki_(kisikisi1007)"
+    // lost its "1007)" because the count-stripper matched it with nothing to
+    // its left. Requiring \s+ makes it only ever strip a genuinely separate
+    // trailing count.
+    .replace(/\s+\(?\d[\d,.kKmM]*\)?$/, '')
     .trim()
     .replace(/\s+/g, '_')
     .toLowerCase()

@@ -7,7 +7,7 @@ from sqlalchemy import select, and_, or_, not_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..models import Post, Tag, PostTag, Favorite, PoolPost
+from ..models import Post, Tag, PostTag, Favorite, PoolPost, TagAlias
 from .ai_analysis import semantic_analysis_condition
 from .tagging import normalize_tag
 
@@ -113,11 +113,16 @@ def _order_column(sort: str):
     }.get(sort, Post.created_at)
 
 
-def build_conditions(query: str) -> list:
+def build_conditions(query: str, alias_map: dict[str, str] | None = None) -> list:
     """Translate a search query into a list of SQLAlchemy WHERE conditions.
 
     Shared by :func:`search_posts` and :func:`get_post_neighbors` so the gallery
     list and the prev/next navigation always agree on which posts match.
+
+    ``alias_map`` maps a normalized tag alias (e.g. "sango_pokemon") to its
+    canonical target tag name (e.g. "coral_pokemon"), from :func:`_alias_target_map`.
+    Without it, searching an alias someone typed instead of the tag it merges
+    into would silently return nothing.
     """
     tokens = tokenize(query) if query else []
 
@@ -128,7 +133,7 @@ def build_conditions(query: str) -> list:
 
     for token in tokens:
         if token.type == TokenType.TAG:
-            condition = _post_has_tag_name_like(token.value)
+            condition = _post_has_tag_name_like(token.value, alias_map)
             if condition is None:
                 continue
             if current_or_group:
@@ -137,7 +142,7 @@ def build_conditions(query: str) -> list:
                 and_conditions.append(condition)
 
         elif token.type == TokenType.NEGATED_TAG:
-            condition = _post_has_tag_name_like(token.value)
+            condition = _post_has_tag_name_like(token.value, alias_map)
             if condition is not None:
                 and_conditions.append(not_(condition))
 
@@ -205,30 +210,80 @@ def _normalize_tag_query(value: str) -> str:
     return normalize_tag(value)
 
 
-def _semantic_tag_name_condition(normalized: str):
+def _qualifier_fuzzy_condition(column, normalized: str):
+    """Match ``column`` against a normalized value, ignoring booru qualifiers.
+
+    ``sango`` matches a stored ``sango_pokemon`` the same way a plain word
+    matches one segment of a qualified tag name - shared by tag-name matching
+    and by alias lookups, so an unqualified search word can also resolve an
+    alias like "sango_pokemon" -> "coral_pokemon".
+    """
     escaped = _escape_like(normalized)
-    name = func.lower(Tag.name)
+    value = func.lower(column)
     return or_(
-        name == normalized,
-        name.like(f"{escaped}\\_%", escape="\\"),
-        name.like(f"%\\_{escaped}", escape="\\"),
-        name.like(f"%\\_{escaped}\\_%", escape="\\"),
+        value == normalized,
+        value.like(f"{escaped}\\_%", escape="\\"),
+        value.like(f"%\\_{escaped}", escape="\\"),
+        value.like(f"%\\_{escaped}\\_%", escape="\\"),
     )
 
 
-def _tag_name_condition(value: str):
+def _semantic_tag_name_condition(normalized: str):
+    return _qualifier_fuzzy_condition(Tag.name, normalized)
+
+
+def _tag_name_condition(value: str, alias_map: dict[str, str] | None = None):
     normalized = _normalize_tag_query(value)
     if not normalized:
         return None
+    normalized = (alias_map or {}).get(normalized, normalized)
     return _semantic_tag_name_condition(normalized)
 
 
-def _post_has_tag_name_like(value: str):
-    condition = _tag_name_condition(value)
+def _post_has_tag_name_like(value: str, alias_map: dict[str, str] | None = None):
+    condition = _tag_name_condition(value, alias_map)
     if condition is None:
         return None
     subq = select(PostTag.c.post_id).join(Tag).where(condition)
     return Post.id.in_(subq)
+
+
+def _tag_token_names(tokens: list[Token]) -> set[str]:
+    return {
+        _normalize_tag_query(token.value)
+        for token in tokens
+        if token.type in (TokenType.TAG, TokenType.NEGATED_TAG)
+    }
+
+
+async def _alias_target_map(session: AsyncSession, names: set[str]) -> dict[str, str]:
+    """Resolve any of the given normalized search terms that name a TagAlias to its target's name.
+
+    Search matches Tag rows directly, so a query for an aliased spelling (e.g.
+    "sango" for a tag merged into "coral_(pokemon)") would otherwise match
+    nothing even though tagging a post with it resolves through the alias fine.
+    Matching is fuzzy the same way tag names are (an unqualified "sango" finds
+    the qualified alias "sango_pokemon"), so this is queried per name rather
+    than with a single IN(). Shared by the plain tag-query path and semantic
+    expansion, which each normalize their own search terms before calling this.
+    """
+    names = {name for name in names if name}
+    if not names:
+        return {}
+    result: dict[str, str] = {}
+    for name in names:
+        target_name = (
+            await session.execute(
+                select(Tag.name)
+                .join(TagAlias, TagAlias.target_id == Tag.id)
+                .where(_qualifier_fuzzy_condition(TagAlias.alias_name, name))
+                .order_by(func.length(TagAlias.alias_name).asc())
+                .limit(1)
+            )
+        ).scalars().first()
+        if target_name:
+            result[name] = target_name
+    return result
 
 
 async def _semantic_expansion_conditions(session: AsyncSession, query: str) -> list:
@@ -242,16 +297,18 @@ async def _semantic_expansion_conditions(session: AsyncSession, query: str) -> l
     if not words:
         return []
 
+    normalized_words = [normalize_tag(word) for word in words[:6]]
+    normalized_words = [n for n in normalized_words if n]
+    alias_map = await _alias_target_map(session, set(normalized_words))
+
     groups = []
-    for word in words[:6]:
+    for normalized in normalized_words:
         # Same normalizer as tag writes: this used to collapse the booru
         # qualifier syntax without merging the runs it created, so
         # "shimakaze_(kancolle)" became "shimakaze__kancolle" and matched
         # nothing. Semantic expansion replaces the plain tag conditions
         # entirely, so a miss here silently returned zero results.
-        normalized = normalize_tag(word)
-        if not normalized:
-            continue
+        normalized = alias_map.get(normalized, normalized)
         rows = (
             await session.execute(
                 select(Tag.name)
@@ -300,7 +357,8 @@ async def get_post_neighbors(
         return {"prev": None, "next": None}
 
     cur_id, cur_val = current[0], current[1]
-    conditions = build_conditions(query)
+    alias_map = await _alias_target_map(session, _tag_token_names(tokenize(query) if query else []))
+    conditions = build_conditions(query, alias_map)
     if semantic_search:
         semantic_conditions = await _semantic_expansion_conditions(session, query)
         if semantic_conditions:
@@ -341,7 +399,8 @@ async def search_posts(
         selectinload(Post.favorite),
     )
 
-    all_conditions = build_conditions(query)
+    alias_map = await _alias_target_map(session, _tag_token_names(tokenize(query) if query else []))
+    all_conditions = build_conditions(query, alias_map)
     if semantic_search:
         semantic_conditions = await _semantic_expansion_conditions(session, query)
         if semantic_conditions:

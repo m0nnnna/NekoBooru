@@ -11,6 +11,19 @@ unlike its dapi, which is why :mod:`booru_lookup` cannot use it.
 
 Best-effort throughout: a slow or unreachable board degrades to local-only
 suggestions, never to an error or a stalled keystroke.
+
+Typing is a request amplifier - one tag can be a dozen keystrokes, and these are
+other people's servers - so four things stand between the keyboard and an
+upstream request, in the order they are checked:
+
+1. the response cache, which also caches misses;
+2. prefix suppression - a shorter prefix that found nothing means a longer term
+   starting with it finds nothing either, since the boards only narrow as you
+   type;
+3. single-flight, so two clients typing the same word make one request;
+4. a token bucket, which answers local-only rather than queueing once the burst
+   is spent, plus a per-board cooldown that honours ``Retry-After`` when a board
+   does push back.
 """
 from __future__ import annotations
 
@@ -35,6 +48,15 @@ CACHE_TTL_SECONDS = 900
 CACHE_MAX_ENTRIES = 512
 MIN_QUERY_LENGTH = 2
 
+# Outbound budget, shared by every client of this instance. A burst covers
+# finishing the word you are on; the refill rate is what a sustained typing
+# session is allowed to cost. Overrunning it costs suggestions, never an error.
+RATE_LIMIT_BURST = 8
+RATE_LIMIT_PER_SECOND = 2.0
+# Applied per board when it answers 429/503 without saying how long to wait.
+DEFAULT_COOLDOWN_SECONDS = 60.0
+MAX_COOLDOWN_SECONDS = 900.0
+
 # Danbooru's numeric tag categories, shared by every board that copied its
 # schema. 2 is deprecated upstream and 6+ have no local equivalent.
 DANBOORU_CATEGORY_NAMES = {
@@ -58,6 +80,85 @@ GELBOORU_CATEGORY_NAMES = {
 }
 
 _cache: dict[tuple[str, int], tuple[float, list[dict]]] = {}
+# Requests this process has already sent and is still waiting on, so N clients
+# typing the same word cost one upstream request rather than N.
+_inflight: dict[tuple[str, int], "asyncio.Future[list[dict]]"] = {}
+# Board id -> monotonic deadline before which we will not call it again.
+_cooldowns: dict[str, float] = {}
+
+
+class _RequestBudget:
+    """Token bucket over outbound suggestion requests.
+
+    Deliberately not a queue: a keystroke's request is worthless by the time a
+    queue would release it, so an exhausted bucket declines and the caller falls
+    back to local suggestions.
+    """
+
+    def __init__(self, burst: int, per_second: float) -> None:
+        self.capacity = float(burst)
+        self.per_second = per_second
+        self.tokens = float(burst)
+        self.updated = time.monotonic()
+
+    def take(self) -> bool:
+        now = time.monotonic()
+        self.tokens = min(self.capacity, self.tokens + (now - self.updated) * self.per_second)
+        self.updated = now
+        if self.tokens < 1.0:
+            return False
+        self.tokens -= 1.0
+        return True
+
+    def reset(self) -> None:
+        self.tokens = self.capacity
+        self.updated = time.monotonic()
+
+
+_budget = _RequestBudget(RATE_LIMIT_BURST, RATE_LIMIT_PER_SECOND)
+
+
+def _cooling_down(board: str) -> bool:
+    until = _cooldowns.get(board)
+    if until is None:
+        return False
+    if time.monotonic() >= until:
+        _cooldowns.pop(board, None)
+        return False
+    return True
+
+
+def _cool_down(board: str, seconds: float) -> None:
+    seconds = max(1.0, min(float(seconds or DEFAULT_COOLDOWN_SECONDS), MAX_COOLDOWN_SECONDS))
+    _cooldowns[board] = max(_cooldowns.get(board, 0.0), time.monotonic() + seconds)
+    logger.warning("%s is rate limiting tag suggestions; backing off for %.0fs", board, seconds)
+
+
+def _retry_after_seconds(response: httpx.Response) -> float:
+    """Seconds from a Retry-After header. Only the delta form is worth honouring.
+
+    The HTTP-date form exists but no booru sends it here, and guessing at clock
+    skew to parse one would be a worse answer than the default cooldown.
+    """
+    raw = (response.headers.get("Retry-After") or "").strip()
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_COOLDOWN_SECONDS
+
+
+def _prefix_known_empty(term: str, limit: int) -> bool:
+    """True when a cached shorter prefix of ``term`` found nothing upstream.
+
+    Both boards match the typed text against the tag, so the result set can only
+    shrink as the term grows: if "hoshin" had no matches, "hoshino" has none
+    either, and the request can be skipped outright.
+    """
+    for length in range(MIN_QUERY_LENGTH, len(term)):
+        cached = _cache_get((term[:length], limit))
+        if cached is not None and not cached:
+            return True
+    return False
 
 
 def _cache_get(key: tuple[str, int]) -> list[dict] | None:
@@ -80,7 +181,10 @@ def _cache_put(key: tuple[str, int], value: list[dict]) -> None:
 
 
 def clear_cache() -> None:
+    """Forget everything this module remembers, including the rate-limit state."""
     _cache.clear()
+    _cooldowns.clear()
+    _budget.reset()
 
 
 def _suggestion(name: str, category: str | None, post_count, source: str) -> dict | None:
@@ -133,11 +237,18 @@ def parse_gelbooru_suggestions(payload) -> list[dict]:
     return out
 
 
-async def _get_json(client: httpx.AsyncClient, url: str):
+async def _get_json(client: httpx.AsyncClient, url: str, board: str):
+    if _cooling_down(board):
+        return None
     try:
         response = await client.get(url)
     except httpx.HTTPError as exc:
         logger.debug("tag suggestion request failed for %s: %s", url, exc)
+        return None
+    # 429 is the explicit answer and 503 the one an overloaded board gives
+    # instead; both mean stop asking, not retry on the next keystroke.
+    if response.status_code in (429, 503):
+        _cool_down(board, _retry_after_seconds(response))
         return None
     if response.status_code >= 400:
         logger.debug("tag suggestion request returned HTTP %s for %s", response.status_code, url)
@@ -151,9 +262,10 @@ async def _get_json(client: httpx.AsyncClient, url: str):
 async def suggest_tags(query: str, *, limit: int = 10, timeout: float = DEFAULT_TIMEOUT) -> list[dict]:
     """Remote tag suggestions for a partial name. Never raises.
 
-    Danbooru answers first because its categories are the most reliable;
-    Gelbooru only tops the list up when Danbooru came back short, so the common
-    case costs one request rather than two.
+    Answers from cache, from a shorter prefix that already came back empty, or
+    from a request that has to get past the shared budget first - see the module
+    docstring. An unavailable board and a spent budget look the same to the
+    caller: an empty list, and local suggestions only.
     """
     term = normalize_tag(query)
     if len(term) < MIN_QUERY_LENGTH:
@@ -162,11 +274,62 @@ async def suggest_tags(query: str, *, limit: int = 10, timeout: float = DEFAULT_
     cached = _cache_get(key)
     if cached is not None:
         return cached
+    if _prefix_known_empty(term, limit):
+        return []
 
+    pending = _inflight.get(key)
+    if pending is not None:
+        try:
+            # shield() so this waiter's own cancellation cannot cancel the
+            # request the other waiters are still on.
+            return list(await asyncio.shield(pending))
+        except Exception:  # noqa: BLE001 - the owner logs; a waiter just misses out
+            return []
+
+    if not _budget.take():
+        logger.debug("tag suggestion budget spent, skipping upstream lookup for %s", term)
+        return []
+
+    future: asyncio.Future[list[dict]] = asyncio.get_running_loop().create_future()
+    _inflight[key] = future
+    answer: list[dict] | None = None
+    try:
+        answer = await _fetch_suggestions(term, limit=limit, timeout=timeout)
+    finally:
+        _inflight.pop(key, None)
+        if not future.done():
+            # Resolved even on failure, so a waiter never hangs on a dead request.
+            future.set_result(answer or [])
+
+    if answer is None:
+        return []
+    _cache_put(key, answer)
+    return answer
+
+
+async def _fetch_suggestions(term: str, *, limit: int, timeout: float) -> list[dict] | None:
+    """The actual upstream calls, past every guard. Never raises.
+
+    Danbooru answers first because its categories are the most reliable;
+    Gelbooru only tops the list up when Danbooru came back short, so the common
+    case costs one request rather than two.
+
+    Returns ``None`` when no board actually answered, which the caller must not
+    confuse with an answered "no matches": caching a timeout as an empty result
+    would suppress the term for the whole TTL and every longer term with it.
+    """
     collected: list[dict] = []
     seen: set[str] = set()
+    answered = False
 
-    def absorb(rows: list[dict]) -> None:
+    def absorb(payload) -> list[dict]:
+        nonlocal answered
+        if payload is None:
+            return []
+        answered = True
+        return payload
+
+    def collect(rows: list[dict]) -> None:
         for row in rows:
             if row["name"] in seen or len(collected) >= limit:
                 continue
@@ -180,19 +343,22 @@ async def suggest_tags(query: str, *, limit: int = 10, timeout: float = DEFAULT_
             danbooru_url = f"{DANBOORU}/autocomplete.json?" + urllib.parse.urlencode(
                 {"search[query]": term, "search[type]": "tag_query", "limit": limit}
             )
-            absorb(parse_danbooru_suggestions(await _get_json(client, danbooru_url)))
+            collect(parse_danbooru_suggestions(absorb(await _get_json(client, danbooru_url, "danbooru"))))
 
             if len(collected) < limit:
                 gelbooru_url = f"{GELBOORU}/index.php?" + urllib.parse.urlencode(
                     {"page": "autocomplete2", "term": term, "type": "tag_query", "limit": limit}
                 )
-                absorb(parse_gelbooru_suggestions(await _get_json(client, gelbooru_url)))
+                collect(
+                    parse_gelbooru_suggestions(
+                        absorb(await _get_json(client, gelbooru_url, "gelbooru"))
+                    )
+                )
     except (httpx.HTTPError, asyncio.TimeoutError) as exc:
         logger.debug("tag suggestions unavailable for %s: %s", term, exc)
-        return []
+        return None
     except Exception as exc:  # noqa: BLE001 - a typing aid must never break typing
         logger.debug("tag suggestions failed for %s: %s", term, exc)
-        return []
+        return None
 
-    _cache_put(key, collected)
-    return collected
+    return collected if answered else None

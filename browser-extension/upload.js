@@ -749,7 +749,10 @@ function onTagInput() {
     } catch {
       hideSuggestions()
     }
-  }, 150)
+    // Long enough that a normal typing run costs a request per pause rather
+    // than per keystroke - these queries can reach public boorus, which is not
+    // a budget to spend one character at a time.
+  }, 300)
 }
 
 function renderSuggestions() {
@@ -865,6 +868,10 @@ function parseTags() {
   const tweetTag = twitterPostTag()
   if (els.includeTweetTag.checked && tweetTag && !tags.includes(tweetTag)) {
     tags.push(tweetTag)
+  }
+  const booruTag = booruPostTag()
+  if (els.includeTweetTag.checked && booruTag && !tags.includes(booruTag)) {
+    tags.push(booruTag)
   }
   const usernameTag = twitterUsernameTag()
   if (els.includeTweetUsername.checked && usernameTag && !tags.includes(usernameTag)) {
@@ -994,6 +1001,14 @@ function xPhotoIndexFromUrl(raw) {
 
 function twitterPostTag() {
   return xTweetId ? `twitter_${xTweetId}` : ''
+}
+
+// Same checkbox as the tweet ID, for a booru download: `danbooru_12345`,
+// `gelbooru_12345`, etc. detectBooruPost() is defined in booru-tags.js, loaded
+// before this file in upload.html.
+function booruPostTag() {
+  const site = detectBooruPost(pageUrl) || detectBooruPost(srcUrl)
+  return site ? `${site.siteId}_${site.postId}` : ''
 }
 
 function twitterUsernameTag() {
