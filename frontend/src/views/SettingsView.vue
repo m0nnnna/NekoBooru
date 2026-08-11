@@ -2457,7 +2457,11 @@ async function restartNekoBooru() {
       success: true,
       message: 'NekoBooru restarted successfully.',
     }
-    await Promise.all([loadRuntimeStatus(), refreshAutoTagStatus()])
+    // The restart is complete once the health check succeeds. Runtime/model
+    // diagnostics can be slow (or wait on a model process), so refresh them in
+    // the background instead of leaving the Restart button permanently busy.
+    restartBusy.value = false
+    void Promise.allSettled([loadRuntimeStatus(), refreshAutoTagStatus()])
   } catch (e) {
     restartMessage.value = {
       show: true,
