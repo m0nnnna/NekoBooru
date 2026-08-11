@@ -114,12 +114,27 @@
     }
   }
 
+  function siteImportPostBody(job, item, contentToken) {
+    const pixiv = job?.kind === 'pixiv'
+    return {
+      contentToken,
+      safety: item?.safety || 'safe',
+      tags: item?.tags || [],
+      tagCategories: item?.tagCategories || {},
+      tagDisplayNames: item?.tagDisplayNames || {},
+      source: item?.source || job?.canonicalUrl,
+      autoTag: pixiv,
+      autoTagProfile: pixiv ? 'pixiv_import' : 'gelbooru_import',
+    }
+  }
+
   const api = {
     normalizeTag,
     pixivArtworkId,
     gelbooruPostId,
     pixivImportJob,
     pixivSafety,
+    siteImportPostBody,
   }
   root.NekoBooruSiteImport = api
   if (typeof module !== 'undefined' && module.exports) module.exports = api

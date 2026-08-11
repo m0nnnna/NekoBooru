@@ -10,6 +10,7 @@ const els = {
   openOptions: document.getElementById('open-options'),
 }
 let instanceUrl = ''
+const siteImportCore = globalThis.NekoBooruSiteImport
 
 init()
 
@@ -83,7 +84,7 @@ async function importAll(job) {
   if (!media.length) throw new Error('The source returned no original-resolution files.')
   els.title.textContent = job.title || 'Site import'
   els.detail.textContent = job.kind === 'pixiv'
-    ? `${media.length} original Pixiv page${media.length === 1 ? '' : 's'} · Pixiv tags included · normal NekoBooru AI setting applies`
+    ? `${media.length} original Pixiv page${media.length === 1 ? '' : 's'} · Pixiv tags included · AI tagging enabled`
     : 'Original Gelbooru file · source tags included · AI disabled'
   renderItems(media)
 
@@ -96,7 +97,10 @@ async function importAll(job) {
     try {
       const result = await importOne(job, item)
       results.push(result)
-      setItem(index, 'done', result.duplicate ? `Already existed · post #${result.id}` : `Imported · post #${result.id}`)
+      const savedTags = job.kind === 'pixiv' ? 'AI tags saved' : 'source tags saved'
+      setItem(index, 'done', result.duplicate
+        ? `Already existed · ${savedTags} · post #${result.id}`
+        : `Imported · ${savedTags} · post #${result.id}`)
     } catch (error) {
       failed += 1
       setItem(index, 'failed', error?.message || String(error))
@@ -125,16 +129,7 @@ async function importOne(job, item) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: item.url, referer: item.referer || job.canonicalUrl }),
   })
-  const body = {
-    contentToken: upload.token,
-    safety: item.safety || 'safe',
-    tags: item.tags || [],
-    tagCategories: item.tagCategories || {},
-    tagDisplayNames: item.tagDisplayNames || {},
-    source: item.source || job.canonicalUrl,
-    autoTagProfile: job.kind === 'pixiv' ? 'pixiv_import' : 'gelbooru_import',
-  }
-  if (job.kind === 'gelbooru') body.autoTag = false
+  const body = siteImportCore.siteImportPostBody(job, item, upload.token)
 
   const response = await fetch(`${instanceUrl}/api/posts`, {
     method: 'POST',
@@ -146,10 +141,10 @@ async function importOne(job, item) {
   if (response.status !== 409 || data.detail?.code !== 'duplicate_post') {
     throw new Error(formatError(data.detail || `Post creation failed (HTTP ${response.status}).`))
   }
-  return mergeDuplicate(data.detail, item)
+  return mergeDuplicate(job, data.detail, item)
 }
 
-async function mergeDuplicate(detail, item) {
+async function mergeDuplicate(job, detail, item) {
   let post = detail.post || {}
   const postId = Number(detail.postId || post.id)
   if (!postId) throw new Error('The original already exists, but NekoBooru did not return its post ID.')
@@ -169,6 +164,14 @@ async function mergeDuplicate(detail, item) {
       tagDisplayNames: item.tagDisplayNames || {},
     }),
   })
+  if (job.kind === 'pixiv') {
+    setStatus(`Post #${postId} already exists; running and saving its AI tags…`, 'working')
+    await api(`${instanceUrl}/api/posts/${postId}/auto-tags/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile: 'pixiv_import' }),
+    })
+  }
   return { id: postId, duplicate: true }
 }
 

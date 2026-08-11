@@ -38,4 +38,17 @@ assert.equal(job.media[0].tagCategories.pixiv_user_55, 'artist')
 assert.equal(job.media[0].tagDisplayNames.artist_name, 'Artist Name')
 assert.equal(job.media[0].source, 'https://www.pixiv.net/en/artworks/122812376')
 
+const pixivPostBody = core.siteImportPostBody(job, job.media[0], 'pixiv-token')
+assert.equal(pixivPostBody.autoTag, true)
+assert.equal(pixivPostBody.autoTagProfile, 'pixiv_import')
+assert.equal(pixivPostBody.contentToken, 'pixiv-token')
+
+const gelbooruPostBody = core.siteImportPostBody(
+  { kind: 'gelbooru', canonicalUrl: 'https://gelbooru.com/index.php?page=post&s=view&id=44' },
+  { tags: ['solo'], safety: 'safe' },
+  'gelbooru-token',
+)
+assert.equal(gelbooruPostBody.autoTag, false)
+assert.equal(gelbooruPostBody.autoTagProfile, 'gelbooru_import')
+
 console.log('site-import-core tests passed')
