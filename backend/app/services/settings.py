@@ -130,6 +130,30 @@ class SettingsManager:
         settings.pop("huggingface_token", None)
         self.save_settings(settings)
 
+    def get_gelbooru_credentials(self) -> tuple[Optional[str], Optional[str]]:
+        """Get the locally stored Gelbooru user ID and API key."""
+        settings = self.load_settings()
+        user_id = settings.get("gelbooru_user_id")
+        api_key = settings.get("gelbooru_api_key")
+        return (
+            str(user_id).strip() if user_id else None,
+            str(api_key).strip() if api_key else None,
+        )
+
+    def set_gelbooru_credentials(self, user_id: str, api_key: str) -> None:
+        """Persist Gelbooru API credentials locally."""
+        settings = self.load_settings()
+        settings["gelbooru_user_id"] = str(user_id).strip()
+        settings["gelbooru_api_key"] = str(api_key).strip()
+        self.save_settings(settings)
+
+    def delete_gelbooru_credentials(self) -> None:
+        """Remove locally stored Gelbooru API credentials."""
+        settings = self.load_settings()
+        settings.pop("gelbooru_user_id", None)
+        settings.pop("gelbooru_api_key", None)
+        self.save_settings(settings)
+
     def get_tagger_worker_token(self) -> Optional[str]:
         """Get the shared token used to authenticate remote tagger-worker calls."""
         settings = self.load_settings()

@@ -29,11 +29,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import re
 import time
 import urllib.parse
 
 import httpx
 
+from ..config import settings
+from .settings import SettingsManager
 from .tagging import normalize_tag
 
 logger = logging.getLogger(__name__)
@@ -116,6 +120,74 @@ class _RequestBudget:
 
 
 _budget = _RequestBudget(RATE_LIMIT_BURST, RATE_LIMIT_PER_SECOND)
+
+
+def gelbooru_credentials() -> tuple[str, str] | None:
+    """Configured ``(user_id, api_key)`` without exposing either via settings JSON."""
+    saved_user_id, saved_api_key = SettingsManager(settings.config_file).get_gelbooru_credentials()
+    user_id = saved_user_id or os.environ.get("GELBOORU_USER_ID")
+    api_key = saved_api_key or os.environ.get("GELBOORU_API_KEY")
+    if not user_id or not api_key:
+        return None
+    return str(user_id).strip(), str(api_key).strip()
+
+
+def save_gelbooru_credentials(user_id: str, api_key: str) -> None:
+    user_id = str(user_id or "").strip()
+    api_key = str(api_key or "").strip()
+    if not user_id.isdigit() or int(user_id) <= 0:
+        raise ValueError("Gelbooru user ID must be a positive number")
+    if not api_key:
+        raise ValueError("Gelbooru API key cannot be empty")
+    SettingsManager(settings.config_file).set_gelbooru_credentials(user_id, api_key)
+    clear_cache()
+
+
+def delete_gelbooru_credentials() -> None:
+    SettingsManager(settings.config_file).delete_gelbooru_credentials()
+    clear_cache()
+
+
+def _gelbooru_query(term: str, limit: int) -> dict[str, str | int]:
+    """Autocomplete query parameters, including account auth when configured."""
+    params: dict[str, str | int] = {
+        "page": "autocomplete2",
+        "term": term,
+        "type": "tag_query",
+        "limit": limit,
+    }
+    credentials = gelbooru_credentials()
+    if credentials:
+        params["user_id"], params["api_key"] = credentials
+    return params
+
+
+def _redact_url(url: str) -> str:
+    """Hide credentials before a request URL reaches application logs."""
+    try:
+        parts = urllib.parse.urlsplit(str(url))
+        query = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        clean = [(key, "[redacted]" if key == "api_key" else value) for key, value in query]
+        return urllib.parse.urlunsplit((*parts[:3], urllib.parse.urlencode(clean), parts.fragment))
+    except Exception:  # noqa: BLE001 - logging must never break a request path
+        return re.sub(r"([?&]api_key=)[^&\s]+", r"\1[redacted]", str(url))
+
+
+class _HttpxCredentialFilter(logging.Filter):
+    """Redact credential-bearing request URLs from httpx's INFO access log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                _redact_url(str(arg)) if "api_key=" in str(arg) else arg
+                for arg in record.args
+            )
+        return True
+
+
+_httpx_logger = logging.getLogger("httpx")
+if not any(isinstance(item, _HttpxCredentialFilter) for item in _httpx_logger.filters):
+    _httpx_logger.addFilter(_HttpxCredentialFilter())
 
 
 def _cooling_down(board: str) -> bool:
@@ -243,7 +315,7 @@ async def _get_json(client: httpx.AsyncClient, url: str, board: str):
     try:
         response = await client.get(url)
     except httpx.HTTPError as exc:
-        logger.debug("tag suggestion request failed for %s: %s", url, exc)
+        logger.debug("tag suggestion request failed for %s: %s", _redact_url(url), exc)
         return None
     # 429 is the explicit answer and 503 the one an overloaded board gives
     # instead; both mean stop asking, not retry on the next keystroke.
@@ -251,7 +323,11 @@ async def _get_json(client: httpx.AsyncClient, url: str, board: str):
         _cool_down(board, _retry_after_seconds(response))
         return None
     if response.status_code >= 400:
-        logger.debug("tag suggestion request returned HTTP %s for %s", response.status_code, url)
+        logger.debug(
+            "tag suggestion request returned HTTP %s for %s",
+            response.status_code,
+            _redact_url(url),
+        )
         return None
     try:
         return response.json()
@@ -347,7 +423,7 @@ async def _fetch_suggestions(term: str, *, limit: int, timeout: float) -> list[d
 
             if len(collected) < limit:
                 gelbooru_url = f"{GELBOORU}/index.php?" + urllib.parse.urlencode(
-                    {"page": "autocomplete2", "term": term, "type": "tag_query", "limit": limit}
+                    _gelbooru_query(term, limit)
                 )
                 collect(
                     parse_gelbooru_suggestions(

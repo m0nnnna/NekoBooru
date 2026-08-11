@@ -1043,6 +1043,53 @@
           </span>
         </label>
 
+        <div class="form-group gelbooru-api-settings">
+          <label>Gelbooru API credentials</label>
+          <div class="path-input-group gelbooru-credentials">
+            <input
+              v-model="gelbooruUserId"
+              class="path-input gelbooru-user-id"
+              type="text"
+              inputmode="numeric"
+              placeholder="Numeric user ID"
+              autocomplete="off"
+            />
+            <input
+              v-model="gelbooruApiKey"
+              class="path-input"
+              type="password"
+              placeholder="API key"
+              autocomplete="off"
+            />
+            <button
+              class="btn btn-secondary"
+              @click="saveGelbooruCredentials"
+              :disabled="savingGelbooruCredentials || !gelbooruUserId.trim() || !gelbooruApiKey.trim()"
+            >
+              {{ savingGelbooruCredentials ? 'Saving...' : 'Save credentials' }}
+            </button>
+            <button
+              class="btn btn-secondary"
+              @click="deleteGelbooruCredentials"
+              :disabled="savingGelbooruCredentials || !autoTagStatus.gelbooruCredentialsConfigured"
+            >
+              Forget
+            </button>
+          </div>
+          <p class="help-text">
+            {{ autoTagStatus.gelbooruCredentialsConfigured ? 'Configured. ' : '' }}
+            Copy both values from Gelbooru’s Account Options → API Access Credentials.
+            Stored locally and attached only to Gelbooru tag-suggestion requests; the API key is never returned to this page.
+          </p>
+          <div
+            v-if="gelbooruCredentialsMessage.show"
+            class="cookies-status compact-status"
+            :class="gelbooruCredentialsMessage.success ? 'success' : 'error'"
+          >
+            {{ gelbooruCredentialsMessage.message }}
+          </div>
+        </div>
+
         <label class="toggle-card booru-lookup-toggle">
           <input type="checkbox" v-model="autoTagSettings.booruLookupEnabled" @change="saveAutoTagSettings" />
           <span>
@@ -1599,6 +1646,10 @@ const defaultSemanticPrompt = [
 ].join('\n')
 const huggingFaceToken = ref('')
 const savingToken = ref(false)
+const gelbooruUserId = ref('')
+const gelbooruApiKey = ref('')
+const savingGelbooruCredentials = ref(false)
+const gelbooruCredentialsMessage = ref({ show: false, success: false, message: '' })
 const modelCatalog = ref([])
 const modelDownloadJob = ref(null)
 const modelMemoryBusy = ref(false)
@@ -2807,6 +2858,55 @@ async function deleteHuggingFaceToken() {
   }
 }
 
+async function saveGelbooruCredentials() {
+  const userId = gelbooruUserId.value.trim()
+  const apiKey = gelbooruApiKey.value.trim()
+  if (!userId || !apiKey) return
+  savingGelbooruCredentials.value = true
+  gelbooruCredentialsMessage.value.show = false
+  try {
+    autoTagStatus.value = await api.saveGelbooruCredentials(userId, apiKey)
+    gelbooruUserId.value = ''
+    gelbooruApiKey.value = ''
+    gelbooruCredentialsMessage.value = {
+      show: true,
+      success: true,
+      message: 'Gelbooru API credentials saved.',
+    }
+  } catch (e) {
+    gelbooruCredentialsMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to save Gelbooru credentials: ' + e.message,
+    }
+  } finally {
+    savingGelbooruCredentials.value = false
+  }
+}
+
+async function deleteGelbooruCredentials() {
+  savingGelbooruCredentials.value = true
+  gelbooruCredentialsMessage.value.show = false
+  try {
+    autoTagStatus.value = await api.deleteGelbooruCredentials()
+    gelbooruUserId.value = ''
+    gelbooruApiKey.value = ''
+    gelbooruCredentialsMessage.value = {
+      show: true,
+      success: true,
+      message: 'Gelbooru API credentials removed.',
+    }
+  } catch (e) {
+    gelbooruCredentialsMessage.value = {
+      show: true,
+      success: false,
+      message: 'Failed to remove Gelbooru credentials: ' + e.message,
+    }
+  } finally {
+    savingGelbooruCredentials.value = false
+  }
+}
+
 async function saveWorkerToken() {
   if (!workerToken.value.trim()) return
   savingWorkerToken.value = true
@@ -3599,6 +3699,18 @@ function startYtdlpPolling() {
   flex: 1;
   font-family: 'Courier New', monospace;
   font-size: 0.85rem;
+}
+
+.gelbooru-api-settings {
+  margin-top: 1rem;
+}
+
+.gelbooru-credentials {
+  flex-wrap: wrap;
+}
+
+.gelbooru-user-id {
+  max-width: 12rem;
 }
 
 .help-text {

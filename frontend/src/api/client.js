@@ -340,6 +340,17 @@ export const api = {
     return request('/auto-tags/huggingface-token', { method: 'DELETE' })
   },
 
+  async saveGelbooruCredentials(userId, apiKey) {
+    return request('/auto-tags/gelbooru-credentials', {
+      method: 'PUT',
+      body: JSON.stringify({ userId, apiKey }),
+    })
+  },
+
+  async deleteGelbooruCredentials() {
+    return request('/auto-tags/gelbooru-credentials', { method: 'DELETE' })
+  },
+
   async saveTaggerWorkerToken(token) {
     return request('/auto-tags/worker-token', {
       method: 'PUT',

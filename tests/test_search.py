@@ -352,6 +352,54 @@ class BooruSuggestRateLimitTests(unittest.TestCase):
         )
         booru_suggest._cool_down("danbooru", 10_000)
         self.assertTrue(booru_suggest._cooling_down("danbooru"))
+
+    def test_gelbooru_query_adds_credentials_without_leaking_the_key(self):
+        import urllib.parse
+        from unittest.mock import patch
+
+        from app.services import booru_suggest
+
+        with patch.object(
+            booru_suggest,
+            "gelbooru_credentials",
+            return_value=("9455", "gelbooru_test_secret"),
+        ):
+            params = booru_suggest._gelbooru_query("hoshino", 10)
+
+        self.assertEqual(params["user_id"], "9455")
+        self.assertEqual(params["api_key"], "gelbooru_test_secret")
+        url = "https://gelbooru.com/index.php?" + urllib.parse.urlencode(params)
+        redacted = booru_suggest._redact_url(url)
+        self.assertIn("api_key=%5Bredacted%5D", redacted)
+        self.assertNotIn("gelbooru_test_secret", redacted)
+
+    def test_gelbooru_query_stays_anonymous_without_a_complete_pair(self):
+        from unittest.mock import patch
+
+        from app.services import booru_suggest
+
+        with patch.object(booru_suggest, "gelbooru_credentials", return_value=None):
+            params = booru_suggest._gelbooru_query("hoshino", 10)
+        self.assertNotIn("user_id", params)
+        self.assertNotIn("api_key", params)
+
+    def test_httpx_access_log_redacts_gelbooru_api_key(self):
+        import logging
+
+        from app.services import booru_suggest
+
+        record = logging.LogRecord(
+            "httpx",
+            logging.INFO,
+            __file__,
+            1,
+            "HTTP Request: GET %s",
+            ("https://gelbooru.com/index.php?user_id=9455&api_key=gelbooru_test_secret",),
+            None,
+        )
+        self.assertTrue(booru_suggest._HttpxCredentialFilter().filter(record))
+        self.assertNotIn("gelbooru_test_secret", record.getMessage())
+        self.assertIn("api_key=%5Bredacted%5D", record.getMessage())
 class HashSearchTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

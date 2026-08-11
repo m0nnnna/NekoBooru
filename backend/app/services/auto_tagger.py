@@ -2215,6 +2215,8 @@ def _transformers_pipeline_available() -> bool:
 def status() -> dict:
     model_cache = model_cache_status()
     opts = load_options()
+    from .booru_suggest import gelbooru_credentials
+
     return {
         "enabled": opts.enabled,
         "model": _wd_tagger.name,
@@ -2232,6 +2234,7 @@ def status() -> dict:
         "semanticModelId": opts.semanticModelId,
         "remote": _remote_worker_status(opts),
         "huggingFaceTokenConfigured": bool(huggingface_token()),
+        "gelbooruCredentialsConfigured": bool(gelbooru_credentials()),
         "dependencies": {
             "huggingface_hub": find_spec("huggingface_hub") is not None,
             "onnxruntime": find_spec("onnxruntime") is not None,

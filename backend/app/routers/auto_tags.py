@@ -13,6 +13,10 @@ from ..config import settings
 from ..database import async_session
 from ..models import AutoTagJob, AutoTagSuggestion
 from ..services import auto_tag_jobs
+from ..services.booru_suggest import (
+    delete_gelbooru_credentials,
+    save_gelbooru_credentials,
+)
 from ..services.auto_tagger import (
     _infer_local,
     cancel_model_download,
@@ -60,6 +64,11 @@ class ApplyPostBody(BaseModel):
 
 class HuggingFaceTokenBody(BaseModel):
     token: str
+
+
+class GelbooruCredentialsBody(BaseModel):
+    userId: str
+    apiKey: str
 
 
 class WorkerTokenBody(BaseModel):
@@ -201,6 +210,21 @@ async def put_huggingface_token(body: HuggingFaceTokenBody):
 @router.delete("/huggingface-token")
 async def delete_huggingface_token_endpoint():
     delete_huggingface_token()
+    return tagger_status()
+
+
+@router.put("/gelbooru-credentials")
+async def put_gelbooru_credentials(body: GelbooruCredentialsBody):
+    try:
+        save_gelbooru_credentials(body.userId, body.apiKey)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return tagger_status()
+
+
+@router.delete("/gelbooru-credentials")
+async def delete_gelbooru_credentials_endpoint():
+    delete_gelbooru_credentials()
     return tagger_status()
 
 

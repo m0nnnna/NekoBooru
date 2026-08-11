@@ -910,6 +910,30 @@ class AutoTagApiTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200, response.text)
             self.assertFalse(response.json()["huggingFaceTokenConfigured"])
 
+    def test_gelbooru_credentials_lifecycle_does_not_echo_api_key(self):
+        with patch.dict(os.environ, {"GELBOORU_USER_ID": "", "GELBOORU_API_KEY": ""}):
+            response = self.client.delete("/api/auto-tags/gelbooru-credentials")
+            self.assertEqual(response.status_code, 200, response.text)
+
+            response = self.client.put(
+                "/api/auto-tags/gelbooru-credentials",
+                json={"userId": "9455", "apiKey": "gelbooru_test_secret"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertTrue(response.json()["gelbooruCredentialsConfigured"])
+            self.assertNotIn("gelbooru_test_secret", response.text)
+
+            response = self.client.put(
+                "/api/auto-tags/gelbooru-credentials",
+                json={"userId": "not-a-number", "apiKey": "still_secret"},
+            )
+            self.assertEqual(response.status_code, 400, response.text)
+            self.assertNotIn("still_secret", response.text)
+
+            response = self.client.delete("/api/auto-tags/gelbooru-credentials")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertFalse(response.json()["gelbooruCredentialsConfigured"])
+
     def test_model_download_endpoint_reports_result(self):
         fake_result = {
             "model": "wd-eva02-large-tagger-v3",
