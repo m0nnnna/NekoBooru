@@ -4,11 +4,11 @@ const BACKEND_LABEL = import.meta.env.VITE_BACKEND || 'the configured backend'
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`
   const config = {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
       ...options.headers,
     },
-    ...options,
   }
 
   // Don't set Content-Type for FormData
