@@ -33,7 +33,7 @@ describe('TagSidebar', () => {
 
   it('shows underscores as spaces but searches the real tag name', () => {
     const wrapper = mountSidebar(SAMPLE)
-    const link = wrapper.findAll('.tag-name').find((el) => el.text() === 'kouzuki kallen')
+    const link = wrapper.findAll('.tag-search-trigger').find((el) => el.text() === 'kouzuki kallen')
     expect(link).toBeTruthy()
     expect(link.attributes('title')).toBe('kouzuki_kallen')
   })
@@ -43,7 +43,7 @@ describe('TagSidebar', () => {
       { name: 'miyu_blue_archive', displayName: 'miyu (blue archive)', category: 'character', categoryColor: '#00c853' },
       { name: 'miyu_swimsuit_blue_archive', displayName: 'miyu (swimsuit) (blue archive)', category: 'character', categoryColor: '#00c853' },
     ])
-    const names = wrapper.findAll('.tag-name')
+    const names = wrapper.findAll('.tag-search-trigger')
     expect(names.map((el) => el.text())).toEqual([
       'miyu (blue archive)',
       'miyu (swimsuit) (blue archive)',
@@ -67,7 +67,7 @@ describe('TagSidebar', () => {
   it('accepts bare tag-name strings so it degrades before tagDetails loads', () => {
     const wrapper = mountSidebar(['solo', 'indoors'])
     expect(wrapper.findAll('.tag-group-heading').map((h) => h.text())).toEqual(['Tag'])
-    expect(wrapper.findAll('.tag-name').map((el) => el.text())).toEqual(['indoors', 'solo'])
+    expect(wrapper.findAll('.tag-search-trigger').map((el) => el.text())).toEqual(['indoors', 'solo'])
   })
 
   it('keeps unknown custom categories instead of dropping their tags', () => {

@@ -9,12 +9,14 @@
             :to="{ path: '/tags', query: { q: tag.name } }"
             :title="`Show ${displayName(tag)} in the tag list`"
           >?</router-link>
-          <router-link
-            class="tag-name"
-            :style="{ color: group.color }"
-            :to="{ path: '/', query: { q: tag.name } }"
+          <TagSearchMenu
+            class="tag-name-menu"
+            trigger-class="tag-name"
+            :tag="tag.name"
+            :label="displayName(tag)"
             :title="tag.name"
-          >{{ displayName(tag) }}</router-link>
+            :color="group.color"
+          />
           <span v-if="tag.usageCount" class="tag-count">{{ formatCount(tag.usageCount) }}</span>
         </li>
       </ul>
@@ -25,6 +27,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import TagSearchMenu from './TagSearchMenu.vue'
 
 // Danbooru's sidebar order, with its display labels: the app stores "meta" and
 // "general", which read as "Metadata" and "Tag".
@@ -132,13 +135,8 @@ function formatCount(count) {
   text-decoration: underline;
 }
 
-.tag-name {
-  text-decoration: none;
-  overflow-wrap: anywhere;
-}
-
-.tag-name:hover {
-  text-decoration: underline;
+.tag-name-menu {
+  min-width: 0;
 }
 
 .tag-count {

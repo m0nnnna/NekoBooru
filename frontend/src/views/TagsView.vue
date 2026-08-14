@@ -27,9 +27,7 @@
         <tbody>
           <tr v-for="tag in tags" :key="tag.id">
             <td>
-              <router-link :to="{ path: '/', query: { q: tag.name } }" class="tag-link">
-                {{ tag.name }}
-              </router-link>
+              <TagSearchMenu :tag="tag.name" :label="tag.name" trigger-class="tag-link" />
             </td>
             <td>
               <select
@@ -105,6 +103,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api/client'
 import Pagination from '../components/Pagination.vue'
+import TagSearchMenu from '../components/TagSearchMenu.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -325,7 +324,7 @@ async function deleteAlias(id) {
   background: var(--bg-tertiary);
 }
 
-.tag-link {
+.tags-table :deep(.tag-link) {
   font-weight: 500;
 }
 
