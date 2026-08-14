@@ -3,6 +3,8 @@ const core = require('./site-import-core.js')
 
 assert.equal(core.pixivArtworkId('https://www.pixiv.net/en/artworks/122812376'), '122812376')
 assert.equal(core.gelbooruPostId('https://gelbooru.com/index.php?page=post&s=view&id=44'), '44')
+assert.equal(core.safebooruPostId('https://safebooru.org/index.php?page=post&s=view&id=55'), '55')
+assert.equal(core.safebooruPostId('https://gelbooru.com/index.php?page=post&s=view&id=55'), '')
 
 const job = core.pixivImportJob(
   {
@@ -81,6 +83,50 @@ const gelbooruPostBody = core.siteImportPostBody(
 )
 assert.equal(gelbooruPostBody.autoTag, false)
 assert.equal(gelbooruPostBody.autoTagProfile, 'gelbooru_import')
+
+const safebooruJob = core.safebooruImportJob(
+  [{
+    id: 55,
+    file_url: 'https://safebooru.org/images/1/original.jpg?55',
+    tags: 'solo hatsune_miku highres',
+    rating: 'general',
+    width: 1600,
+    height: 1200,
+  }],
+  {
+    rating: 'General',
+    tags: [
+      { name: 'Hatsune Miku', category: 'character' },
+      { name: 'highres', category: 'meta' },
+    ],
+  },
+  'https://safebooru.org/index.php?page=post&s=view&id=55',
+)
+assert.equal(safebooruJob.kind, 'safebooru')
+assert.equal(safebooruJob.media[0].url, 'https://safebooru.org/images/1/original.jpg?55')
+assert.equal(safebooruJob.media[0].tagCategories.hatsune_miku, 'character')
+assert.equal(safebooruJob.media[0].tagCategories.highres, 'meta')
+assert.equal(safebooruJob.media[0].tagCategories.safebooru_55, 'meta')
+assert.equal(safebooruJob.media[0].safety, 'safe')
+
+const sanitizedSafebooru = core.sanitizeSafebooruImportJob(
+  safebooruJob,
+  'https://safebooru.org/index.php?page=post&s=view&id=55',
+)
+assert.equal(sanitizedSafebooru.canonicalUrl, 'https://safebooru.org/index.php?page=post&s=view&id=55')
+assert.equal(sanitizedSafebooru.media[0].referer, 'https://safebooru.org/')
+assert.equal(sanitizedSafebooru.media[0].tagCategories.hatsune_miku, 'character')
+assert.throws(
+  () => core.sanitizeSafebooruImportJob(safebooruJob, 'https://safebooru.org/index.php?page=post&s=view&id=56'),
+  /post ID mismatch/,
+)
+assert.throws(
+  () => core.sanitizeSafebooruImportJob(
+    { ...safebooruJob, media: [{ ...safebooruJob.media[0], url: 'https://safebooru.org/samples/sample.jpg' }] },
+    'https://safebooru.org/index.php?page=post&s=view&id=55',
+  ),
+  /trusted original URL/,
+)
 
 const sidebarFavorite = { parentElement: { textContent: 'Add to favorites' } }
 const actionFavorite = { parentElement: { textContent: 'Edit | Leave a Comment | Unfavorite' } }

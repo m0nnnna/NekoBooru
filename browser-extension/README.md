@@ -57,11 +57,11 @@ selected pages using Pixiv's `original` image URLs; the popup starts with every
 page checked and waits for **Import selected**. Each post keeps the Pixiv artwork
 link, shared `pixiv_<id>` tag, page-specific `pixiv_<id>_p<n>` tag, artist reference, and
 the readable artist name in the artist category, plus Pixiv tags. On Gelbooru
-post pages, **NekoBooru** appears as a native-style text link directly
+and Safebooru post pages, **NekoBooru** appears as a native-style text link directly
 to the right of the post action row's Favorite/Unfavorite link. It imports
-Gelbooru's authenticated `file_url` plus its tag categories, with AI tagging
+the site's original `file_url` plus its tag categories, with AI tagging
 disabled. Pixiv imports explicitly run and save AI tags, including when
-an original already exists; Gelbooru imports never invoke AI.
+an original already exists; Gelbooru and Safebooru imports never invoke AI.
 Most services use temporary extension helper pages that submit the image/frame
 bytes directly instead of relying on a public image URL. TinEye and trace.moe
 open their official UIs and inject the captured image into their upload controls. The menu also includes

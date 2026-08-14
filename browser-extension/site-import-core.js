@@ -29,6 +29,128 @@
     }
   }
 
+  function safebooruPostId(raw) {
+    try {
+      const url = new URL(raw)
+      const host = url.hostname.replace(/^www\./, '').toLowerCase()
+      if (host !== 'safebooru.org' || url.searchParams.get('page') !== 'post') return ''
+      const id = url.searchParams.get('id') || ''
+      return /^\d+$/.test(id) ? id : ''
+    } catch {
+      return ''
+    }
+  }
+
+  function booruImportSafety(raw) {
+    const rating = String(raw || '').trim().toLowerCase()
+    if (rating === 'e' || rating === 'explicit') return 'unsafe'
+    if (rating === 'q' || rating === 'questionable' || rating === 's' || rating === 'sensitive') return 'sketchy'
+    return 'safe'
+  }
+
+  function safebooruImportJob(payload, scraped, pageUrl, fallbackOriginalUrl = '') {
+    const postId = safebooruPostId(pageUrl)
+    if (!postId) throw new Error('Open a Safebooru post first.')
+    const posts = Array.isArray(payload) ? payload : (payload?.post || [])
+    const post = Array.isArray(posts) ? (posts[0] || {}) : (posts || {})
+    const fileUrl = String(post.file_url || fallbackOriginalUrl || '').trim()
+    if (!/^https:\/\//i.test(fileUrl)) throw new Error('Safebooru did not provide an original image URL.')
+
+    const tags = []
+    const tagCategories = {}
+    const addTag = (raw, category = 'general') => {
+      const tag = normalizeTag(raw)
+      if (!tag) return
+      if (!tags.includes(tag)) tags.push(tag)
+      if (['general', 'artist', 'copyright', 'character', 'meta'].includes(category)) {
+        tagCategories[tag] = category
+      } else if (!tagCategories[tag]) tagCategories[tag] = 'general'
+    }
+    String(post.tags || '').split(/\s+/).forEach((tag) => addTag(tag))
+    for (const entry of Array.isArray(scraped?.tags) ? scraped.tags : []) {
+      addTag(entry?.name, entry?.category)
+    }
+
+    const idTag = `safebooru_${postId}`
+    addTag(idTag, 'meta')
+    const canonicalUrl = `https://safebooru.org/index.php?page=post&s=view&id=${postId}`
+    return {
+      kind: 'safebooru',
+      postId,
+      title: `Safebooru #${postId}`,
+      canonicalUrl,
+      groupTag: idTag,
+      media: [{
+        type: 'image',
+        url: fileUrl,
+        referer: 'https://safebooru.org/',
+        index: 0,
+        width: post.width || null,
+        height: post.height || null,
+        source: canonicalUrl,
+        tags,
+        tagCategories,
+        tagDisplayNames: {},
+        safety: booruImportSafety(post.rating || scraped?.rating),
+      }],
+    }
+  }
+
+  function sanitizeSafebooruImportJob(raw, senderUrl) {
+    const senderId = safebooruPostId(senderUrl)
+    const job = raw && typeof raw === 'object' ? raw : {}
+    if (!senderId || String(job.postId) !== senderId) throw new Error('Safebooru post ID mismatch.')
+    const item = Array.isArray(job.media) ? job.media[0] : null
+    const mediaUrl = new URL(item?.url || '')
+    const mediaHost = mediaUrl.hostname.replace(/^www\./, '').toLowerCase()
+    if (mediaUrl.protocol !== 'https:' || mediaHost !== 'safebooru.org' || !/^\/+images\//i.test(mediaUrl.pathname)) {
+      throw new Error('Safebooru did not provide a trusted original URL.')
+    }
+
+    const tags = []
+    for (const rawTag of Array.isArray(item?.tags) ? item.tags.slice(0, 500) : []) {
+      const tag = normalizeTag(String(rawTag).slice(0, 200))
+      if (tag && !tags.includes(tag)) tags.push(tag)
+    }
+    const idTag = `safebooru_${senderId}`
+    if (!tags.includes(idTag)) tags.push(idTag)
+    const allowedCategories = new Set(['general', 'artist', 'copyright', 'character', 'meta'])
+    const tagCategories = {}
+    for (const [rawTag, rawCategory] of Object.entries(item?.tagCategories || {})) {
+      const tag = normalizeTag(String(rawTag).slice(0, 200))
+      const category = String(rawCategory || '')
+      if (tag && tags.includes(tag) && allowedCategories.has(category) && !['__proto__', 'constructor', 'prototype'].includes(tag)) {
+        tagCategories[tag] = category
+      }
+    }
+    tagCategories[idTag] = 'meta'
+    const dimension = (value) => {
+      const number = Math.round(Number(value))
+      return Number.isInteger(number) && number > 0 && number <= 100000 ? number : null
+    }
+    const canonicalUrl = `https://safebooru.org/index.php?page=post&s=view&id=${senderId}`
+    return {
+      kind: 'safebooru',
+      postId: senderId,
+      title: `Safebooru #${senderId}`,
+      canonicalUrl,
+      groupTag: idTag,
+      media: [{
+        type: 'image',
+        url: mediaUrl.href,
+        referer: 'https://safebooru.org/',
+        index: 0,
+        width: dimension(item?.width),
+        height: dimension(item?.height),
+        source: canonicalUrl,
+        tags,
+        tagCategories,
+        tagDisplayNames: {},
+        safety: ['safe', 'sketchy', 'unsafe'].includes(item?.safety) ? item.safety : 'safe',
+      }],
+    }
+  }
+
   function pixivSafety(meta) {
     const restriction = Number(meta?.xRestrict || 0)
     return restriction > 0 ? 'unsafe' : 'safe'
@@ -269,6 +391,9 @@
     normalizeTag,
     pixivArtworkId,
     gelbooruPostId,
+    safebooruPostId,
+    safebooruImportJob,
+    sanitizeSafebooruImportJob,
     pixivImportJob,
     pixivSafety,
     selectGelbooruActionFavorite,

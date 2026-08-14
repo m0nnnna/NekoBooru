@@ -5,7 +5,7 @@
 // Shared with the popup: booru site detection, the injected DOM scraper, and
 // the JSON parsers. The fetching itself happens here so it runs with the
 // extension's host permissions rather than a page's origin.
-importScripts('booru-tags.js')
+importScripts('booru-tags.js', 'site-import-core.js')
 
 const MENU_ID = 'nekobooru-upload'
 // Same title as MENU_ID so the two read as a single "Download to NekoBooru"
@@ -524,6 +524,12 @@ function sanitizeSiteImportJob(raw, senderUrl) {
       fallbackOriginalUrl: String(job.fallbackOriginalUrl || ''),
       groupTag: `gelbooru_${senderId}`,
     }
+  }
+  if (job.kind === 'safebooru') {
+    if (sender.hostname.replace(/^www\./, '') !== 'safebooru.org') {
+      throw new Error('Safebooru imports can only start from Safebooru.')
+    }
+    return globalThis.NekoBooruSiteImport.sanitizeSafebooruImportJob(job, sender.href)
   }
   throw new Error('Unsupported site import request.')
 }

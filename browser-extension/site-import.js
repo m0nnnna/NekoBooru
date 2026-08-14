@@ -88,7 +88,7 @@ async function importAll(job) {
     ? (job.isUgoira
       ? 'Original Pixiv animation · MP4 conversion · Pixiv tags included · AI tagging enabled'
       : `${allMedia.length} original Pixiv page${allMedia.length === 1 ? '' : 's'} · Choose pages below · Pixiv tags included · AI tagging enabled`)
-    : 'Original Gelbooru file · source tags included · AI disabled'
+    : `Original ${job.kind === 'safebooru' ? 'Safebooru' : 'Gelbooru'} file · source tags included · AI disabled`
   renderItems(allMedia, job.kind === 'pixiv')
 
   const media = job.kind === 'pixiv' ? await choosePixivMedia(allMedia) : allMedia

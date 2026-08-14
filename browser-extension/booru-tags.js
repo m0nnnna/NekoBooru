@@ -333,20 +333,21 @@ function resultFromScrape(scraped, context) {
   return booruResult(collected, { ...context, rating: scraped.rating, source: '' })
 }
 
-// Node/vitest reach the pure helpers through module.exports; the popup and the
-// service worker just use the globals this file defines.
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    detectBooruPost,
-    booruSafety,
-    cleanBooruTagName,
-    parseDanbooruJson,
-    parseE621Json,
-    parseMoebooruJson,
-    parseGelbooruJson,
-    applyGelbooruTagTypes,
-    parseGelbooruTagTypeXml,
-    resultFromScrape,
-    scrapeBooruTagsFromPage,
-  }
+// Site-specific content scripts use the same tested DOM scraper as the normal
+// right-click import flow. Exposing a narrow helper avoids duplicating the
+// Gelbooru-family sidebar parser in each injected script.
+const booruTagApi = {
+  detectBooruPost,
+  booruSafety,
+  cleanBooruTagName,
+  parseDanbooruJson,
+  parseE621Json,
+  parseMoebooruJson,
+  parseGelbooruJson,
+  applyGelbooruTagTypes,
+  parseGelbooruTagTypeXml,
+  resultFromScrape,
+  scrapeBooruTagsFromPage,
 }
+if (typeof globalThis !== 'undefined') globalThis.NekoBooruBooruTags = booruTagApi
+if (typeof module !== 'undefined' && module.exports) module.exports = booruTagApi

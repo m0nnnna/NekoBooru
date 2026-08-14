@@ -4,7 +4,10 @@
   const core = globalThis.NekoBooruSiteImport
   const PIXIV_HOST = location.hostname === 'pixiv.net' || location.hostname.endsWith('.pixiv.net')
   const GELBOORU_HOST = location.hostname.replace(/^www\./, '') === 'gelbooru.com'
-  if (!PIXIV_HOST && !GELBOORU_HOST) return
+  const SAFEBOORU_HOST = location.hostname.replace(/^www\./, '') === 'safebooru.org'
+  const BOORU_KIND = GELBOORU_HOST ? 'gelbooru' : (SAFEBOORU_HOST ? 'safebooru' : '')
+  const BOORU_LABEL = GELBOORU_HOST ? 'Gelbooru' : 'Safebooru'
+  if (!PIXIV_HOST && !BOORU_KIND) return
 
   function installStyle() {
     if (document.getElementById('nekobooru-site-import-style')) return
@@ -22,7 +25,7 @@
     link.href = '#'
     link.className = 'nekobooru-site-import-inline'
     link.dataset.nekobooruSiteImport = kind
-    link.title = 'Import Gelbooru\'s original-resolution file and tags to NekoBooru'
+    link.title = `Import ${BOORU_LABEL}'s original-resolution file and tags to NekoBooru`
     link.setAttribute('aria-label', link.title)
     const text = document.createElement('span')
     text.dataset.nekobooruImportLabel = 'true'
@@ -88,7 +91,7 @@
     return core.pixivImportJob(metaPayload, pagesPayload, location.href, ugoiraPayload)
   }
 
-  function gelbooruOriginalFallback() {
+  function booruOriginalFallback() {
     const direct = document.querySelector('a#high-res[href], a[download][href]')
     if (direct?.href) return direct.href
     const labelled = Array.from(document.querySelectorAll('a[href]')).find((anchor) => (
@@ -106,10 +109,31 @@
       kind: 'gelbooru',
       postId,
       pageUrl: `https://gelbooru.com/index.php?page=post&s=view&id=${postId}`,
-      fallbackOriginalUrl: gelbooruOriginalFallback(),
+      fallbackOriginalUrl: booruOriginalFallback(),
       title: `Gelbooru #${postId}`,
       groupTag: `gelbooru_${postId}`,
     }
+  }
+
+  async function safebooruJob() {
+    const postId = core.safebooruPostId(location.href)
+    if (!postId) throw new Error('Open a Safebooru post first.')
+    let payload = null
+    try {
+      const response = await fetch(`/index.php?page=dapi&s=post&q=index&json=1&id=${encodeURIComponent(postId)}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      })
+      if (response.ok) payload = await response.json()
+    } catch {
+      // The visible original link and tag sidebar remain a complete fallback.
+    }
+    const scraped = globalThis.NekoBooruBooruTags?.scrapeBooruTagsFromPage?.() || null
+    return core.safebooruImportJob(payload, scraped, location.href, booruOriginalFallback())
+  }
+
+  function booruJob() {
+    return GELBOORU_HOST ? gelbooruJob() : safebooruJob()
   }
 
   async function handleImportClick(event) {
@@ -127,7 +151,7 @@
     button.title = 'Preparing NekoBooru import…'
     button.setAttribute('aria-label', button.title)
     try {
-      const job = button.dataset.nekobooruSiteImport === 'pixiv' ? await pixivJob() : gelbooruJob()
+      const job = button.dataset.nekobooruSiteImport === 'pixiv' ? await pixivJob() : await booruJob()
       const response = await chrome.runtime.sendMessage({ type: 'nekobooru-open-site-import', job })
       if (!response?.ok) throw new Error(response?.error || 'The NekoBooru import window could not be opened.')
       if (label) label.textContent = 'Import opened'
@@ -156,7 +180,7 @@
     })
   }
 
-  function gelbooruActionFavoriteControl() {
+  function booruActionFavoriteControl() {
     return core.selectGelbooruActionFavorite(favoriteControls())
   }
 
@@ -184,22 +208,23 @@
     share.insertAdjacentElement('afterend', createPixivIconButton(share))
   }
 
-  function injectGelbooruButton() {
-    if (!core.gelbooruPostId(location.href)) return
-    if (document.querySelector('[data-nekobooru-site-import="gelbooru"]')) return
-    const favorite = gelbooruActionFavoriteControl()
+  function injectBooruButton() {
+    const postId = GELBOORU_HOST ? core.gelbooruPostId(location.href) : core.safebooruPostId(location.href)
+    if (!postId) return
+    if (document.querySelector(`[data-nekobooru-site-import="${BOORU_KIND}"]`)) return
+    const favorite = booruActionFavoriteControl()
     if (!favorite?.parentElement) return
     const wrapper = document.createElement('span')
     wrapper.dataset.nekobooruSiteImport = 'wrapper'
     wrapper.appendChild(document.createTextNode(' | '))
-    wrapper.appendChild(createInlineLink('NekoBooru', 'gelbooru'))
+    wrapper.appendChild(createInlineLink('NekoBooru', BOORU_KIND))
     favorite.insertAdjacentElement('afterend', wrapper)
   }
 
   function scan() {
     installStyle()
     if (PIXIV_HOST) injectPixivButton()
-    if (GELBOORU_HOST) injectGelbooruButton()
+    if (BOORU_KIND) injectBooruButton()
   }
 
   scan()
