@@ -184,6 +184,15 @@
     return core.selectGelbooruActionFavorite(favoriteControls())
   }
 
+  function safebooruPostActionRow() {
+    const actionRow = document.querySelector('.image-sublinks')
+    if (actionRow) return actionRow
+    return Array.from(document.querySelectorAll('h3, h4')).find((node) => {
+      const label = String(node.textContent || '')
+      return /\bedit\b/i.test(label) && /\b(respond|comment)\b/i.test(label)
+    }) || null
+  }
+
   function pixivShareControl() {
     const controls = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter((node) => (
       !node.closest?.('[data-nekobooru-site-import]')
@@ -212,13 +221,15 @@
     const postId = GELBOORU_HOST ? core.gelbooruPostId(location.href) : core.safebooruPostId(location.href)
     if (!postId) return
     if (document.querySelector(`[data-nekobooru-site-import="${BOORU_KIND}"]`)) return
-    const favorite = booruActionFavoriteControl()
-    if (!favorite?.parentElement) return
+    const insertionPoint = SAFEBOORU_HOST ? safebooruPostActionRow() : booruActionFavoriteControl()
+    if (!insertionPoint) return
+    if (GELBOORU_HOST && !insertionPoint.parentElement) return
     const wrapper = document.createElement('span')
     wrapper.dataset.nekobooruSiteImport = 'wrapper'
     wrapper.appendChild(document.createTextNode(' | '))
     wrapper.appendChild(createInlineLink('NekoBooru', BOORU_KIND))
-    favorite.insertAdjacentElement('afterend', wrapper)
+    if (SAFEBOORU_HOST) insertionPoint.appendChild(wrapper)
+    else insertionPoint.insertAdjacentElement('afterend', wrapper)
   }
 
   function scan() {
