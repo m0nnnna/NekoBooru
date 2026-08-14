@@ -191,8 +191,10 @@ function cacheXMedia(entries = []) {
     const tweetId = String(entry?.tweetId || '')
     const media = normalizeMediaList(entry?.media || [])
     if (!tweetId || !media.length) continue
+    const existing = xMediaCache.get(tweetId)
+    const mergedMedia = normalizeMediaList([...(existing?.media || []), ...media])
     xMediaCache.set(tweetId, {
-      media,
+      media: mergedMedia,
       savedAt: Date.now(),
     })
     changed = true
@@ -308,9 +310,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.type === 'nekobooru-cursor') {
     lastCursor = { x: msg.x, y: msg.y }
     lastHasVideo = !!msg.hasVideo
-    lastPostUrl = typeof msg.postUrl === 'string' ? msg.postUrl : ''
+    lastPostUrl = (typeof msg.postUrl === 'string' && msg.postUrl) || sender.tab?.url || ''
     lastMediaUrl = typeof msg.mediaUrl === 'string' ? msg.mediaUrl : ''
     lastMediaType = typeof msg.mediaType === 'string' ? msg.mediaType : ''
+    const captured = capturedXMediaFromPage(lastPostUrl, lastMediaUrl, lastMediaType)
+    if (captured) cacheXMedia([captured])
     return
   }
 
@@ -522,6 +526,21 @@ function sanitizeSiteImportJob(raw, senderUrl) {
     }
   }
   throw new Error('Unsupported site import request.')
+}
+
+function capturedXMediaFromPage(postUrl, mediaUrl, mediaType) {
+  const tweetId = tweetIdFromUrl(postUrl)
+  if (!tweetId || !mediaUrl || !['image', 'video'].includes(mediaType)) return null
+  try {
+    const url = new URL(mediaUrl)
+    const host = url.hostname.toLowerCase()
+    const isImage = mediaType === 'image' && host === 'pbs.twimg.com' && url.pathname.includes('/media/')
+    const isVideo = mediaType === 'video' && (host === 'video.twimg.com' || host.endsWith('.video.twimg.com'))
+    if (!isImage && !isVideo) return null
+    return { tweetId, media: [{ type: mediaType, url: url.href, index: 0 }] }
+  } catch {
+    return null
+  }
 }
 
 async function sendPasteMediaMessage(tabId, frameId, payload) {
@@ -736,6 +755,10 @@ chrome.runtime.onStartup.addListener(createMenu)
 createMenu()
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
+  handleContextMenuClick(info, tab).catch(() => {})
+})
+
+async function handleContextMenuClick(info, tab) {
   if (handleReverseSearchClick(info, tab)) return
 
   if (info.menuItemId === INSERT_MENU_ID) {
@@ -762,7 +785,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (useYtdlp) {
     const linked = info.linkUrl && isVideoPlatformUrl(info.linkUrl) ? info.linkUrl : ''
     const contextualPost = lastPostUrl && isVideoPlatformUrl(lastPostUrl) ? lastPostUrl : ''
-    const target = linked || contextualPost || pageUrl
+    const resolvedPost = isXPageUrl(pageUrl)
+      ? await resolveXStatusUrlFromTab(tab?.id, info.srcUrl || lastMediaUrl)
+      : ''
+    const target = linked || resolvedPost || contextualPost || pageUrl
     if (!target) return
     const params = new URLSearchParams({
       src: target,
@@ -799,7 +825,81 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (Number.isInteger(xMediaIndex)) params.set('xMediaIndex', String(xMediaIndex))
   if (tab?.id != null) params.set('sourceTabId', String(tab.id))
   openPopup('upload.html', params, tab)
-})
+}
+
+function isXPageUrl(raw) {
+  try {
+    const host = new URL(raw).hostname.toLowerCase()
+    return /(^|\.)x\.com$|(^|\.)twitter\.com$/.test(host)
+  } catch {
+    return false
+  }
+}
+
+async function resolveXStatusUrlFromTab(tabId, mediaUrl = '') {
+  const id = Number(tabId)
+  if (!Number.isInteger(id) || id < 0 || !chrome.scripting) return ''
+  try {
+    const [injected] = await chrome.scripting.executeScript({
+      target: { tabId: id },
+      func: findXStatusUrlForCurrentMedia,
+      args: [mediaUrl],
+    })
+    return typeof injected?.result === 'string' ? injected.result : ''
+  } catch {
+    return ''
+  }
+}
+
+function findXStatusUrlForCurrentMedia(mediaUrl = '') {
+  const statusUrlFromArticle = (article) => {
+    if (!article) return ''
+    const timed = article.querySelector('a[href*="/status/"] time')?.closest('a')
+    const link = timed || article.querySelector('a[href*="/status/"]')
+    try {
+      const url = new URL(link?.getAttribute('href') || link?.href || '', location.origin)
+      return /\/status\/\d+/.test(url.pathname) ? url.href : ''
+    } catch {
+      return ''
+    }
+  }
+
+  // Native context menus normally preserve the page's :hover chain. This
+  // identifies the exact tweet even when an overlay, rather than <video>, was
+  // under the pointer and the address bar still says /home.
+  const hovered = Array.from(document.querySelectorAll(':hover')).reverse()
+  for (const element of hovered) {
+    const statusUrl = statusUrlFromArticle(element.closest?.('article[data-testid="tweet"]'))
+    if (statusUrl) return statusUrl
+  }
+
+  const videos = Array.from(document.querySelectorAll('video'))
+  if (mediaUrl) {
+    const exact = videos.find((video) => video.currentSrc === mediaUrl || video.src === mediaUrl)
+    const statusUrl = statusUrlFromArticle(exact?.closest('article[data-testid="tweet"]'))
+    if (statusUrl) return statusUrl
+  }
+
+  // After an extension reload there is no old cursor message to consult. Pick
+  // the visible player with active playback first, then the most-played player.
+  const ranked = videos
+    .map((video) => {
+      const rect = video.getBoundingClientRect()
+      const visibleWidth = Math.max(0, Math.min(innerWidth, rect.right) - Math.max(0, rect.left))
+      const visibleHeight = Math.max(0, Math.min(innerHeight, rect.bottom) - Math.max(0, rect.top))
+      const visibleArea = visibleWidth * visibleHeight
+      // Visible area and proximity to the viewport centre are the strongest
+      // fallback signals. X may autoplay another timeline video while the
+      // chosen player is paused by the context menu or popup.
+      const centreY = Math.max(0, Math.min(innerHeight, (rect.top + rect.bottom) / 2))
+      const centreDistance = Math.abs(innerHeight / 2 - centreY)
+      const score = visibleArea * 10 - centreDistance * 1_000 + (Number(video.currentTime) || 0) * 100
+      return { video, score }
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+  return statusUrlFromArticle(ranked[0]?.video.closest('article[data-testid="tweet"]'))
+}
 
 function reverseMenuItemId(serviceId) {
   return `${REVERSE_MENU_ID}-${serviceId}`

@@ -2208,7 +2208,7 @@ async function uploadMediaUrl(url, typeHint = '', options = {}) {
   }
 
   try {
-    return await uploadMediaUrlFromBrowser(url, typeHint)
+    return await uploadMediaUrlFromBrowser(url, typeHint, options)
   } catch (error) {
     if (options.browserFirst) throw error
   }
@@ -2229,10 +2229,12 @@ async function uploadMediaUrl(url, typeHint = '', options = {}) {
   throw new Error('no upload token returned')
 }
 
-async function uploadMediaUrlFromBrowser(url, typeHint = '') {
+async function uploadMediaUrlFromBrowser(url, typeHint = '', options = {}) {
   const mediaRes = await fetch(url, {
     credentials: 'include',
-    cache: 'no-store',
+    // Captured X URLs may already be in Chromium's HTTP cache even after the
+    // post page disappears. force-cache still uses the network when absent.
+    cache: options.browserFirst ? 'force-cache' : 'no-store',
   })
   if (!mediaRes.ok) throw new Error(`could not fetch captured media (HTTP ${mediaRes.status})`)
   const blob = await mediaRes.blob()
@@ -2264,15 +2266,17 @@ async function uploadCapturedXMedia() {
     ? candidates.find((item) => canonicalMediaUrl(item.url) === previewUrl)
     : null
   const selectedCandidate = exactCandidate || indexedCandidate
+  let lastError = ''
   if (selectedCandidate?.url) {
     try {
       setStatus('Using selected X media...', 'working')
       return await uploadMediaUrl(selectedCandidate.url, selectedCandidate.type === 'video' ? 'video/mp4' : 'image/jpeg', { browserFirst: true })
     } catch (error) {
-      throw new Error(`selected X media failed: ${error?.message || String(error)}`)
+      lastError = `selected X media failed: ${error?.message || String(error)}`
     }
   }
   const ordered = candidates
+    .filter((item) => item !== selectedCandidate)
     .map((item, index) => ({
       item,
       index,
@@ -2284,7 +2288,6 @@ async function uploadCapturedXMedia() {
     }))
     .sort((a, b) => b.score - a.score)
     .map((entry) => entry.item)
-  let lastError = ''
   for (const candidate of ordered) {
     if (!candidate?.url) continue
     try {
@@ -2370,8 +2373,22 @@ async function getContentToken() {
       ytdlpError = e.message
     }
 
+    // The tweet response can finish while yt-dlp is trying the page. This is
+    // especially useful for a deleted post whose already-open player still has
+    // valid media, so re-read the extension cache before surfacing the error.
+    if (xTweetId) {
+      const capturedToken = await uploadCapturedXMedia()
+      if (capturedToken) {
+        contentToken = capturedToken
+        return contentToken
+      }
+    }
+
     if (fetchMode === 'link') {
-      throw new Error(`yt-dlp could not download this video page: ${ytdlpError || 'no token returned'}`)
+      const cacheNote = xTweetId
+        ? ' Captured X media cache was checked before and after yt-dlp, but no usable media was found.'
+        : ''
+      throw new Error(`yt-dlp could not download this video page: ${ytdlpError || 'no token returned'}.${cacheNote}`)
     }
   }
 
