@@ -1,4 +1,5 @@
 from typing import Optional
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, case
@@ -9,6 +10,56 @@ from ..database import get_db
 from ..models import Tag, TagCategory, TagImplication, TagAlias
 
 router = APIRouter(prefix="/api", tags=["tags"])
+
+
+def _escape_like(value: str) -> str:
+    """Escape user text for SQL LIKE patterns that use backslash escaping."""
+    return (
+        str(value or "")
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
+def _normalize_tag_query(value: str) -> str:
+    return re.sub(r"\s+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def _tag_name_search_condition(q: str):
+    normalized = _normalize_tag_query(q)
+    if not normalized:
+        return None
+    pattern = _escape_like(normalized)
+    name = func.lower(Tag.name)
+    return name.like(f"%{pattern}%", escape="\\")
+
+
+def _tag_name_autocomplete_condition(q: str, name_parts: bool = False):
+    normalized = _normalize_tag_query(q)
+    if not normalized:
+        return None, None
+
+    pattern = _escape_like(normalized)
+    name = func.lower(Tag.name)
+    if name_parts:
+        match_condition = name.like(f"%{pattern}%", escape="\\")
+    else:
+        match_condition = (
+            (name == normalized)
+            | name.like(f"{pattern}%", escape="\\")
+            | name.like(f"%\\_{pattern}", escape="\\")
+            | name.like(f"%\\_{pattern}\\_%", escape="\\")
+        )
+    rank = case(
+        (name == normalized, 0),
+        (name.like(f"{pattern}\\_%", escape="\\"), 1),
+        (name.like(f"%\\_{pattern}", escape="\\"), 2),
+        (name.like(f"%\\_{pattern}\\_%", escape="\\"), 3),
+        (name.like(f"{pattern}%", escape="\\"), 4),
+        else_=5,
+    )
+    return match_condition, rank
 
 
 class CreateTagRequest(BaseModel):
@@ -45,12 +96,20 @@ async def list_tags(
 
     # Apply search filter
     if q:
-        stmt = stmt.where(Tag.name.ilike(f"%{q}%"))
+        condition = _tag_name_search_condition(q)
+        if condition is not None:
+            stmt = stmt.where(condition)
+        else:
+            stmt = stmt.where(False)
 
     # Get total count
     count_stmt = select(func.count(Tag.id))
     if q:
-        count_stmt = count_stmt.where(Tag.name.ilike(f"%{q}%"))
+        condition = _tag_name_search_condition(q)
+        if condition is not None:
+            count_stmt = count_stmt.where(condition)
+        else:
+            count_stmt = count_stmt.where(False)
     total_result = await db.execute(count_stmt)
     total = total_result.scalar() or 0
 
@@ -86,26 +145,19 @@ async def autocomplete_tags(
     q: str = Query(..., min_length=1),
     limit: int = Query(10, ge=1, le=50),
     name_parts: bool = Query(False, alias="nameParts"),
+    include_remote: bool = Query(False, alias="includeRemote"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get tag suggestions for autocomplete."""
-    needle = q.lower()
-    name = func.lower(Tag.name)
-    if name_parts:
-        match_condition = Tag.name.ilike(f"%{q}%")
-        rank = case(
-            (name.like(f"%_{needle}"), 0),
-            (name.like(f"%_{needle}_%"), 1),
-            (name.like(f"{needle}_%"), 2),
-            (name == needle, 3),
-            else_=4,
-        )
-    else:
-        match_condition = Tag.name.ilike(f"{q}%")
-        rank = case(
-            (name == needle, 0),
-            else_=1,
-        )
+    """Get tag suggestions for autocomplete.
+
+    With ``includeRemote`` the local matches are topped up with suggestions from
+    public boorus for tags this library does not have yet - the case local
+    autocomplete cannot help with at all. Remote rows carry ``remote: true`` and
+    the source board's own category, and only appear when the setting is on.
+    """
+    match_condition, rank = _tag_name_autocomplete_condition(q, name_parts=name_parts)
+    if match_condition is None:
+        return []
 
     stmt = (
         select(Tag)
@@ -117,8 +169,32 @@ async def autocomplete_tags(
 
     result = await db.execute(stmt)
     tags = list(result.scalars().all())
+    rows = [t.to_dict() for t in tags]
+    if not include_remote or len(rows) >= limit:
+        return rows
 
-    return [t.to_dict() for t in tags]
+    from ..services.auto_tagger import load_options
+
+    if not getattr(load_options(), "booruSuggestEnabled", False):
+        return rows
+
+    from ..services.booru_suggest import suggest_tags
+
+    known = {row["name"] for row in rows}
+    remote = [row for row in await suggest_tags(q, limit=limit) if row["name"] not in known]
+    if remote:
+        # Colour them from this library's own palette so a character reads as a
+        # character whether the row came from here or from Danbooru.
+        colors = {
+            category.name: category.color
+            for category in (await db.execute(select(TagCategory))).scalars().all()
+        }
+        for row in remote:
+            row["categoryColor"] = colors.get(row["category"], "#808080")
+    # Your own tags always rank above a remote guess, and a remote row for a tag
+    # you already have would just be a duplicate with a stranger's usage count.
+    rows.extend(remote)
+    return rows[:limit]
 
 
 @router.get("/tags/{tag_name}")

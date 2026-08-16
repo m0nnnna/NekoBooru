@@ -90,6 +90,28 @@ class SettingsManager:
         settings["server"] = server
         self.save_settings(settings)
 
+    def get_extension_settings(self) -> dict:
+        """Get persisted browser-extension defaults."""
+        settings = self.load_settings()
+        return dict(settings.get("extension") or {})
+
+    def set_extension_settings(self, extension: dict) -> None:
+        """Persist browser-extension defaults without disturbing other settings."""
+        settings = self.load_settings()
+        settings["extension"] = extension
+        self.save_settings(settings)
+
+    def get_ai_model_defaults(self) -> dict:
+        """Get persisted default model choices shared by app and extension AI previews."""
+        settings = self.load_settings()
+        return dict(settings.get("aiModelDefaults") or {})
+
+    def set_ai_model_defaults(self, defaults: dict) -> None:
+        """Persist shared default model choices without disturbing other settings."""
+        settings = self.load_settings()
+        settings["aiModelDefaults"] = defaults
+        self.save_settings(settings)
+
     def get_huggingface_token(self) -> Optional[str]:
         """Get the locally stored Hugging Face token, if configured."""
         settings = self.load_settings()
@@ -106,6 +128,30 @@ class SettingsManager:
         """Remove the locally stored Hugging Face token."""
         settings = self.load_settings()
         settings.pop("huggingface_token", None)
+        self.save_settings(settings)
+
+    def get_gelbooru_credentials(self) -> tuple[Optional[str], Optional[str]]:
+        """Get the locally stored Gelbooru user ID and API key."""
+        settings = self.load_settings()
+        user_id = settings.get("gelbooru_user_id")
+        api_key = settings.get("gelbooru_api_key")
+        return (
+            str(user_id).strip() if user_id else None,
+            str(api_key).strip() if api_key else None,
+        )
+
+    def set_gelbooru_credentials(self, user_id: str, api_key: str) -> None:
+        """Persist Gelbooru API credentials locally."""
+        settings = self.load_settings()
+        settings["gelbooru_user_id"] = str(user_id).strip()
+        settings["gelbooru_api_key"] = str(api_key).strip()
+        self.save_settings(settings)
+
+    def delete_gelbooru_credentials(self) -> None:
+        """Remove locally stored Gelbooru API credentials."""
+        settings = self.load_settings()
+        settings.pop("gelbooru_user_id", None)
+        settings.pop("gelbooru_api_key", None)
         self.save_settings(settings)
 
     def get_tagger_worker_token(self) -> Optional[str]:

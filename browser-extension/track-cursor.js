@@ -17,11 +17,59 @@
 // player) and a touch off the element still counts.
 let lastEditableTarget = null
 
+// A post page can request the same reverse-search stack as the native context
+// menu. The background worker validates the sender against the saved instance
+// URL before acting; this listener is only the isolated-world bridge.
+window.addEventListener('message', (event) => {
+  const message = event.data
+  if (event.source !== window || event.origin !== location.origin) return
+  if (message?.type !== 'nekobooru-reverse-search-request' || message.source !== 'nekobooru-app') return
+  try {
+    chrome.runtime.sendMessage({
+      type: 'nekobooru-open-reverse-search',
+      requestId: message.requestId,
+      mode: message.mode,
+      src: message.mediaUrl,
+      mediaType: message.mediaType,
+      filename: message.filename,
+    }, (response) => {
+      const error = chrome.runtime.lastError
+      window.postMessage({
+        type: 'nekobooru-reverse-search-result',
+        requestId: message.requestId,
+        ok: !error && response?.ok === true,
+        error: error?.message || response?.error || '',
+      }, location.origin)
+    })
+  } catch (error) {
+    window.postMessage({
+      type: 'nekobooru-reverse-search-result',
+      requestId: message.requestId,
+      ok: false,
+      error: error?.message || 'The extension context is unavailable.',
+    }, location.origin)
+  }
+})
+
 function elementsUnder(x, y) {
   try {
     return document.elementsFromPoint(x, y)
   } catch {
     return []
+  }
+}
+
+function mediaFromStack(stack) {
+  return stack.find((el) => el.tagName === 'VIDEO' || el.tagName === 'IMG') || null
+}
+
+function mediaUrlFromElement(media) {
+  const raw = media?.currentSrc || media?.src || ''
+  if (!raw) return ''
+  try {
+    return new URL(raw, location.href).href
+  } catch {
+    return raw
   }
 }
 
@@ -173,6 +221,19 @@ function tweetIdFromUrl(raw) {
   return url.match(/\/status\/(\d+)/)?.[1] || ''
 }
 
+function tweetUsernameFromUrl(raw) {
+  const url = normalizedStatusUrl(raw)
+  return url.match(/\/([^/]+)\/status\/\d+/)?.[1] || ''
+}
+
+function xPhotoIndexFromUrl(raw) {
+  const url = normalizedStatusUrl(raw)
+  const match = url.match(/\/photo\/(\d+)/)
+  if (!match) return null
+  const index = Number.parseInt(match[1], 10)
+  return Number.isFinite(index) && index > 0 ? index - 1 : null
+}
+
 function statusUrlFromArticle(article) {
   if (!article) return ''
   const timeLink = article.querySelector('a[href*="/status/"] time')?.closest('a')
@@ -186,6 +247,8 @@ function normalizeCapturedMediaUrl(raw, type) {
     const url = new URL(raw, location.origin)
     const host = url.hostname.toLowerCase()
     if (host === 'pbs.twimg.com' && url.pathname.includes('/media/')) {
+      const inferredFormat = url.pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase()
+      if (!url.searchParams.has('format') && inferredFormat) url.searchParams.set('format', inferredFormat)
       if (url.searchParams.has('format')) url.searchParams.set('name', 'orig')
       url.hash = ''
       return url.href
@@ -291,6 +354,8 @@ function normalizedXImageUrl(raw) {
     const host = url.hostname.toLowerCase()
     if (host !== 'pbs.twimg.com') return ''
     if (!url.pathname.includes('/media/')) return ''
+    const inferredFormat = url.pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase()
+    if (!url.searchParams.has('format') && inferredFormat) url.searchParams.set('format', inferredFormat)
     if (url.searchParams.has('format')) url.searchParams.set('name', 'orig')
     url.hash = ''
     return url.href
@@ -352,6 +417,7 @@ function uploadTargetFromArticle(article) {
       mediaType: 'video',
       fetch: 'link',
       xTweetId: tweetIdFromUrl(video.statusUrl),
+      xTweetUsername: tweetUsernameFromUrl(video.statusUrl),
     }
   }
 
@@ -363,6 +429,8 @@ function uploadTargetFromArticle(article) {
       mediaType: 'image',
       fetch: 'direct',
       xTweetId: tweetIdFromUrl(image.statusUrl || statusUrl),
+      xTweetUsername: tweetUsernameFromUrl(image.statusUrl || statusUrl),
+      xMediaIndex: xPhotoIndexFromUrl(image.statusUrl || statusUrl),
     }
   }
 
@@ -452,14 +520,20 @@ function nativeActionShell(actionGroup, innerButton) {
 function openUploadForTarget(target) {
   if (!target?.src) return
   try {
-    chrome.runtime.sendMessage({
+    const message = {
       type: 'nekobooru-open-upload',
       src: target.src,
       page: target.page || target.src,
       mediaType: target.mediaType || 'image',
       fetch: target.fetch || 'direct',
       xTweetId: target.xTweetId || tweetIdFromUrl(target.page || target.src),
-    })
+      xTweetUsername: target.xTweetUsername || tweetUsernameFromUrl(target.page || target.src),
+    }
+    const xMediaIndex = Number.isInteger(target.xMediaIndex)
+      ? target.xMediaIndex
+      : xPhotoIndexFromUrl(target.page || target.src)
+    if (Number.isInteger(xMediaIndex)) message.xMediaIndex = xMediaIndex
+    chrome.runtime.sendMessage(message)
   } catch {
     // Extension context may be reloading; ignore.
   }
@@ -534,15 +608,90 @@ function setupXPostButtons() {
 // Listen on window in the capture phase so we run before the page's own handlers
 // (capture order is window -> document -> ... -> target), letting us neutralise
 // them before they can suppress the menu.
+let lastContextMenuPoint = { x: 0, y: 0 }
+
+function currentMediaAtLastContextMenu() {
+  const stack = elementsUnder(lastContextMenuPoint.x, lastContextMenuPoint.y)
+  return mediaFromStack(stack)
+}
+
+function filenameForCapturedFrame(media) {
+  const raw = media?.currentSrc || media?.src || location.href
+  try {
+    const name = decodeURIComponent(new URL(raw, location.href).pathname.split('/').pop() || '')
+    if (name) return name.replace(/\.[^.]+$/, '') + '-frame.png'
+  } catch {
+    // Use generic fallback.
+  }
+  return 'nekobooru-frame.png'
+}
+
+function captureRect(width, height, landscape = false) {
+  if (!landscape) return { sx: 0, sy: 0, sw: width, sh: height, dw: width, dh: height }
+
+  const targetAspect = 16 / 9
+  const sourceAspect = width / height
+  let sx = 0
+  let sy = 0
+  let sw = width
+  let sh = height
+
+  if (sourceAspect < targetAspect) {
+    sh = Math.round(width / targetAspect)
+    sy = Math.max(0, Math.round((height - sh) / 2))
+  } else if (sourceAspect > targetAspect) {
+    sw = Math.round(height * targetAspect)
+    sx = Math.max(0, Math.round((width - sw) / 2))
+  }
+
+  return { sx, sy, sw, sh, dw: sw, dh: sh }
+}
+
+function captureCurrentMediaFrame(options = {}) {
+  const media = currentMediaAtLastContextMenu()
+  if (!media) return { ok: false, error: 'No image or video was found under the last right-click.' }
+
+  const width = media.tagName === 'VIDEO' ? media.videoWidth : media.naturalWidth
+  const height = media.tagName === 'VIDEO' ? media.videoHeight : media.naturalHeight
+  if (!width || !height) return { ok: false, error: 'The media frame is not ready yet.' }
+
+  try {
+    const rect = captureRect(width, height, !!options.landscape)
+    const canvas = document.createElement('canvas')
+    canvas.width = rect.dw
+    canvas.height = rect.dh
+    const context = canvas.getContext('2d')
+    if (!context) return { ok: false, error: 'Canvas capture is unavailable.' }
+    context.drawImage(media, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, rect.dw, rect.dh)
+    return {
+      ok: true,
+      dataUrl: canvas.toDataURL('image/png'),
+      filename: filenameForCapturedFrame(media),
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      error: 'This site blocks frame capture for cross-origin media. Open a reverse-search site and upload/download the frame manually.',
+    }
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type !== 'nekobooru-capture-current-frame') return
+  sendResponse(captureCurrentMediaFrame({ landscape: !!msg.landscape }))
+})
+
 window.addEventListener(
   'contextmenu',
   (e) => {
+    lastContextMenuPoint = { x: e.clientX, y: e.clientY }
     const editableTarget = editableTargetFromEvent(e)
     if (editableTarget) lastEditableTarget = editableTarget
 
     const stack = elementsUnder(e.clientX, e.clientY)
-    const hasVideo = stack.some((el) => el.tagName === 'VIDEO')
-    const hasMedia = hasVideo || stack.some((el) => el.tagName === 'IMG')
+    const media = mediaFromStack(stack)
+    const hasVideo = media?.tagName === 'VIDEO' || stack.some((el) => el.tagName === 'VIDEO')
+    const hasMedia = !!media
     const postUrl = statusUrlFromStack(stack)
 
     // Report the cursor (for popup placement) and whether a video is under it
@@ -553,6 +702,8 @@ window.addEventListener(
         x: e.screenX,
         y: e.screenY,
         hasVideo,
+        mediaUrl: mediaUrlFromElement(media),
+        mediaType: media?.tagName === 'VIDEO' ? 'video' : media?.tagName === 'IMG' ? 'image' : '',
         postUrl,
       })
     } catch {

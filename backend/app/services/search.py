@@ -3,11 +3,13 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import select, and_, or_, not_, func
+from sqlalchemy import select, and_, or_, not_, func, false
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..models import Post, Tag, PostTag, Favorite, PoolPost
+from ..models import Post, Tag, PostTag, Favorite, PoolPost, TagAlias
+from .ai_analysis import semantic_analysis_condition
+from .tagging import normalize_tag
 
 
 class TokenType(Enum):
@@ -36,7 +38,14 @@ FILTER_KEYS = {
     "pool",
     "type",
     "sort",
+    "hash",
+    "md5",
+    "sha256",
 }
+
+
+_BARE_HASH_RE = re.compile(r"^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{64})$")
+_HASH_PREFIX_RE = re.compile(r"^[0-9a-fA-F]{8,64}$")
 
 
 def _is_filter_key(key: str) -> bool:
@@ -87,6 +96,12 @@ def tokenize(query: str) -> list[Token]:
         # Check for negated tag
         elif part.startswith("-"):
             tokens.append(Token(TokenType.NEGATED_TAG, part[1:]))
+        # A complete MD5 or SHA-256 pasted into the search bar is a hash
+        # lookup, not a very improbable tag name. Short prefixes remain tags
+        # unless the user opts in with hash: so ordinary hexadecimal-looking
+        # tags do not unexpectedly change meaning.
+        elif _BARE_HASH_RE.fullmatch(part):
+            tokens.append(Token(TokenType.FILTER, part, filter_key="hash", filter_op="="))
         # Check for filter (key:value)
         elif ":" in part:
             token = _parse_filter(part, TokenType.FILTER)
@@ -111,11 +126,16 @@ def _order_column(sort: str):
     }.get(sort, Post.created_at)
 
 
-def build_conditions(query: str) -> list:
+def build_conditions(query: str, alias_map: dict[str, str] | None = None) -> list:
     """Translate a search query into a list of SQLAlchemy WHERE conditions.
 
     Shared by :func:`search_posts` and :func:`get_post_neighbors` so the gallery
     list and the prev/next navigation always agree on which posts match.
+
+    ``alias_map`` maps a normalized tag alias (e.g. "sango_pokemon") to its
+    canonical target tag name (e.g. "coral_pokemon"), from :func:`_alias_target_map`.
+    Without it, searching an alias someone typed instead of the tag it merges
+    into would silently return nothing.
     """
     tokens = tokenize(query) if query else []
 
@@ -126,16 +146,18 @@ def build_conditions(query: str) -> list:
 
     for token in tokens:
         if token.type == TokenType.TAG:
-            subq = select(PostTag.c.post_id).join(Tag).where(Tag.name == token.value)
-            condition = Post.id.in_(subq)
+            condition = _post_has_tag_name_like(token.value, alias_map)
+            if condition is None:
+                continue
             if current_or_group:
                 current_or_group.append(condition)
             else:
                 and_conditions.append(condition)
 
         elif token.type == TokenType.NEGATED_TAG:
-            subq = select(PostTag.c.post_id).join(Tag).where(Tag.name == token.value)
-            and_conditions.append(not_(Post.id.in_(subq)))
+            condition = _post_has_tag_name_like(token.value, alias_map)
+            if condition is not None:
+                and_conditions.append(not_(condition))
 
         elif token.type == TokenType.OR:
             if and_conditions:
@@ -162,12 +184,172 @@ def build_conditions(query: str) -> list:
     return and_conditions + or_groups
 
 
+def _semantic_search_tokens(query: str) -> list[str]:
+    tokens = tokenize(query) if query else []
+    words = []
+    for token in tokens:
+        if token.type == TokenType.TAG:
+            value = token.value.strip().lower()
+            if value and not _is_filter_key(value.split(":", 1)[0]):
+                words.append(value)
+            continue
+        if token.type in {TokenType.FILTER, TokenType.NEGATED_FILTER} and token.filter_key == "safety":
+            continue
+        return []
+    if not words:
+        return []
+    return [word for word in words if len(word) >= 2]
+
+
+def _escape_like(value: str) -> str:
+    return (
+        str(value or "")
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
+def _normalize_tag_query(value: str) -> str:
+    """Normalize a searched tag exactly the way a written tag is normalized.
+
+    Tags are stored through tagging.normalize_tag(), which flattens the booru
+    qualifier syntax: both the model's ``miyu (blue archive)`` and Danbooru's
+    ``miyu_(blue_archive)`` become ``miyu_blue_archive``. Searching used to only
+    collapse whitespace, so a name pasted from a booru — or copied out of the
+    model's own output — found nothing. Delegating keeps query and storage from
+    drifting apart again.
+    """
+    return normalize_tag(value)
+
+
+def _qualifier_fuzzy_condition(column, normalized: str):
+    """Match ``column`` against a normalized value, ignoring booru qualifiers.
+
+    ``sango`` matches a stored ``sango_pokemon`` the same way a plain word
+    matches one segment of a qualified tag name - shared by tag-name matching
+    and by alias lookups, so an unqualified search word can also resolve an
+    alias like "sango_pokemon" -> "coral_pokemon".
+    """
+    escaped = _escape_like(normalized)
+    value = func.lower(column)
+    return or_(
+        value == normalized,
+        value.like(f"{escaped}\\_%", escape="\\"),
+        value.like(f"%\\_{escaped}", escape="\\"),
+        value.like(f"%\\_{escaped}\\_%", escape="\\"),
+    )
+
+
+def _semantic_tag_name_condition(normalized: str):
+    return _qualifier_fuzzy_condition(Tag.name, normalized)
+
+
+def _tag_name_condition(value: str, alias_map: dict[str, str] | None = None):
+    normalized = _normalize_tag_query(value)
+    if not normalized:
+        return None
+    normalized = (alias_map or {}).get(normalized, normalized)
+    return _semantic_tag_name_condition(normalized)
+
+
+def _post_has_tag_name_like(value: str, alias_map: dict[str, str] | None = None):
+    condition = _tag_name_condition(value, alias_map)
+    if condition is None:
+        return None
+    subq = select(PostTag.c.post_id).join(Tag).where(condition)
+    return Post.id.in_(subq)
+
+
+def _tag_token_names(tokens: list[Token]) -> set[str]:
+    return {
+        _normalize_tag_query(token.value)
+        for token in tokens
+        if token.type in (TokenType.TAG, TokenType.NEGATED_TAG)
+    }
+
+
+async def _alias_target_map(session: AsyncSession, names: set[str]) -> dict[str, str]:
+    """Resolve any of the given normalized search terms that name a TagAlias to its target's name.
+
+    Search matches Tag rows directly, so a query for an aliased spelling (e.g.
+    "sango" for a tag merged into "coral_(pokemon)") would otherwise match
+    nothing even though tagging a post with it resolves through the alias fine.
+    Matching is fuzzy the same way tag names are (an unqualified "sango" finds
+    the qualified alias "sango_pokemon"), so this is queried per name rather
+    than with a single IN(). Shared by the plain tag-query path and semantic
+    expansion, which each normalize their own search terms before calling this.
+    """
+    names = {name for name in names if name}
+    if not names:
+        return {}
+    result: dict[str, str] = {}
+    for name in names:
+        target_name = (
+            await session.execute(
+                select(Tag.name)
+                .join(TagAlias, TagAlias.target_id == Tag.id)
+                .where(_qualifier_fuzzy_condition(TagAlias.alias_name, name))
+                .order_by(func.length(TagAlias.alias_name).asc())
+                .limit(1)
+            )
+        ).scalars().first()
+        if target_name:
+            result[name] = target_name
+    return result
+
+
+async def _semantic_expansion_conditions(session: AsyncSession, query: str) -> list:
+    """Expand plain-language search words into known tags and saved AI analysis.
+
+    This never runs a model at search time. Each user word becomes an OR group
+    of matching tag names and persisted Qwen analysis text; groups are ANDed
+    together so "pink bikini" favors posts containing both concepts.
+    """
+    words = _semantic_search_tokens(query)
+    if not words:
+        return []
+
+    normalized_words = [normalize_tag(word) for word in words[:6]]
+    normalized_words = [n for n in normalized_words if n]
+    alias_map = await _alias_target_map(session, set(normalized_words))
+
+    groups = []
+    for normalized in normalized_words:
+        # Same normalizer as tag writes: this used to collapse the booru
+        # qualifier syntax without merging the runs it created, so
+        # "shimakaze_(kancolle)" became "shimakaze__kancolle" and matched
+        # nothing. Semantic expansion replaces the plain tag conditions
+        # entirely, so a miss here silently returned zero results.
+        normalized = alias_map.get(normalized, normalized)
+        rows = (
+            await session.execute(
+                select(Tag.name)
+                .where(_semantic_tag_name_condition(normalized))
+                .order_by(Tag.usage_count.desc(), Tag.name.asc())
+                .limit(24)
+            )
+        ).scalars().all()
+        tag_names = [name for name in rows if name]
+        conditions = []
+        if tag_names:
+            subq = select(PostTag.c.post_id).join(Tag).where(Tag.name.in_(tag_names))
+            conditions.append(Post.id.in_(subq))
+        analysis_condition = semantic_analysis_condition(normalized)
+        if analysis_condition is not None:
+            conditions.append(analysis_condition)
+        if conditions:
+            groups.append(or_(*conditions))
+    return groups
+
+
 async def get_post_neighbors(
     session: AsyncSession,
     post_id: int,
     query: str = "",
     sort: str = "date",
     sort_order: str = "desc",
+    semantic_search: bool = False,
 ) -> dict:
     """Return the prev/next post ids around ``post_id`` within a filtered view.
 
@@ -188,7 +370,12 @@ async def get_post_neighbors(
         return {"prev": None, "next": None}
 
     cur_id, cur_val = current[0], current[1]
-    conditions = build_conditions(query)
+    alias_map = await _alias_target_map(session, _tag_token_names(tokenize(query) if query else []))
+    conditions = build_conditions(query, alias_map)
+    if semantic_search:
+        semantic_conditions = await _semantic_expansion_conditions(session, query)
+        if semantic_conditions:
+            conditions = [Post.deleted_at.is_(None), *semantic_conditions]
     descending = sort_order != "asc"
 
     # Strictly-before / strictly-after in value, breaking ties by id.
@@ -216,15 +403,21 @@ async def search_posts(
     per_page: int = 42,
     sort: str = "date",
     sort_order: str = "desc",
+    semantic_search: bool = False,
 ) -> tuple[list[Post], int]:
     """Search posts with tag-based query syntax."""
     # Base query with eager loading
     stmt = select(Post).options(
-        selectinload(Post.tags),
+        selectinload(Post.tags).selectinload(Tag.category),
         selectinload(Post.favorite),
     )
 
-    all_conditions = build_conditions(query)
+    alias_map = await _alias_target_map(session, _tag_token_names(tokenize(query) if query else []))
+    all_conditions = build_conditions(query, alias_map)
+    if semantic_search:
+        semantic_conditions = await _semantic_expansion_conditions(session, query)
+        if semantic_conditions:
+            all_conditions = [Post.deleted_at.is_(None), *semantic_conditions]
     if all_conditions:
         stmt = stmt.where(and_(*all_conditions))
 
@@ -313,6 +506,29 @@ def apply_filter(token: Token):
             return Post.extension == ".gif"
         elif value == "video":
             return Post.extension.in_([".webm", ".mp4"])
+
+    elif key in ("hash", "md5", "sha256"):
+        normalized = str(value or "").strip().lower()
+        valid = _HASH_PREFIX_RE.fullmatch(normalized)
+        if not valid:
+            # Invalid explicit filters must return no posts rather than being
+            # silently ignored and exposing the entire library.
+            return false()
+        if key == "md5" and len(normalized) != 32:
+            return false()
+
+        escaped = _escape_like(normalized)
+        external_hash = or_(
+            func.lower(Post.filename).like(f"%{escaped}%", escape="\\"),
+            func.lower(func.coalesce(Post.source, "")).like(f"%{escaped}%", escape="\\"),
+        )
+        if key == "md5":
+            # NekoBooru stores content SHA-256, but booru downloads commonly
+            # preserve the remote MD5 in sample_<md5>.jpg or the source URL.
+            return external_hash
+
+        content_hash = func.lower(Post.sha256).like(f"{escaped}%", escape="\\")
+        return or_(content_hash, external_hash)
 
     elif key == "sort":
         # Sorting is handled separately

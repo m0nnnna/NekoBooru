@@ -3,7 +3,7 @@
     <input
       type="text"
       v-model="searchQuery"
-      placeholder="Search tags~ nyaa"
+      :placeholder="searchPlaceholder"
       @keydown.enter.prevent="onEnter"
       @keydown.down.prevent="onArrowDown"
       @keydown.up.prevent="onArrowUp"
@@ -28,9 +28,10 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTagsStore } from '../stores/tags'
+import { api } from '../api/client'
 
 const router = useRouter()
 const tagsStore = useTagsStore()
@@ -39,10 +40,38 @@ const searchQuery = ref('')
 const suggestions = ref([])
 const selectedIndex = ref(-1)
 const inputFocused = ref(false)
+const semanticSearchEnabled = ref(false)
 const SEARCH_PREDICTION_KEY = 'nekobooru.searchPredictionEnabled'
 const NAME_PART_AUTOCOMPLETE_KEY = 'nekobooru.namePartAutocompleteEnabled'
 let debounceTimer = null
-let predictedRouteQuery = ''
+let autoRouteQuery = ''
+
+const searchPlaceholder = computed(() =>
+  semanticSearchEnabled.value ? 'Search tags or phrases~ nyaa' : 'Search tags~ nyaa'
+)
+
+onMounted(() => {
+  loadSemanticSearchSetting()
+  window.addEventListener('nekobooru:semantic-search-setting', onSemanticSearchSettingChanged)
+})
+
+onUnmounted(() => {
+  clearTimeout(debounceTimer)
+  window.removeEventListener('nekobooru:semantic-search-setting', onSemanticSearchSettingChanged)
+})
+
+async function loadSemanticSearchSetting() {
+  try {
+    const settings = await api.getAutoTagSettings()
+    semanticSearchEnabled.value = settings.semanticSearchEnabled === true
+  } catch (e) {
+    semanticSearchEnabled.value = false
+  }
+}
+
+function onSemanticSearchSettingChanged(event) {
+  semanticSearchEnabled.value = event.detail?.enabled === true
+}
 
 function onInput() {
   clearTimeout(debounceTimer)
@@ -52,7 +81,7 @@ function onInput() {
     if (lastWord && lastWord.length >= 1) {
       suggestions.value = await tagsStore.autocomplete(lastWord.replace('-', ''), autocompleteOptions())
       selectedIndex.value = -1
-      applyAutomaticPrediction()
+      applyAutomaticSearch()
     } else {
       suggestions.value = []
       selectedIndex.value = -1
@@ -92,22 +121,26 @@ function onArrowUp() {
 
 function onEnter() {
   if (suggestions.value.length > 0) {
-    const index = selectedIndex.value >= 0 ? selectedIndex.value : 0
-    selectTag(suggestions.value[index])
+    const index = selectedIndex.value >= 0 ? selectedIndex.value : semanticSearchEnabled.value ? -1 : 0
+    if (index >= 0) {
+      selectTag(suggestions.value[index])
+      return
+    }
+    search()
   } else {
     search()
   }
 }
 
-function applyAutomaticPrediction() {
-  const query = predictedSearchQuery()
+function applyAutomaticSearch() {
+  if (localStorage.getItem(SEARCH_PREDICTION_KEY) !== 'true') return
+  const query = semanticSearchEnabled.value ? searchQuery.value.trim() : predictedSearchQuery()
   if (!query || query === (router.currentRoute.value.query.q || '')) return
-  predictedRouteQuery = query
+  autoRouteQuery = query
   router.push({ path: '/', query: { q: query } })
 }
 
 function predictedSearchQuery() {
-  if (localStorage.getItem(SEARCH_PREDICTION_KEY) !== 'true') return ''
   const top = suggestions.value[0]
   if (!top?.name) return ''
   const words = searchQuery.value.trimEnd().split(/\s+/)
@@ -128,7 +161,7 @@ function search() {
 watch(
   () => router.currentRoute.value.query.q,
   (q) => {
-    if (inputFocused.value && q === predictedRouteQuery) return
+    if (inputFocused.value && q === autoRouteQuery) return
     if (q !== undefined) {
       searchQuery.value = q
     }

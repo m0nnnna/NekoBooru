@@ -28,7 +28,7 @@ Organize your personal media collection with tags, pools, favorites, and more.
 - **Comments**: Comment on posts
 
 ### AI Auto-Tagging (optional)
-- Local image/video tagging (WD/Camie taggers, plus optional OCR/Whisper/Qwen)
+- Local image/video tagging (WD/Camie/CL/PixAI taggers, plus optional OCR/Whisper/Qwen)
 - Disabled by default and **not bundled** with the app — install the AI stack only where you want it
 - Offload inference to a **remote GPU worker** on your LAN so the main server stays light
 - See [AI Auto-Tagging](#ai-auto-tagging-optional-1) below
@@ -205,6 +205,18 @@ pip install -r backend/requirements-tagger-cpu.txt
 Then open **Settings → Auto Tagging**, toggle **Enable AI features**, and download the models you want.
 The web UI also shows these commands and a CPU/GPU picker when the runtime isn't installed yet.
 
+### CL Tagger v2 (gated model)
+[CL Tagger v2](https://huggingface.co/cella110n/cl_tagger_v2) is a SigLIP2-based Danbooru tagger with a
+108k-tag vocabulary (characters, copyrights, general, rating). It is **gated**, so before downloading it:
+
+1. Open the model page while signed in to Hugging Face and accept its licence (approval is automatic).
+2. Create a Hugging Face access token and save it under **Settings → Auto Tagging → Hugging Face token**.
+3. Download **CL Tagger v2** from the model registry (~2.3 GB; it is excluded from *Download all* because
+   the download fails for anyone who has not accepted the licence).
+
+Its thresholds are floored at 0.55 — the value the model card recommends — regardless of the lower
+app-wide general/character thresholds, because a 108k-tag vocabulary over-tags badly below that.
+
 ### Benchmark tagging speed
 To see how fast tagging runs on your hardware (and the GPU vs CPU speedup), run
 the benchmark with the venv that has the AI stack:
@@ -217,6 +229,13 @@ venv/bin/python benchmark-tagger.py
 It times the default WD tagger (preprocess + inference) on CPU and GPU and prints
 per-image latency, throughput, and projected times for bulk runs. Use
 `--images <folder>` to benchmark your own files, or `--device cpu|gpu|both`.
+
+> **ONNX taggers on the GPU:** `onnxruntime-gpu` ships no CUDA libraries of its own — it loads
+> cuDNN 9 and the CUDA 12 runtime by name at session creation. Those DLLs already come with the
+> `torch` wheel, but on Windows they sit in a directory Windows never searches, so without help
+> onnxruntime reports *"Require cuDNN 9.\* and CUDA 12.\*"* and every ONNX tagger (WD, Camie, CL,
+> PixAI) silently runs on CPU. NekoBooru preloads them automatically from the installed torch (or
+> `nvidia-*`) wheels, so no separate CUDA Toolkit or cuDNN install is needed.
 
 > **Older NVIDIA GPUs:** PyTorch's default CUDA 12.8 builds dropped Maxwell/Pascal/Volta
 > support, so on a GTX 10-series card (e.g. 1060, `sm_61`) the standard GPU install fails

@@ -56,6 +56,11 @@ def _migrate(conn):
     """
     import uuid as uuid_lib
 
+    # Source spelling of a tag before normalize_tag() flattened it, so the UI
+    # can show "miyu (blue archive)" for the stored "miyu_blue_archive".
+    if not _column_exists(conn, "tags", "display_name"):
+        conn.exec_driver_sql("ALTER TABLE tags ADD COLUMN display_name VARCHAR(255)")
+
     # Soft-delete marker on posts.
     if not _column_exists(conn, "posts", "deleted_at"):
         conn.exec_driver_sql("ALTER TABLE posts ADD COLUMN deleted_at DATETIME")
@@ -85,6 +90,27 @@ def _migrate(conn):
             f"CREATE UNIQUE INDEX IF NOT EXISTS ix_{table}_uuid ON {table}(uuid)"
         )
 
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_post_ai_analysis_post_id ON post_ai_analysis(post_id)"
+    )
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_post_ai_analysis_profile ON post_ai_analysis(profile)"
+    )
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_post_ai_analysis_model_id ON post_ai_analysis(model_id)"
+    )
+    try:
+        conn.exec_driver_sql(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS post_ai_analysis_fts
+            USING fts5(post_id UNINDEXED, search_text, tokenize='unicode61')
+            """
+        )
+    except Exception:
+        # Some SQLite builds omit FTS5. Search falls back to the regular
+        # post_ai_analysis.search_text column, so startup should keep working.
+        pass
+
 
 async def init_db():
     """Initialize database tables."""
@@ -108,14 +134,27 @@ async def init_db():
         from .models import TagCategory
         from sqlalchemy import select
 
+        # Add any default that is missing rather than only seeding an empty
+        # table: a category introduced after a library was created would
+        # otherwise never appear in it.
+        defaults = [
+            ("general", "#0075f8", 0),
+            ("artist", "#f8a100", 1),
+            ("character", "#00c853", 2),
+            ("copyright", "#d500f9", 3),
+            ("meta", "#ff5252", 4),
+            # Social handles - the tweet username the extension can save, and
+            # whatever other accounts get tagged later. Ordered last so adding
+            # it leaves the existing categories' order untouched.
+            ("user", "#00bcd4", 5),
+        ]
         result = await session.execute(select(TagCategory))
-        if not result.scalars().first():
-            default_categories = [
-                TagCategory(name="general", color="#0075f8", order=0),
-                TagCategory(name="artist", color="#f8a100", order=1),
-                TagCategory(name="character", color="#00c853", order=2),
-                TagCategory(name="copyright", color="#d500f9", order=3),
-                TagCategory(name="meta", color="#ff5252", order=4),
-            ]
-            session.add_all(default_categories)
+        existing = {category.name for category in result.scalars().all()}
+        missing = [
+            TagCategory(name=name, color=color, order=order)
+            for name, color, order in defaults
+            if name not in existing
+        ]
+        if missing:
+            session.add_all(missing)
             await session.commit()

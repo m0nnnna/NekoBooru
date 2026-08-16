@@ -6,7 +6,7 @@ Brave, and other Chromium browsers (and Firefox, see notes below).
 
 ## How it works
 
-The extension adds two right-click menu items:
+The extension adds three right-click menu items:
 
 ### Download to NekoBooru (web → your instance)
 
@@ -19,6 +19,20 @@ The extension adds two right-click menu items:
    protection, login-gated images, etc.) it falls back to downloading the bytes
    in your browser and uploading them.
 
+#### Downloading from another booru
+
+When the media came from a booru post page, the popup imports that post's own
+tags — already split into artist / character / copyright / meta — along with its
+rating, and those categories are sent with the post so they survive the import.
+Supported: Danbooru (`*.donmai.us`), Gelbooru, Safebooru, rule34.xxx and other
+Gelbooru clones, yande.re / Konachan, and e621 / e926.
+
+Tags are read from the open tab's sidebar first, which costs no request and is
+the only route that works on Gelbooru — its JSON API returns 401 without an API
+key. The site's JSON API is the fallback for when that tab is gone. Everything
+is additive: nothing you already typed is removed, and on any other site the
+import stays silent.
+
 ### Insert media from NekoBooru (your instance → wherever you're posting)
 
 1. While composing a post anywhere (e.g. X), right-click and choose **Insert
@@ -28,6 +42,32 @@ The extension adds two right-click menu items:
 3. Click a result to pull it out: **images are copied to your clipboard** so you
    can paste them straight into the composer; **GIFs and videos download**
    instead (the clipboard can't hold them) so you can attach the file.
+
+### NekoBooru reverse image search
+
+Right-click an image, GIF, or video and choose **NekoBooru reverse image search**
+to open SauceNAO, IQDB, TinEye, Google Lens, trace.moe, or all of them at once.
+The same full stack is available from **Search Online → Full stack** on every
+NekoBooru post page. **Quick Lens** opens only Google Lens, while **Exact lookup**
+uses the app directly and does not require the extension.
+
+On a Pixiv artwork page, the NekoBooru download icon appears immediately to the
+right of Pixiv's Share button using the same native control styling. It imports
+selected pages using Pixiv's `original` image URLs; the popup starts with every
+page checked and waits for **Import selected**. Each post keeps the Pixiv artwork
+link, shared `pixiv_<id>` tag, page-specific `pixiv_<id>_p<n>` tag, artist reference, and
+the readable artist name in the artist category, plus Pixiv tags. On Gelbooru
+post pages, **NekoBooru** appears as a native-style text link directly to the
+right of the Favorite/Unfavorite action. On Safebooru it appears on the right
+side of the post action row, after **Edit | Respond**. It imports
+the site's original `file_url` plus its tag categories, with AI tagging
+disabled. Pixiv imports explicitly run and save AI tags, including when
+an original already exists; Gelbooru and Safebooru imports never invoke AI.
+Most services use temporary extension helper pages that submit the image/frame
+bytes directly instead of relying on a public image URL. TinEye and trace.moe
+open their official UIs and inject the captured image into their upload controls. The menu also includes
+**Download current frame PNG** for video/GIF/image frame searches where a site
+needs an uploaded file instead of a URL.
 
 No login/token is required — it talks to the same open API the web UI uses, so
 point it at an instance only you can reach (localhost or your LAN/VPN).
@@ -46,7 +86,8 @@ root — see `README-BUILD.md`.)
    your **instance URL**, e.g. `http://localhost:8772`. Use **Test connection**
    to confirm it can reach the server, then **Save**.
 
-That's it — right-click an image anywhere and pick **Download to NekoBooru**.
+That's it — right-click an image anywhere and pick **Download to NekoBooru** or
+**NekoBooru reverse image search**.
 
 ### Optional: Start NekoBooru from the extension
 

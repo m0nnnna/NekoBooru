@@ -41,8 +41,18 @@
       <label class="option-check">
         <input id="save-tweet-tag" type="checkbox" />
         <span>
-          <strong>Save tweet ID as a tag</strong>
-          <small>Adds tags like <code>twitter_2063698076431200361</code> when uploading from X/Twitter.</small>
+          <strong>Save tweet/booru post ID as a tag</strong>
+          <small>
+            Adds tags like <code>twitter_2063698076431200361</code> when uploading from X/Twitter, or
+            <code>danbooru_12345</code> when uploading from a supported booru's post page.
+          </small>
+        </span>
+      </label>
+      <label class="option-check">
+        <input id="save-tweet-username" type="checkbox" />
+        <span>
+          <strong>Save tweet username as a tag</strong>
+          <small>Adds tags like <code>twitter_user_username</code> when uploading from X/Twitter.</small>
         </span>
       </label>
       <label class="option-check">
@@ -59,6 +69,27 @@
           <small>Uses the direct image/video URL as the post source if the page URL option is off or unavailable.</small>
         </span>
       </label>
+    </section>
+
+    <section class="options-section">
+      <h2>Tag suggestions</h2>
+      <p class="help">
+        Stored on the instance, not in this browser — the same switch as
+        <strong>Settings → Auto-tagging → Booru tag suggestions</strong> in the web UI.
+      </p>
+      <label class="option-check">
+        <input id="booru-suggest" type="checkbox" disabled />
+        <span>
+          <strong>Suggest booru tags the library does not have yet</strong>
+          <small>
+            While typing a tag in the upload popup, top the list up with tags from Danbooru and
+            Gelbooru, with the category they use there — so a character arrives filed as a character
+            instead of as one more general tag. Your instance sends the partial tag you are typing to
+            those sites; nothing else leaves it.
+          </small>
+        </span>
+      </label>
+      <p id="booru-suggest-state" class="help"></p>
     </section>
 
     <div class="row">

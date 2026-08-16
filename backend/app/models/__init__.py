@@ -6,3 +6,5 @@ from .comment import Comment
 from .favorite import Favorite
 from .sync import SyncLog
 from .auto_tag import AutoTagJob, AutoTagSuggestion
+from .ai_analysis import PostAiAnalysis
+from .upload_job import UploadJob, UploadArtifact

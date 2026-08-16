@@ -24,6 +24,12 @@ APP_EXE = "nekobooru.exe"
 
 
 def repo_root() -> Path:
+    cfg = load_config()
+    if cfg.get("repoRoot"):
+        try:
+            return Path(cfg["repoRoot"]).expanduser().resolve()
+        except Exception:
+            pass
     return Path(__file__).resolve().parents[2]
 
 
@@ -61,25 +67,35 @@ def source_server_config() -> dict:
 
 
 def source_backend_port() -> int:
+    cfg = load_config()
     try:
-        return int(source_server_config().get("port") or os.environ.get("NEKO_PORT") or BACKEND_PORT)
+        return int(cfg.get("backendPort") or source_server_config().get("port") or os.environ.get("NEKO_PORT") or BACKEND_PORT)
     except Exception:
         return BACKEND_PORT
 
 
 def source_frontend_port() -> int:
+    cfg = load_config()
     try:
-        return int(source_server_config().get("frontendPort") or os.environ.get("NEKO_FRONTEND_PORT") or FRONTEND_PORT)
+        return int(cfg.get("frontendPort") or source_server_config().get("frontendPort") or os.environ.get("NEKO_FRONTEND_PORT") or FRONTEND_PORT)
     except Exception:
         return FRONTEND_PORT
 
 
 def packaged_backend_port() -> int:
     cfg = load_config()
+    installed_settings = user_root() / "config" / "settings.json"
     try:
-        return int(cfg.get("backendPort") or cfg.get("port") or BACKEND_PORT)
+        if cfg.get("backendPort") or cfg.get("port"):
+            return int(cfg.get("backendPort") or cfg.get("port"))
+        if installed_settings.exists():
+            data = json.loads(installed_settings.read_text(encoding="utf-8-sig"))
+            server = data.get("server") or {}
+            if server.get("port"):
+                return int(server["port"])
     except Exception:
-        return BACKEND_PORT
+        pass
+    return 8773
 
 
 def registry_install_path() -> Path | None:
@@ -107,6 +123,8 @@ def registry_install_path() -> Path | None:
 
 def installed_app_path() -> Path | None:
     cfg = load_config()
+    if str(cfg.get("mode") or "").lower() in {"source", "dev", "repo"}:
+        return None
     candidates = []
     if cfg.get("appPath"):
         candidates.append(Path(cfg["appPath"]))

@@ -9,7 +9,7 @@ aiofiles>=23.2.1
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
 httpx>=0.27.0
-yt-dlp>=2024.0.0
+yt-dlp>=2026.7.4
 
 # AI auto-tagging is OPTIONAL and intentionally NOT part of the base install or
 # the shipped binary. It pulls in a large ML stack (torch/CUDA, onnxruntime,

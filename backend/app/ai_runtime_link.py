@@ -10,6 +10,7 @@ from .runtime_paths import runtime_paths
 
 
 _LINKED = False
+_DLL_DIRECTORY_HANDLES = []
 
 
 def link_ai_runtime() -> bool:
@@ -52,6 +53,7 @@ def _add_windows_dll_dirs(venv: Path, site_packages: Path) -> None:
         site_packages / "torch" / "bin",
         site_packages / "torch" / "lib",
         site_packages / "onnxruntime" / "capi",
+        site_packages / "llama_cpp" / "lib",
     ]
     nvidia_root = site_packages / "nvidia"
     if nvidia_root.exists():
@@ -73,6 +75,6 @@ def _add_windows_dll_dirs(venv: Path, site_packages: Path) -> None:
         if not path.exists():
             continue
         try:
-            os.add_dll_directory(str(path))
+            _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(str(path)))
         except OSError:
             pass

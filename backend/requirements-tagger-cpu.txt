@@ -15,8 +15,10 @@ numpy>=2.0,<3.0
 transformers>=4.51,<5.0
 # CPU torch wheels from the official PyTorch CPU index (all platforms).
 --extra-index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 torch>=2.4,<3.0
 torchvision>=0.19,<1.0
 torchaudio>=2.4,<3.0
 accelerate>=1.0,<2.0
 qwen-vl-utils>=0.0.8,<1.0
+llama-cpp-python>=0.3.16,<1.0

@@ -28,7 +28,7 @@ if (Test-Path $stageDir) { Remove-Item $stageDir -Recurse -Force }
 New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
 
 Copy-Item -Path (Join-Path $srcDir '*') -Destination $stageDir -Recurse -Force `
-    -Exclude @('*.zip', 'Thumbs.db', '.DS_Store', 'nekobooru_launcher_host.cmd')
+    -Exclude @('*.zip', '*.test.js', 'Thumbs.db', '.DS_Store', 'nekobooru_launcher_host.cmd')
 
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path $stageDir -DestinationPath $zipPath -Force
