@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,6 +54,19 @@ class ServerSettingsRequest(BaseModel):
     cors_origins: str = ""
 
 
+class ExtensionSettingsRequest(BaseModel):
+    saveTweetTag: bool = True
+    saveTweetUsername: bool = False
+    saveSourcePageUrl: bool = True
+    saveMediaUrl: bool = False
+    saveSemanticAnalysis: bool = False
+    modelDefaults: dict = Field(default_factory=dict)
+
+
+class AiModelDefaultsRequest(BaseModel):
+    modelDefaults: dict = Field(default_factory=dict)
+
+
 class MigrationResponse(BaseModel):
     success: bool
     message: str
@@ -86,6 +99,56 @@ def format_size(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024):.1f} MB"
     else:
         return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+
+def _ai_model_defaults_payload(raw: dict | None = None) -> dict:
+    if raw is None:
+        manager = SettingsManager(settings.config_file)
+        raw = manager.get_ai_model_defaults()
+        if not raw:
+            # Compatibility for settings saved before model defaults became shared.
+            extension = manager.get_extension_settings()
+            raw = extension.get("modelDefaults") if isinstance(extension.get("modelDefaults"), dict) else {}
+    model_defaults = raw.get("modelDefaults") if isinstance(raw.get("modelDefaults"), dict) else raw
+    model_defaults = model_defaults if isinstance(model_defaults, dict) else {}
+    normalized_model_defaults = _normalize_ai_model_default_stack(model_defaults)
+    profile_defaults_raw = raw.get("profileDefaults") if isinstance(raw.get("profileDefaults"), dict) else {}
+    profile_defaults = {}
+    for profile in ("custom", "anime", "realistic"):
+        raw_profile = profile_defaults_raw.get(profile) if isinstance(profile_defaults_raw, dict) else None
+        if isinstance(raw_profile, dict):
+            profile_defaults[profile] = _normalize_ai_model_default_stack(raw_profile)
+    if profile_defaults:
+        if "custom" not in profile_defaults:
+            profile_defaults["custom"] = normalized_model_defaults
+        return {
+            **normalized_model_defaults,
+            "profileDefaults": profile_defaults,
+        }
+    return normalized_model_defaults
+
+
+def _normalize_ai_model_default_stack(model_defaults: dict) -> dict:
+    model_defaults = model_defaults if isinstance(model_defaults, dict) else {}
+    normalized_model_defaults = {}
+    for key in ("wdEnabled", "pixaiEnabled", "characterModelEnabled", "clEnabled", "booruLookupEnabled", "ocrEnabled", "whisperEnabled", "qwenEnabled", "semanticPoliticalEnabled"):
+        if key in model_defaults:
+            normalized_model_defaults[key] = model_defaults.get(key) is True
+    if "qwenEnabled" in normalized_model_defaults and "semanticPoliticalEnabled" not in normalized_model_defaults:
+        normalized_model_defaults["semanticPoliticalEnabled"] = normalized_model_defaults["qwenEnabled"]
+    return normalized_model_defaults
+
+
+def _extension_settings_payload(raw: dict | None = None) -> dict:
+    raw = raw or SettingsManager(settings.config_file).get_extension_settings()
+    return {
+        "saveTweetTag": raw.get("saveTweetTag", True) is not False,
+        "saveTweetUsername": raw.get("saveTweetUsername") is True,
+        "saveSourcePageUrl": raw.get("saveSourcePageUrl", True) is not False,
+        "saveMediaUrl": raw.get("saveMediaUrl") is True,
+        "saveSemanticAnalysis": raw.get("saveSemanticAnalysis") is True,
+        "modelDefaults": _ai_model_defaults_payload(),
+    }
 
 
 @router.get("")
@@ -145,6 +208,44 @@ async def update_server_settings(request: ServerSettingsRequest):
         ),
         "message": "Server settings saved. Restart NekoBooru/dev frontend for port changes to take effect.",
     }
+
+
+@router.get("/extension")
+async def get_extension_settings():
+    """Get defaults used by the browser extension upload popup."""
+    return _extension_settings_payload()
+
+
+@router.put("/extension")
+async def update_extension_settings(request: ExtensionSettingsRequest):
+    """Persist defaults used by the browser extension upload popup."""
+    request_payload = request.model_dump()
+    payload = _extension_settings_payload(request_payload)
+    if request.modelDefaults:
+        payload["modelDefaults"] = _ai_model_defaults_payload(request.modelDefaults)
+        SettingsManager(settings.config_file).set_ai_model_defaults(payload["modelDefaults"])
+    SettingsManager(settings.config_file).set_extension_settings({
+        "saveTweetTag": payload["saveTweetTag"],
+        "saveTweetUsername": payload["saveTweetUsername"],
+        "saveSourcePageUrl": payload["saveSourcePageUrl"],
+        "saveMediaUrl": payload["saveMediaUrl"],
+        "saveSemanticAnalysis": payload["saveSemanticAnalysis"],
+    })
+    return payload
+
+
+@router.get("/ai-model-defaults")
+async def get_ai_model_defaults():
+    """Get shared model choices used by app post previews and the browser extension."""
+    return {"modelDefaults": _ai_model_defaults_payload()}
+
+
+@router.put("/ai-model-defaults")
+async def update_ai_model_defaults(request: AiModelDefaultsRequest):
+    """Persist shared model choices used by app post previews and the browser extension."""
+    model_defaults = _ai_model_defaults_payload(request.modelDefaults)
+    SettingsManager(settings.config_file).set_ai_model_defaults(model_defaults)
+    return {"modelDefaults": model_defaults}
 
 
 @router.put("/data-dir")

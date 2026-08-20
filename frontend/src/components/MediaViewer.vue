@@ -331,6 +331,22 @@ onMountedHook(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown)
 })
+
+defineExpose({
+  // Where the playhead is, so a caller can pin the frame the AI analyses.
+  // Null for anything that is not a video.
+  currentVideoTime: () => (isVideo.value ? Number(mediaRef.value?.currentTime) || 0 : null),
+  captureCurrentFrame: () => {
+    if (!isVideo.value || !mediaRef.value?.videoWidth || !mediaRef.value?.videoHeight) return null
+    const canvas = document.createElement('canvas')
+    canvas.width = mediaRef.value.videoWidth
+    canvas.height = mediaRef.value.videoHeight
+    const context = canvas.getContext('2d')
+    if (!context) return null
+    context.drawImage(mediaRef.value, 0, 0, canvas.width, canvas.height)
+    return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+  },
+})
 </script>
 
 <style scoped>

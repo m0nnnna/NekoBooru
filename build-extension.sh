@@ -23,7 +23,7 @@ mkdir -p "$dist"
 rm -rf "$stage"
 mkdir -p "$stage"
 cp -r "$src/." "$stage/"
-find "$stage" \( -name 'Thumbs.db' -o -name '.DS_Store' -o -name '*.zip' \) -delete
+find "$stage" \( -name 'Thumbs.db' -o -name '.DS_Store' -o -name '*.zip' -o -name '*.test.js' \) -delete
 
 rm -f "$dist/$zip_name"
 ( cd "$dist" && zip -rq "$zip_name" "nekobooru-extension" )

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import tempfile
 from ipaddress import ip_address
@@ -12,12 +13,17 @@ from ..config import settings
 from ..database import async_session
 from ..models import AutoTagJob, AutoTagSuggestion
 from ..services import auto_tag_jobs
+from ..services.booru_suggest import (
+    delete_gelbooru_credentials,
+    save_gelbooru_credentials,
+)
 from ..services.auto_tagger import (
     _infer_local,
     cancel_model_download,
     delete_model_cache,
     delete_huggingface_token,
     delete_tagger_worker_token,
+    download_all_model_ids,
     download_model,
     load_options,
     current_download_job,
@@ -58,6 +64,11 @@ class ApplyPostBody(BaseModel):
 
 class HuggingFaceTokenBody(BaseModel):
     token: str
+
+
+class GelbooruCredentialsBody(BaseModel):
+    userId: str
+    apiKey: str
 
 
 class WorkerTokenBody(BaseModel):
@@ -137,7 +148,7 @@ async def download_one_auto_tag_model(model_id: str):
 @router.post("/models/download-all")
 async def download_all_auto_tag_models():
     try:
-        ids = [model["id"] for model in model_statuses()]
+        ids = download_all_model_ids()
         return start_model_download(ids)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -202,6 +213,21 @@ async def delete_huggingface_token_endpoint():
     return tagger_status()
 
 
+@router.put("/gelbooru-credentials")
+async def put_gelbooru_credentials(body: GelbooruCredentialsBody):
+    try:
+        save_gelbooru_credentials(body.userId, body.apiKey)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return tagger_status()
+
+
+@router.delete("/gelbooru-credentials")
+async def delete_gelbooru_credentials_endpoint():
+    delete_gelbooru_credentials()
+    return tagger_status()
+
+
 @router.put("/worker-token")
 async def put_worker_token(body: WorkerTokenBody):
     try:
@@ -253,7 +279,9 @@ async def infer_media(
                 if not chunk:
                     break
                 out.write(chunk)
-        result = _infer_local(tmp_path, opts)
+        # Workers get hit by several callers at once; keep inference off the
+        # event loop so queued requests are served instead of stalling the API.
+        result = await asyncio.to_thread(_infer_local, tmp_path, opts)
         return json.loads(result_to_json(result))
     finally:
         tmp_path.unlink(missing_ok=True)

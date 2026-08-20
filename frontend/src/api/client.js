@@ -4,11 +4,11 @@ const BACKEND_LABEL = import.meta.env.VITE_BACKEND || 'the configured backend'
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`
   const config = {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
       ...options.headers,
     },
-    ...options,
   }
 
   // Don't set Content-Type for FormData
@@ -21,7 +21,14 @@ async function request(endpoint, options = {}) {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }))
-      throw new Error(error.detail || `HTTP ${response.status}`)
+      const detail = error.detail
+      const message = typeof detail === 'object' && detail !== null
+        ? detail.message || detail.code
+        : detail
+      const thrown = new Error(message || `HTTP ${response.status}`)
+      thrown.detail = detail
+      thrown.status = response.status
+      throw thrown
     }
 
     return response.json()
@@ -53,6 +60,10 @@ export const api = {
   async getSimilarPosts(id, params = {}) {
     const query = new URLSearchParams(params).toString()
     return request(`/posts/${id}/similar${query ? `?${query}` : ''}`)
+  },
+
+  async getPostOnlineMatches(id) {
+    return request(`/posts/${id}/online-matches`)
   },
 
   async getDuplicateGroups() {
@@ -92,6 +103,24 @@ export const api = {
     })
   },
 
+  async bulkOptimizePosts(data) {
+    return request('/posts/bulk-optimize', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async createOptimizeJob(data) {
+    return request('/posts/optimize-jobs', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async getOptimizeJob(id) {
+    return request(`/posts/optimize-jobs/${id}`)
+  },
+
   async toggleFavorite(id) {
     return request(`/posts/${id}/favorite`, { method: 'POST' })
   },
@@ -108,6 +137,28 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     })
+  },
+
+  async getPostAiAnalysis(id) {
+    return request(`/posts/${id}/ai-analysis`)
+  },
+
+  async savePostAiAnalysis(id, data = {}) {
+    return request(`/posts/${id}/ai-analysis`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async updatePostAiAnalysis(postId, analysisId, data = {}) {
+    return request(`/posts/${postId}/ai-analysis/${analysisId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async deletePostAiAnalysis(id) {
+    return request(`/posts/${id}/ai-analysis`, { method: 'DELETE' })
   },
 
   // Uploads
@@ -139,6 +190,77 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ url }),
     })
+  },
+
+  async createUploadJob(data, idempotencyKey = null) {
+    return request('/upload-jobs', {
+      method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {},
+      body: JSON.stringify(data),
+    })
+  },
+
+  async getUploadJob(id) {
+    return request(`/upload-jobs/${encodeURIComponent(id)}`)
+  },
+
+  uploadJobContent(id, file, onProgress = null) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('PUT', `${API_BASE}/upload-jobs/${encodeURIComponent(id)}/content`)
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+      xhr.upload.onprogress = event => {
+        if (event.lengthComputable && onProgress) onProgress(event.loaded, event.total)
+      }
+      xhr.onerror = () => reject(new Error(`Backend server is not running. Please start ${BACKEND_LABEL}.`))
+      xhr.onload = () => {
+        let payload = null
+        try { payload = JSON.parse(xhr.responseText || '{}') } catch {}
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(payload)
+          return
+        }
+        const detail = payload?.detail
+        reject(new Error((typeof detail === 'object' ? detail?.message : detail) || `HTTP ${xhr.status}`))
+      }
+      xhr.send(file)
+    })
+  },
+
+  async sampleUploadJob(id, data) {
+    return request(`/upload-jobs/${encodeURIComponent(id)}/sample`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async renderUploadJob(id, data) {
+    return request(`/upload-jobs/${encodeURIComponent(id)}/render`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async publishUploadJob(id, data, idempotencyKey = null) {
+    return request(`/upload-jobs/${encodeURIComponent(id)}/publish`, {
+      method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {},
+      body: JSON.stringify(data),
+    })
+  },
+
+  async cancelUploadJob(id) {
+    return request(`/upload-jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
+  },
+
+  async retryUploadJob(id) {
+    return request(`/upload-jobs/${encodeURIComponent(id)}/retry`, { method: 'POST' })
+  },
+
+  async deleteUploadJob(id) {
+    const response = await fetch(`${API_BASE}/upload-jobs/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (!response.ok && response.status !== 404) throw new Error(`HTTP ${response.status}`)
+    return null
   },
 
   async previewUploadAutoTags(token, data = {}) {
@@ -222,6 +344,17 @@ export const api = {
     return request('/auto-tags/huggingface-token', { method: 'DELETE' })
   },
 
+  async saveGelbooruCredentials(userId, apiKey) {
+    return request('/auto-tags/gelbooru-credentials', {
+      method: 'PUT',
+      body: JSON.stringify({ userId, apiKey }),
+    })
+  },
+
+  async deleteGelbooruCredentials() {
+    return request('/auto-tags/gelbooru-credentials', { method: 'DELETE' })
+  },
+
   async saveTaggerWorkerToken(token) {
     return request('/auto-tags/worker-token', {
       method: 'PUT',
@@ -274,6 +407,9 @@ export const api = {
   async autocomplete(q, options = {}) {
     const params = new URLSearchParams({ q })
     if (options.nameParts) params.set('nameParts', 'true')
+    // Tags this library does not have yet, from public boorus. The server
+    // ignores it unless booru suggestions are enabled in settings.
+    if (options.includeRemote) params.set('includeRemote', 'true')
     return request(`/tags/autocomplete?${params.toString()}`)
   },
 
@@ -455,6 +591,28 @@ export const api = {
     })
   },
 
+  async getExtensionSettings() {
+    return request('/settings/extension')
+  },
+
+  async updateExtensionSettings(data) {
+    return request('/settings/extension', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async getAiModelDefaults() {
+    return request('/settings/ai-model-defaults')
+  },
+
+  async updateAiModelDefaults(modelDefaults) {
+    return request('/settings/ai-model-defaults', {
+      method: 'PUT',
+      body: JSON.stringify({ modelDefaults }),
+    })
+  },
+
   async migrateData(dataDir) {
     return request('/settings/migrate', {
       method: 'POST',
@@ -517,6 +675,10 @@ export const api = {
 
   async cancelAiRuntimeInstall() {
     return request('/runtime/ai/cancel-install', { method: 'POST' })
+  },
+
+  async restartApp() {
+    return request('/runtime/restart', { method: 'POST' })
   },
 
   // App updates

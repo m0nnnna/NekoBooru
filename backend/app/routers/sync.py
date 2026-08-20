@@ -50,7 +50,7 @@ def _parse_dt(value: Optional[str]) -> Optional[datetime]:
 async def _post_by_sha(db: AsyncSession, sha256: str) -> Optional[Post]:
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags), selectinload(Post.favorite))
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
         .where(Post.sha256 == sha256)
     )
     return result.scalars().first()

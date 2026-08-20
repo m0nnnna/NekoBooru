@@ -677,9 +677,14 @@ Recommended model pipeline:
   watermarks, and news chyron text.
 - Whisper large-v3, preferably through faster-whisper for local speed, extracts
   speech, chants, narration, and lyrics from audio.
-- Qwen2.5-VL-7B-Instruct is the optional semantic classifier for higher-level
-  video meaning. Use it on sampled frames plus OCR/transcript excerpts rather
-  than asking it to process every frame.
+- The semantic classifier is selectable in Settings. Keep the existing
+  Qwen2.5-VL-7B-Instruct Transformers backend as the stable fallback, and add
+  Qwen3-VL-8B GGUF variants for faster local llama.cpp inference:
+  - `Qwen3VL-8B-Instruct-Q4_K_M.gguf` for the fast/low-memory path.
+  - `Qwen3VL-8B-Instruct-Q8_0.gguf` for the higher-quality local path.
+  - `mmproj-Qwen3VL-8B-Instruct-F16.gguf` as the shared vision projector.
+  Use the selected semantic backend on sampled frames plus OCR/transcript
+  excerpts rather than asking it to process every frame.
 
 Why this split:
 
@@ -688,7 +693,7 @@ Why this split:
 - OCR catches a large amount of political context because edits often put the
   important meaning directly on screen.
 - Whisper catches spoken context that no frame tagger can see.
-- Qwen2.5-VL can produce broader tags like `political_edit`, `rally`,
+- Qwen semantic models can produce broader tags like `political_edit`, `rally`,
   `speech`, `news_clip`, `military_edit`, `election`, or `propaganda_style`,
   but should be treated as optional and reviewable because semantic labels can
   be noisy.
@@ -782,6 +787,39 @@ Acceptance:
 - character tags are not mixed into the general category;
 - low-confidence or conflicting character matches are reviewable before bulk
   apply.
+
+## Default Behavior Recommendation
+
+## Stage 10 - Persisted Semantic Analysis And Search
+
+Persist Qwen semantic evidence separately from normal tags so it can power
+phrase search without polluting the library with every descriptive sentence.
+Use a dedicated `post_ai_analysis` table keyed by post/model/profile, with
+parsed semantic tags, safety, rationale, summary, raw model output, prompt hash,
+timings, and a normalized `search_text` field. Mirror the search text into an
+FTS5 table when SQLite supports it, and fall back to regular text matching
+when it does not.
+
+Save semantic analysis only from Qwen-family outputs and only when enabled by
+the app/import/bulk setting or the browser-extension upload checkbox. Do not
+store WD/Camie/Whisper/OCR evidence in this table unless a later feature needs
+that; their compact evidence already lives in preview/job records.
+
+Semantic search should never run a model at query time. A plain query expands
+each word against both known tag names and saved Qwen analysis text, then ANDs
+the word groups together. This lets searches like `red banner`, `music edit`,
+or `political protest` find posts whose saved Qwen rationale mentions those
+ideas even if the final applied tags were kept conservative.
+
+Acceptance:
+
+- per-post apply, import auto-tagging, bulk run/apply-preview, and extension
+  uploads can save Qwen analysis when the setting is enabled;
+- post view can display saved analysis for inspection;
+- extension settings can default the save-analysis checkbox;
+- semantic search matches saved rationale/summary/raw output as well as tags;
+- saved analysis is not stored as comments and does not create user-visible tag
+  clutter.
 
 ## Default Behavior Recommendation
 

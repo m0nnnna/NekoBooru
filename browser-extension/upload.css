@@ -290,6 +290,61 @@ select:focus {
   font-size: 0.85rem;
 }
 
+/* Suggestions for tags not in the library: the category is why you would pick
+   one, and the count belongs to the source board, not to you. */
+.tag-category {
+  margin-left: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-style: normal;
+  opacity: 0.85;
+}
+
+.tag-count.remote {
+  font-size: 0.72rem;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.preview-load-btn {
+  display: block;
+  margin: 0.6rem auto 0;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.8rem;
+}
+
+/* Which frame the AI looks at. Its own row under the player, so the timecode
+   reads against the scrubber it came from without fighting .preview's
+   centred, clipped layout. */
+.frame-picker-slot {
+  margin: -0.5rem 0 1rem;
+}
+
+.frame-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--bg-secondary);
+}
+
+.frame-picker-label {
+  flex: 1 1 100%;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.frame-picker-btn {
+  flex: 1 1 auto;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
 .source-row {
   font-size: 0.85rem;
   color: var(--text-secondary);
@@ -390,6 +445,13 @@ select:focus {
   white-space: normal;
 }
 
+.ai-profile-actions .btn.active {
+  border-color: var(--accent);
+  background: rgba(96, 165, 250, 0.16);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.22);
+}
+
 .upload-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -447,6 +509,107 @@ select:focus {
   display: grid;
   gap: 0.55rem;
   padding: 0 0.75rem 0.75rem;
+}
+
+.qwen-video-controls {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0 0.75rem 0.75rem;
+}
+
+.qwen-video-toggle,
+.qwen-video-cap,
+.qwen-video-facts {
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--bg-secondary);
+}
+
+.qwen-video-toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.65rem;
+}
+
+.qwen-video-toggle input {
+  margin-top: 0.2rem;
+}
+
+/* Kept beside the profile buttons rather than inside the collapsed advanced
+   panel: it changes what a run produces, so it has to be visible without
+   expanding anything. */
+.booru-lookup-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin: 0.6rem 0 0;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+
+.booru-lookup-row input {
+  margin-top: 0.2rem;
+}
+
+.booru-lookup-row strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+}
+
+.booru-lookup-row small {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.qwen-video-toggle strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+}
+
+.qwen-video-toggle small {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.qwen-video-cap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.55rem 0.65rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.qwen-video-cap input {
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.qwen-video-facts {
+  padding: 0.55rem 0.65rem;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
 }
 
 .ai-model-row {
@@ -548,6 +711,17 @@ select:focus {
   justify-content: space-between;
 }
 
+.ai-preview-head div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.ai-preview-head small {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
 .ai-preview-head span {
   padding: 0.2rem 0.5rem;
   border-radius: 999px;
@@ -559,20 +733,83 @@ select:focus {
 }
 
 .ai-preview-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  max-height: 96px;
+  display: block;
+  max-height: 240px;
   overflow: auto;
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
-.ai-preview-tags span {
-  padding: 0.25rem 0.45rem;
-  border: 1px solid var(--accent);
+.ai-tag-group + .ai-tag-group {
+  margin-top: 0.6rem;
+}
+
+.ai-tag-heading {
+  margin: 0 0 0.15rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.ai-tag-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ai-tag-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.ai-tag-name {
+  overflow-wrap: anywhere;
+}
+
+.ai-preview-semantic {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(96, 165, 250, 0.38);
+  border-radius: 0.5rem;
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.semantic-preview-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.semantic-preview-head strong {
+  color: var(--text-primary);
+}
+
+.semantic-preview-head small {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+}
+
+.ai-preview-semantic p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.semantic-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.semantic-preview-tags span {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid rgba(96, 165, 250, 0.48);
   border-radius: 0.35rem;
-  background: var(--accent-soft);
   color: var(--accent);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
 }
 
 .ai-preview-evidence {

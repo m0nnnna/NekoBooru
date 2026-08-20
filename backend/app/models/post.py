@@ -1,8 +1,28 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Table, inspect
 from sqlalchemy.orm import relationship
 
 from ..database import Base
+
+
+def _tag_detail(tag) -> dict:
+    """Serialize a tag with its category, tolerating an unloaded relationship.
+
+    Post queries eager-load Tag.category, but touching it when a caller forgot
+    would raise MissingGreenlet under async rather than just losing a colour.
+    """
+    category = None
+    if "category" not in inspect(tag).unloaded:
+        category = tag.category
+    return {
+        "name": tag.name,
+        # Source spelling when the tagger supplied one ("miyu (blue archive)"),
+        # otherwise the flattened name made readable.
+        "displayName": tag.display_name or tag.name.replace("_", " "),
+        "category": category.name if category else "general",
+        "categoryColor": category.color if category else "#808080",
+        "usageCount": tag.usage_count or 0,
+    }
 
 
 # Junction table for posts and tags
@@ -41,6 +61,7 @@ class Post(Base):
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
     pools = relationship("PoolPost", back_populates="post", cascade="all, delete-orphan")
     favorite = relationship("Favorite", back_populates="post", uselist=False, cascade="all, delete-orphan")
+    ai_analyses = relationship("PostAiAnalysis", back_populates="post", cascade="all, delete-orphan")
 
     @property
     def content_path(self):
@@ -69,6 +90,11 @@ class Post(Base):
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
             "deletedAt": self.deleted_at.isoformat() if self.deleted_at else None,
             "tags": [tag.name for tag in self.tags] if self.tags else [],
+            # Category/colour/count for the grouped tag sidebar. Post queries
+            # eager-load Tag.category for this; _tag_detail() degrades to an
+            # uncategorised entry rather than raising if some caller forgets,
+            # because lazy-loading here would fail under async.
+            "tagDetails": [_tag_detail(tag) for tag in self.tags] if self.tags else [],
             "isFavorited": self.favorite is not None,
             "contentUrl": f"/api/media/posts/{self.content_path}",
             "thumbUrl": f"/api/media/thumbs/{self.thumb_path}",

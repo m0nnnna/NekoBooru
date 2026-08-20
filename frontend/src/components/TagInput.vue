@@ -31,8 +31,14 @@
           :class="{ selected: index === selectedIndex }"
           :style="{ borderLeftColor: tag.categoryColor }"
         >
-          <span class="tag-name">{{ tag.name }}</span>
-          <span class="tag-count">{{ tag.usageCount }}</span>
+          <span class="tag-name">
+            {{ tag.name }}
+            <em v-if="tag.remote" class="tag-category">{{ tag.category }}</em>
+          </span>
+          <span v-if="tag.remote" class="tag-count remote" :title="`Not in your library. ${tag.remoteCount} posts on ${tag.source}.`">
+            {{ tag.source }} {{ formatRemoteCount(tag.remoteCount) }}
+          </span>
+          <span v-else class="tag-count">{{ tag.usageCount }}</span>
         </li>
       </ul>
     </div>
@@ -120,7 +126,9 @@ function onInput() {
       suggestions.value = []
       selectedIndex.value = -1
     }
-  }, 150)
+    // With remote suggestions on, this query can reach a public booru, so it
+    // waits for a pause in typing rather than firing on every keystroke.
+  }, 300)
 }
 
 function removeTag(tag) {
@@ -136,6 +144,8 @@ function onBackspace() {
 }
 
 function selectSuggestion(tag) {
+  // Remember the source board's category before the tag becomes a bare name.
+  tagsStore.rememberRemoteTag(tag)
   if (!props.modelValue.includes(tag.name)) {
     emit('update:modelValue', [...props.modelValue, tag.name])
   }
@@ -178,7 +188,18 @@ function onArrowUp() {
 function autocompleteOptions() {
   return {
     nameParts: localStorage.getItem(NAME_PART_AUTOCOMPLETE_KEY) === 'true',
+    // The server only acts on this when booru suggestions are switched on.
+    includeRemote: true,
   }
+}
+
+// The board's post count, not yours - abbreviated so it cannot be mistaken for
+// a local usage count sitting in the same column.
+function formatRemoteCount(count) {
+  const value = Number(count) || 0
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`
+  return String(value)
 }
 </script>
 
@@ -280,5 +301,22 @@ function autocompleteOptions() {
 .tag-count {
   color: var(--text-secondary);
   font-size: 0.875rem;
+}
+
+/* Remote rows: a tag you do not have yet, offered by a public booru. The
+   category is spelled out because that is the reason to pick it, and the count
+   is theirs, not yours. */
+.tag-category {
+  margin-left: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-style: normal;
+  opacity: 0.85;
+}
+
+.tag-count.remote {
+  font-size: 0.75rem;
+  opacity: 0.8;
+  white-space: nowrap;
 }
 </style>

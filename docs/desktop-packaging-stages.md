@@ -1,6 +1,6 @@
 # Desktop Packaging Implementation Plan
 
-This document turns the EXE/DEB packaging roadmap into implementation-ready stages. The main rule is simple: ship a small core app, then install AI runtimes and model weights as explicit second-stage choices. CUDA wheels, Torch, ONNX Runtime GPU, Transformers, and Hugging Face model weights must not be bundled into the base Windows or Linux package.
+This document turns the EXE/DEB packaging roadmap into implementation-ready stages. The main rule is simple: ship a small core app, then install AI runtimes and model weights as explicit second-stage choices. CUDA wheels, Torch, ONNX Runtime GPU, Transformers, llama.cpp Python bindings, and Hugging Face model weights must not be bundled into the base Windows or Linux package.
 
 ## Audit Summary
 
@@ -10,7 +10,7 @@ Current strengths:
 
 - `nekobooru.spec` excludes `torch`, `onnxruntime`, `transformers`, `huggingface_hub`, `safetensors`, and related AI packages from the PyInstaller binary.
 - `backend/requirements.txt` is separated from optional AI requirements.
-- `backend/requirements-tagger.txt`, `backend/requirements-tagger-legacy.txt`, and `backend/requirements-tagger-cpu.txt` already model the three main AI dependency profiles.
+- `backend/requirements-tagger.txt`, `backend/requirements-tagger-legacy.txt`, and `backend/requirements-tagger-cpu.txt` already model the three main AI dependency profiles, including `llama-cpp-python` for Qwen3-VL GGUF Q4/Q8 semantic backends. The main NVIDIA profile uses the CUDA llama-cpp-python wheel index; CPU and legacy profiles still work but may run GGUF without GPU offload unless a matching CUDA llama.cpp wheel is installed.
 - `install-ai.ps1` and `install-ai.sh` already detect NVIDIA capability, validate CUDA kernels, and repair mismatched Torch installs.
 - Settings already has model download, model status, model load/unload, yt-dlp, and AI defaults UI.
 - Browser extension native messaging already exists and can be evolved into a packaged launcher.

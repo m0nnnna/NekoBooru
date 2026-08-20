@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from ..database import async_session
-from ..models import AutoTagJob, AutoTagSuggestion, Post
+from ..models import AutoTagJob, AutoTagSuggestion, Post, Tag
 from ..models.post import PostTag
 from .auto_tagger import (
     AutoTagOptions,
@@ -20,6 +20,7 @@ from .auto_tagger import (
     validate_options,
 )
 from .tagging import replace_tags_for_post
+from .ai_analysis import save_analysis_from_result
 
 _active_task: asyncio.Task | None = None
 
@@ -197,7 +198,7 @@ async def run_job(job_id: int, candidates: list[int]) -> None:
                 post = (
                     await db.execute(
                         select(Post)
-                        .options(selectinload(Post.tags))
+                        .options(selectinload(Post.tags).selectinload(Tag.category))
                         .where(Post.id == post_id, Post.deleted_at.is_(None))
                     )
                 ).scalars().first()
@@ -259,6 +260,7 @@ async def analyze_and_maybe_apply(db, post: Post, *, opts: AutoTagOptions, job: 
 
     evidence = dict(result.evidence or {})
     evidence["categories"] = categories
+    evidence["displayNames"] = result.display_names
     suggestion = AutoTagSuggestion(
         job_id=job.id if job else None,
         post_id=post.id,
@@ -273,8 +275,10 @@ async def analyze_and_maybe_apply(db, post: Post, *, opts: AutoTagOptions, job: 
     db.add(suggestion)
 
     if not dry_run and changed:
-        await replace_tags_for_post(db, post, merged_tags, categories=categories)
+        await replace_tags_for_post(db, post, merged_tags, categories=categories, display_names=result.display_names)
         post.safety = suggested_safety
+        if getattr(opts, "saveSemanticAnalysis", False):
+            await save_analysis_from_result(db, post.id, result, opts=opts, profile=f"bulk:{job.mode}" if job else "bulk")
     return changed
 
 
@@ -283,7 +287,7 @@ async def preview_post(post_id: int, overrides: dict | None = None) -> dict:
     async with async_session() as db:
         post = (
             await db.execute(
-                select(Post).options(selectinload(Post.tags)).where(Post.id == post_id, Post.deleted_at.is_(None))
+                select(Post).options(selectinload(Post.tags).selectinload(Tag.category)).where(Post.id == post_id, Post.deleted_at.is_(None))
             )
         ).scalars().first()
         if not post:
@@ -311,30 +315,51 @@ async def preview_post(post_id: int, overrides: dict | None = None) -> dict:
             "suggestedTags": merged_tags,
             "suggestedSafety": promote_safety(post.safety or "safe", result.safety, opts),
             "categories": categories,
+            "displayNames": result.display_names,
             "evidence": result.evidence,
             "model": result.model,
             "error": result.error,
+            "durationMs": result.duration_ms,
         }
 
 
-async def apply_post(post_id: int, tags: list[str] | None = None, safety: str | None = None, categories: dict | None = None, overrides: dict | None = None) -> dict:
+async def apply_post(
+    post_id: int,
+    tags: list[str] | None = None,
+    safety: str | None = None,
+    categories: dict | None = None,
+    display_names: dict | None = None,
+    overrides: dict | None = None,
+    suggestion: dict | None = None,
+    save_analysis: bool = False,
+    profile: str | None = None,
+) -> dict:
     opts = validate_options({**load_options().__dict__, **(overrides or {})})
     async with async_session() as db:
         post = (
             await db.execute(
-                select(Post).options(selectinload(Post.tags), selectinload(Post.favorite)).where(Post.id == post_id, Post.deleted_at.is_(None))
+                select(Post).options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite)).where(Post.id == post_id, Post.deleted_at.is_(None))
             )
         ).scalars().first()
         if not post:
             raise ValueError("post not found")
+        generated_preview = None
         if tags is None:
-            preview = await preview_post(post_id, overrides=overrides)
-            tags = preview["suggestedTags"]
-            safety = preview["suggestedSafety"]
-            categories = preview["categories"]
-        await replace_tags_for_post(db, post, tags, categories=categories or {})
+            generated_preview = await preview_post(post_id, overrides=overrides)
+            tags = generated_preview["suggestedTags"]
+            safety = generated_preview["suggestedSafety"]
+            categories = generated_preview["categories"]
+            display_names = generated_preview.get("displayNames") or {}
+        await replace_tags_for_post(
+            db, post, tags, categories=categories or {}, display_names=display_names or {}
+        )
         if safety in {"safe", "sketchy", "unsafe"}:
             post.safety = promote_safety(post.safety or "safe", safety, opts)
+        if save_analysis or getattr(opts, "saveSemanticAnalysis", False):
+            if suggestion:
+                await save_analysis_from_result(db, post.id, suggestion, opts=opts, profile=profile or "post")
+            elif generated_preview:
+                await save_analysis_from_result(db, post.id, generated_preview, opts=opts, profile=profile or "post")
         await db.commit()
         await db.refresh(post, ["tags", "favorite"])
         return post.to_dict()
@@ -380,7 +405,7 @@ async def apply_job_suggestions(job_id: int) -> dict:
             post = (
                 await db.execute(
                     select(Post)
-                    .options(selectinload(Post.tags), selectinload(Post.favorite))
+                    .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
                     .where(Post.id == suggestion.post_id, Post.deleted_at.is_(None))
                 )
             ).scalars().first()
@@ -391,13 +416,31 @@ async def apply_job_suggestions(job_id: int) -> dict:
                 tags = json.loads(suggestion.suggested_tags or "[]")
                 evidence = json.loads(suggestion.evidence or "{}")
                 categories = evidence.get("categories") or {}
+                display_names = evidence.get("displayNames") or {}
             except Exception:
                 tags = []
                 categories = {}
-            await replace_tags_for_post(db, post, tags, categories=categories)
+                display_names = {}
+            await replace_tags_for_post(
+                db, post, tags, categories=categories, display_names=display_names
+            )
             if suggestion.suggested_safety in {"safe", "sketchy", "unsafe"}:
                 opts = validate_options(json.loads(job.settings_snapshot or "{}"))
                 post.safety = promote_safety(post.safety or "safe", suggestion.suggested_safety, opts)
+            else:
+                opts = validate_options(json.loads(job.settings_snapshot or "{}"))
+            if getattr(opts, "saveSemanticAnalysis", False):
+                await save_analysis_from_result(
+                    db,
+                    post.id,
+                    {
+                        "evidence": evidence,
+                        "model": suggestion.model,
+                        "durationMs": evidence.get("durationMs"),
+                    },
+                    opts=opts,
+                    profile=f"bulk:{job.mode}",
+                )
             suggestion.status = "applied"
             suggestion.applied_at = datetime.utcnow()
             applied += 1

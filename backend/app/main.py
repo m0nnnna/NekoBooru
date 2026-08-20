@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import logging
 from contextlib import asynccontextmanager
@@ -9,7 +10,7 @@ from fastapi.responses import FileResponse
 
 from .config import settings, get_bundle_dir
 from .database import init_db
-from .routers import uploads, posts, tags, pools, notes, comments, sync, auto_tags, runtime, updates, settings as settings_router
+from .routers import uploads, upload_jobs, posts, tags, pools, notes, comments, sync, auto_tags, runtime, updates, site_imports, settings as settings_router
 
 # Configure logging
 logging.basicConfig(
@@ -26,9 +27,19 @@ async def lifespan(app: FastAPI):
     # Initialize database
     await init_db()
     from .services import ytdlp_manager
+    from .services import upload_jobs as upload_job_service
 
     await ytdlp_manager.maybe_update_on_startup()
-    yield
+    await upload_job_service.recover_and_cleanup()
+    cleanup_task = asyncio.create_task(upload_job_service.cleanup_loop())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -52,6 +63,7 @@ app.add_middleware(
 
 # Include routers (must be before static file serving)
 app.include_router(uploads.router)
+app.include_router(upload_jobs.router)
 app.include_router(posts.router)
 app.include_router(tags.router)
 app.include_router(pools.router)
@@ -61,6 +73,7 @@ app.include_router(sync.router)
 app.include_router(auto_tags.router)
 app.include_router(runtime.router)
 app.include_router(updates.router)
+app.include_router(site_imports.router)
 app.include_router(settings_router.router)
 
 
