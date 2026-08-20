@@ -32,6 +32,65 @@ async def _tag_media_async(path: Path, opts: AutoTagOptions):
     return await asyncio.to_thread(tag_media, path, opts)
 
 
+async def _inherit_tags_from_similar(
+    db, phash: str, exclude_id: int | None, opts: AutoTagOptions
+) -> tuple[list[str], dict]:
+    """Return (tags, evidence) from library posts with a near-identical perceptual hash.
+
+    Uses a linear scan of stored phashes (fine for a personal library). Only
+    posts that already have >= inheritSimilarMinTags human-curated tags
+    contribute, so fresh untagged entries can't pollute the inheritance pool.
+    """
+    try:
+        target_int = int(phash, 16)
+    except (TypeError, ValueError):
+        return [], {}
+
+    conditions = [
+        Post.phash.is_not(None),
+        Post.phash != "",
+        Post.deleted_at.is_(None),
+    ]
+    if exclude_id is not None:
+        conditions.append(Post.id != exclude_id)
+
+    rows = (
+        await db.execute(
+            select(Post).options(selectinload(Post.tags)).where(*conditions)
+        )
+    ).scalars().all()
+
+    max_dist = opts.inheritSimilarMaxDistance
+    min_tags = opts.inheritSimilarMinTags
+    tag_votes: dict[str, int] = {}
+    matched: list[dict] = []
+
+    for post in rows:
+        try:
+            dist = bin(target_int ^ int(post.phash, 16)).count("1")
+        except (TypeError, ValueError):
+            continue
+        if dist > max_dist:
+            continue
+        post_tag_names = [t.name for t in (post.tags or [])]
+        if len(post_tag_names) < min_tags:
+            continue
+        matched.append({"id": post.id, "distance": dist, "tagCount": len(post_tag_names)})
+        for name in post_tag_names:
+            tag_votes[name] = tag_votes.get(name, 0) + 1
+
+    if not matched:
+        return [], {"kind": "similar_posts", "matchedPosts": 0}
+
+    inherited = [t for t, _ in sorted(tag_votes.items(), key=lambda x: -x[1])]
+    evidence = {
+        "kind": "similar_posts",
+        "matchedPosts": len(matched),
+        "posts": sorted(matched, key=lambda x: x["distance"])[:5],
+    }
+    return inherited, evidence
+
+
 async def create_job(
     *,
     mode: str,
@@ -180,6 +239,19 @@ async def analyze_and_maybe_apply(db, post: Post, *, opts: AutoTagOptions, job: 
     from ..config import settings
     full_path = settings.posts_dir / post.content_path
     result = await _tag_media_async(full_path, opts)
+
+    if opts.inheritSimilarTags and post.phash:
+        inherited_tags, inherited_evidence = await _inherit_tags_from_similar(
+            db, post.phash, post.id, opts
+        )
+        if inherited_tags:
+            existing_set = set(result.tags)
+            result.tags.extend(t for t in inherited_tags if t not in existing_set)
+            for tag in inherited_tags:
+                if tag not in result.categories:
+                    result.categories[tag] = "general"
+            result.evidence = {**(result.evidence or {}), "similarPosts": inherited_evidence}
+
     existing_tags = [tag.name for tag in (post.tags or [])]
     merged_tags, categories = merge_with_existing(existing_tags, result, opts)
     suggested_safety = promote_safety(post.safety or "safe", result.safety, opts)
@@ -218,6 +290,19 @@ async def preview_post(post_id: int, overrides: dict | None = None) -> dict:
             raise ValueError("post not found")
         from ..config import settings
         result = await _tag_media_async(settings.posts_dir / post.content_path, opts)
+
+        if opts.inheritSimilarTags and post.phash:
+            inherited_tags, inherited_evidence = await _inherit_tags_from_similar(
+                db, post.phash, post.id, opts
+            )
+            if inherited_tags:
+                existing_set = set(result.tags)
+                result.tags.extend(t for t in inherited_tags if t not in existing_set)
+                for tag in inherited_tags:
+                    if tag not in result.categories:
+                        result.categories[tag] = "general"
+                result.evidence = {**(result.evidence or {}), "similarPosts": inherited_evidence}
+
         existing_tags = [tag.name for tag in (post.tags or [])]
         merged_tags, categories = merge_with_existing(existing_tags, result, opts)
         return {

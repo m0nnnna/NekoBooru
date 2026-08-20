@@ -179,6 +179,9 @@ class AutoTagOptions:
     remoteTimeoutSeconds: int = 120
     excludedTags: list[str] = field(default_factory=list)
     keywordRules: list[dict] = field(default_factory=list)
+    inheritSimilarTags: bool = True
+    inheritSimilarMaxDistance: int = 8
+    inheritSimilarMinTags: int = 1
 
 
 @dataclass
@@ -918,6 +921,8 @@ def validate_options(raw: dict) -> AutoTagOptions:
         data["excludedTags"] = []
     if not isinstance(data["keywordRules"], list):
         data["keywordRules"] = []
+    data["inheritSimilarMaxDistance"] = min(64, max(0, int(data.get("inheritSimilarMaxDistance") or 8)))
+    data["inheritSimilarMinTags"] = min(50, max(0, int(data.get("inheritSimilarMinTags") or 1)))
     return AutoTagOptions(**data)
 
 

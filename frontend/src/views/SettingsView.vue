@@ -909,7 +909,28 @@
             </span>
             <input type="number" min="0" max="50" v-model.number="autoTagSettings.lightlyTaggedMaxTags" />
           </label>
+          <label class="field-row">
+            <span class="label-with-help">
+              Similar-post distance
+              <button type="button" class="info-icon" :data-tooltip="thresholdHelp.similarDistance" :aria-label="thresholdHelp.similarDistance">?</button>
+            </span>
+            <input type="number" min="0" max="64" v-model.number="autoTagSettings.inheritSimilarMaxDistance" :disabled="!autoTagSettings.inheritSimilarTags" />
+          </label>
+          <label class="field-row">
+            <span class="label-with-help">
+              Similar-post min tags
+              <button type="button" class="info-icon" :data-tooltip="thresholdHelp.similarMinTags" :aria-label="thresholdHelp.similarMinTags">?</button>
+            </span>
+            <input type="number" min="0" max="50" v-model.number="autoTagSettings.inheritSimilarMinTags" :disabled="!autoTagSettings.inheritSimilarTags" />
+          </label>
         </div>
+        <label class="field-row toggle-row" style="margin-top:0.5rem">
+          <input type="checkbox" v-model="autoTagSettings.inheritSimilarTags" />
+          <span class="label-with-help">
+            Inherit tags from similar posts
+            <button type="button" class="info-icon" :data-tooltip="thresholdHelp.inheritSimilar" :aria-label="thresholdHelp.inheritSimilar">?</button>
+          </span>
+        </label>
       </div>
 
       <div class="config-panel">
@@ -1175,6 +1196,9 @@ const thresholdHelp = {
   maxTags: 'Maximum number of tags kept from model output. Increase for richer search coverage; decrease if posts become cluttered. This limit applies before manual review.',
   videoFrames: 'Number of sampled video frames for visual tagging. More frames improve AMV/edit coverage but take longer. 3-4 is a good default; use 1 for fast middle-frame tagging.',
   lightCutoff: 'Posts with this many tags or fewer count as lightly tagged for bulk jobs. Increase to retag sparse libraries; decrease to only target nearly empty posts.',
+  inheritSimilar: 'When enabled, the auto-tagger copies tags from posts already in your library that are near-identical to the image being tagged (same image re-compressed, cropped, or resized). Works best for duplicate/variant detection — it does not match different-pose drawings of the same character.',
+  similarDistance: 'Maximum perceptual-hash Hamming distance (0–64) for a library post to count as a match. 0 = pixel-perfect duplicates only; 8 = near-duplicates including mild re-encodes and crops. Raise it if variants are missed; lower it to avoid false matches.',
+  similarMinTags: 'A matching library post must have at least this many tags to contribute to inheritance. Keeps untagged or barely-tagged posts out of the inheritance pool.',
 }
 const serverHelp = {
   host: '127.0.0.1 keeps NekoBooru available only on this PC. Use 0.0.0.0 only if you intentionally want LAN devices to reach it; NekoBooru has no built-in user login.',
