@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database import get_db
-from ..models import Tag, TagCategory, TagImplication, TagAlias
+from ..dependencies import get_current_user
+from ..models import Tag, TagCategory, TagImplication, TagAlias, User
 
 router = APIRouter(prefix="/api", tags=["tags"])
 
@@ -89,6 +90,7 @@ async def list_tags(
     limit: int = Query(50, ge=1, le=200),
     sort: str = Query("usage"),  # usage, name, date
     order: str = Query("desc"),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List tags with search and pagination."""
@@ -146,6 +148,7 @@ async def autocomplete_tags(
     limit: int = Query(10, ge=1, le=50),
     name_parts: bool = Query(False, alias="nameParts"),
     include_remote: bool = Query(False, alias="includeRemote"),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get tag suggestions for autocomplete.
@@ -198,7 +201,7 @@ async def autocomplete_tags(
 
 
 @router.get("/tags/{tag_name}")
-async def get_tag(tag_name: str, db: AsyncSession = Depends(get_db)):
+async def get_tag(tag_name: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Get a single tag by name."""
     result = await db.execute(
         select(Tag)
@@ -224,7 +227,9 @@ async def get_tag(tag_name: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/tags")
-async def create_tag(request: CreateTagRequest, db: AsyncSession = Depends(get_db)):
+async def create_tag(
+    request: CreateTagRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Create a new tag."""
     # Check if tag already exists
     existing = await db.execute(select(Tag).where(Tag.name == request.name.lower()))
@@ -247,7 +252,12 @@ async def create_tag(request: CreateTagRequest, db: AsyncSession = Depends(get_d
 
 
 @router.put("/tags/{tag_name}")
-async def update_tag(tag_name: str, request: UpdateTagRequest, db: AsyncSession = Depends(get_db)):
+async def update_tag(
+    tag_name: str,
+    request: UpdateTagRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Update a tag."""
     result = await db.execute(
         select(Tag).options(selectinload(Tag.category)).where(Tag.name == tag_name)
@@ -279,7 +289,9 @@ async def update_tag(tag_name: str, request: UpdateTagRequest, db: AsyncSession 
 
 
 @router.delete("/tags/{tag_name}")
-async def delete_tag(tag_name: str, db: AsyncSession = Depends(get_db)):
+async def delete_tag(
+    tag_name: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Delete a tag."""
     result = await db.execute(select(Tag).where(Tag.name == tag_name))
     tag = result.scalars().first()
@@ -294,7 +306,7 @@ async def delete_tag(tag_name: str, db: AsyncSession = Depends(get_db)):
 
 # Tag Categories
 @router.get("/tag-categories")
-async def list_categories(db: AsyncSession = Depends(get_db)):
+async def list_categories(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """List all tag categories."""
     result = await db.execute(select(TagCategory).order_by(TagCategory.order))
     categories = list(result.scalars().all())
@@ -306,6 +318,7 @@ async def list_categories(db: AsyncSession = Depends(get_db)):
 async def list_implications(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List all tag implications."""
@@ -324,7 +337,11 @@ async def list_implications(
 
 
 @router.post("/tag-implications")
-async def create_implication(request: CreateImplicationRequest, db: AsyncSession = Depends(get_db)):
+async def create_implication(
+    request: CreateImplicationRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Create a tag implication."""
     # Get source tag
     ant_result = await db.execute(select(Tag).where(Tag.name == request.antecedent.lower()))
@@ -357,7 +374,9 @@ async def create_implication(request: CreateImplicationRequest, db: AsyncSession
 
 
 @router.delete("/tag-implications/{impl_id}")
-async def delete_implication(impl_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_implication(
+    impl_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Delete a tag implication."""
     result = await db.execute(select(TagImplication).where(TagImplication.id == impl_id))
     impl = result.scalars().first()
@@ -375,6 +394,7 @@ async def delete_implication(impl_id: int, db: AsyncSession = Depends(get_db)):
 async def list_aliases(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List all tag aliases."""
@@ -390,7 +410,9 @@ async def list_aliases(
 
 
 @router.post("/tag-aliases")
-async def create_alias(request: CreateAliasRequest, db: AsyncSession = Depends(get_db)):
+async def create_alias(
+    request: CreateAliasRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Create a tag alias."""
     alias_name = request.alias.lower().replace(" ", "_")
 
@@ -419,7 +441,9 @@ async def create_alias(request: CreateAliasRequest, db: AsyncSession = Depends(g
 
 
 @router.delete("/tag-aliases/{alias_id}")
-async def delete_alias(alias_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_alias(
+    alias_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Delete a tag alias."""
     result = await db.execute(select(TagAlias).where(TagAlias.id == alias_id))
     alias = result.scalars().first()

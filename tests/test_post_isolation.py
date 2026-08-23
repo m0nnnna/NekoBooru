@@ -207,6 +207,28 @@ class PostIsolationTests(unittest.TestCase):
         self.assertEqual(after_revoke.status_code, 404)
         self._logout()
 
+    def test_07_stats_and_dashboard_do_not_count_other_users_posts(self):
+        # Sharing was revoked in test_06, so bob (0 posts of his own) must not
+        # see alice's post reflected in any aggregate count.
+        self._login("bob", "bobpassword1")
+        stats = self.client.get("/api/settings/stats")
+        self.assertEqual(stats.status_code, 200, stats.text)
+        self.assertEqual(stats.json()["total_files"], 0)
+
+        dashboard = self.client.get("/api/settings/dashboard")
+        self.assertEqual(dashboard.status_code, 200, dashboard.text)
+        self.assertEqual(dashboard.json()["totals"]["posts"], 0)
+
+        top_level_stats = self.client.get("/api/stats")
+        self.assertEqual(top_level_stats.status_code, 200, top_level_stats.text)
+        self.assertEqual(top_level_stats.json()["posts"], 0)
+        self._logout()
+
+        self._login("alice", "alicepassword1")
+        stats = self.client.get("/api/settings/stats")
+        self.assertGreaterEqual(stats.json()["total_files"], 1)
+        self._logout()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..database import get_db
-from ..models import Post
+from ..dependencies import get_current_user
+from ..models import Post, User
+from ..services.auth import visible_owner_ids
 from ..services.settings import SettingsManager, migrate_data_directory
 from ..services import ytdlp_manager
 
@@ -152,7 +154,7 @@ def _extension_settings_payload(raw: dict | None = None) -> dict:
 
 
 @router.get("")
-async def get_settings():
+async def get_settings(current_user: User = Depends(get_current_user)):
     """Get current settings."""
     # Check if cookies file exists in config directory
     cookies_file = settings.config_dir / COOKIES_FILENAME
@@ -174,7 +176,7 @@ async def get_settings():
 
 
 @router.put("/server")
-async def update_server_settings(request: ServerSettingsRequest):
+async def update_server_settings(request: ServerSettingsRequest, current_user: User = Depends(get_current_user)):
     """Persist host/port/CORS settings for the next backend start."""
     host = str(request.host or "").strip() or "127.0.0.1"
     if host == "localhost":
@@ -211,13 +213,15 @@ async def update_server_settings(request: ServerSettingsRequest):
 
 
 @router.get("/extension")
-async def get_extension_settings():
+async def get_extension_settings(current_user: User = Depends(get_current_user)):
     """Get defaults used by the browser extension upload popup."""
     return _extension_settings_payload()
 
 
 @router.put("/extension")
-async def update_extension_settings(request: ExtensionSettingsRequest):
+async def update_extension_settings(
+    request: ExtensionSettingsRequest, current_user: User = Depends(get_current_user)
+):
     """Persist defaults used by the browser extension upload popup."""
     request_payload = request.model_dump()
     payload = _extension_settings_payload(request_payload)
@@ -235,13 +239,15 @@ async def update_extension_settings(request: ExtensionSettingsRequest):
 
 
 @router.get("/ai-model-defaults")
-async def get_ai_model_defaults():
+async def get_ai_model_defaults(current_user: User = Depends(get_current_user)):
     """Get shared model choices used by app post previews and the browser extension."""
     return {"modelDefaults": _ai_model_defaults_payload()}
 
 
 @router.put("/ai-model-defaults")
-async def update_ai_model_defaults(request: AiModelDefaultsRequest):
+async def update_ai_model_defaults(
+    request: AiModelDefaultsRequest, current_user: User = Depends(get_current_user)
+):
     """Persist shared model choices used by app post previews and the browser extension."""
     model_defaults = _ai_model_defaults_payload(request.modelDefaults)
     SettingsManager(settings.config_file).set_ai_model_defaults(model_defaults)
@@ -249,7 +255,7 @@ async def update_ai_model_defaults(request: AiModelDefaultsRequest):
 
 
 @router.put("/data-dir")
-async def update_data_dir(request: UpdateDataDirRequest):
+async def update_data_dir(request: UpdateDataDirRequest, current_user: User = Depends(get_current_user)):
     """Update data directory path."""
     settings_manager = SettingsManager(settings.config_file)
     
@@ -308,7 +314,7 @@ async def update_data_dir(request: UpdateDataDirRequest):
 
 
 @router.post("/migrate")
-async def migrate_data(request: UpdateDataDirRequest):
+async def migrate_data(request: UpdateDataDirRequest, current_user: User = Depends(get_current_user)):
     """Migrate data from current location to new location."""
     settings_manager = SettingsManager(settings.config_file)
     old_path = settings.data_dir
@@ -324,7 +330,7 @@ async def migrate_data(request: UpdateDataDirRequest):
 
 
 @router.post("/ytdlp-cookies")
-async def upload_ytdlp_cookies(file: UploadFile = File(...)):
+async def upload_ytdlp_cookies(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     """Upload yt-dlp cookies file."""
     # Validate file extension
     if not file.filename.endswith('.txt'):
@@ -363,7 +369,7 @@ async def upload_ytdlp_cookies(file: UploadFile = File(...)):
 
 
 @router.delete("/ytdlp-cookies")
-async def delete_ytdlp_cookies():
+async def delete_ytdlp_cookies(current_user: User = Depends(get_current_user)):
     """Delete the uploaded yt-dlp cookies file."""
     cookies_file = settings.config_dir / COOKIES_FILENAME
 
@@ -388,19 +394,19 @@ async def delete_ytdlp_cookies():
 
 
 @router.get("/ytdlp")
-async def get_ytdlp_status():
+async def get_ytdlp_status(current_user: User = Depends(get_current_user)):
     """Get yt-dlp version, import path, update policy, and update job state."""
     return ytdlp_manager.status()
 
 
 @router.put("/ytdlp")
-async def update_ytdlp_settings(request: YtdlpSettingsRequest):
+async def update_ytdlp_settings(request: YtdlpSettingsRequest, current_user: User = Depends(get_current_user)):
     """Persist yt-dlp update policy."""
     return ytdlp_manager.save_settings(request.model_dump())
 
 
 @router.post("/ytdlp/update")
-async def update_ytdlp(request: YtdlpUpdateRequest):
+async def update_ytdlp(request: YtdlpUpdateRequest, current_user: User = Depends(get_current_user)):
     """Start a background yt-dlp pip update in the backend Python environment."""
     try:
         return await ytdlp_manager.start_update(request.target)
@@ -409,8 +415,8 @@ async def update_ytdlp(request: YtdlpUpdateRequest):
 
 
 @router.get("/dashboard")
-async def get_dashboard(db: AsyncSession = Depends(get_db)):
-    """Rich library statistics for the dashboard view."""
+async def get_dashboard(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Rich library statistics for the dashboard view - this user's own library plus whatever's shared with them."""
     from ..models import Tag, TagCategory, Pool, Favorite, Comment, Note
     from ..models.post import PostTag
 
@@ -418,52 +424,58 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
     gif_exts = ['.gif']
     video_exts = ['.webm', '.mp4']
 
-    live = Post.deleted_at.is_(None)
+    owner_ids = await visible_owner_ids(db, current_user)
+    live = (Post.deleted_at.is_(None), Post.owner_id.in_(owner_ids))
+    own_posts = select(Post.id).where(*live).subquery()
 
     async def scalar(stmt):
         return (await db.execute(stmt)).scalar() or 0
 
-    total_posts = await scalar(select(func.count(Post.id)).where(live))
-    images = await scalar(select(func.count(Post.id)).where(live, Post.extension.in_(image_exts)))
-    gifs = await scalar(select(func.count(Post.id)).where(live, Post.extension.in_(gif_exts)))
-    videos = await scalar(select(func.count(Post.id)).where(live, Post.extension.in_(video_exts)))
+    total_posts = await scalar(select(func.count(Post.id)).where(*live))
+    images = await scalar(select(func.count(Post.id)).where(*live, Post.extension.in_(image_exts)))
+    gifs = await scalar(select(func.count(Post.id)).where(*live, Post.extension.in_(gif_exts)))
+    videos = await scalar(select(func.count(Post.id)).where(*live, Post.extension.in_(video_exts)))
 
-    safe = await scalar(select(func.count(Post.id)).where(live, Post.safety == "safe"))
-    sketchy = await scalar(select(func.count(Post.id)).where(live, Post.safety == "sketchy"))
-    unsafe = await scalar(select(func.count(Post.id)).where(live, Post.safety == "unsafe"))
+    safe = await scalar(select(func.count(Post.id)).where(*live, Post.safety == "safe"))
+    sketchy = await scalar(select(func.count(Post.id)).where(*live, Post.safety == "sketchy"))
+    unsafe = await scalar(select(func.count(Post.id)).where(*live, Post.safety == "unsafe"))
 
-    total_size = await scalar(select(func.sum(Post.file_size)).where(live))
-    oldest = (await db.execute(select(func.min(Post.created_at)).where(live))).scalar()
-    newest = (await db.execute(select(func.max(Post.created_at)).where(live))).scalar()
+    total_size = await scalar(select(func.sum(Post.file_size)).where(*live))
+    oldest = (await db.execute(select(func.min(Post.created_at)).where(*live))).scalar()
+    newest = (await db.execute(select(func.max(Post.created_at)).where(*live))).scalar()
 
     tagged_subq = select(PostTag.c.post_id).distinct().subquery()
     untagged = await scalar(
-        select(func.count(Post.id)).where(live, Post.id.not_in(select(tagged_subq.c.post_id)))
+        select(func.count(Post.id)).where(*live, Post.id.not_in(select(tagged_subq.c.post_id)))
     )
 
     total_tags = await scalar(select(func.count(Tag.id)))
-    total_pools = await scalar(select(func.count(Pool.id)))
-    total_favorites = await scalar(select(func.count(Favorite.id)))
-    total_comments = await scalar(select(func.count(Comment.id)))
-    total_notes = await scalar(select(func.count(Note.id)))
+    total_pools = await scalar(select(func.count(Pool.id)).where(Pool.owner_id.in_(owner_ids)))
+    total_favorites = await scalar(select(func.count(Favorite.id)).where(Favorite.user_id == current_user.id))
+    total_comments = await scalar(
+        select(func.count(Comment.id)).join(Post, Post.id == Comment.post_id).where(Post.owner_id.in_(owner_ids))
+    )
+    total_notes = await scalar(
+        select(func.count(Note.id)).join(Post, Post.id == Note.post_id).where(Post.owner_id.in_(owner_ids))
+    )
 
     # Uploads per month (ISO YYYY-MM), oldest first.
     month = func.strftime("%Y-%m", Post.created_at)
     uploads_rows = (
         await db.execute(
-            select(month.label("m"), func.count(Post.id)).where(live).group_by("m").order_by("m")
+            select(month.label("m"), func.count(Post.id)).where(*live).group_by("m").order_by("m")
         )
     ).all()
     uploads_by_month = [{"month": m, "count": c} for m, c in uploads_rows if m]
 
-    # Top tags by live usage (accurate, excludes deleted posts).
+    # Top tags by live usage within this user's visible posts (excludes
+    # deleted posts and posts outside owner_ids).
     top_rows = (
         await db.execute(
             select(Tag.name, TagCategory.color, func.count(PostTag.c.post_id).label("n"))
             .join(PostTag, PostTag.c.tag_id == Tag.id)
-            .join(Post, Post.id == PostTag.c.post_id)
+            .join(own_posts, own_posts.c.id == PostTag.c.post_id)
             .outerjoin(TagCategory, TagCategory.id == Tag.category_id)
-            .where(live)
             .group_by(Tag.id)
             .order_by(func.count(PostTag.c.post_id).desc())
             .limit(25)
@@ -471,7 +483,8 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
     ).all()
     top_tags = [{"name": n, "color": c or "#808080", "count": cnt} for n, c, cnt in top_rows]
 
-    # Tag counts per category.
+    # Tag counts per category - stays instance-wide (shared vocabulary, not
+    # private content; see the tag-scoping decision in the multi-user plan).
     cat_rows = (
         await db.execute(
             select(TagCategory.name, TagCategory.color, func.count(Tag.id))
@@ -487,13 +500,13 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
         select(func.count())
         .select_from(
             select(Post.phash)
-            .where(live, Post.phash.is_not(None), Post.phash != "")
+            .where(*live, Post.phash.is_not(None), Post.phash != "")
             .group_by(Post.phash)
             .having(func.count(Post.id) > 1)
             .subquery()
         )
     )
-    phash_missing = await scalar(select(func.count(Post.id)).where(live, Post.phash.is_(None)))
+    phash_missing = await scalar(select(func.count(Post.id)).where(*live, Post.phash.is_(None)))
 
     db_size = os.path.getsize(settings.database_path) if settings.database_path.exists() else 0
 
@@ -526,47 +539,50 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/stats")
-async def get_stats(db: AsyncSession = Depends(get_db)):
-    """Get server statistics."""
+async def get_stats(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Get server statistics for this user's own library plus whatever's shared with them."""
     # Image extensions (without the dot prefix stored in DB)
     image_exts = ['.jpg', '.jpeg', '.png', '.webp']
     gif_exts = ['.gif']
     video_exts = ['.webm', '.mp4']
 
+    owner_ids = await visible_owner_ids(db, current_user)
+    owned = Post.owner_id.in_(owner_ids)
+
     # Count total files
-    total_result = await db.execute(select(func.count(Post.id)))
+    total_result = await db.execute(select(func.count(Post.id)).where(owned))
     total_files = total_result.scalar() or 0
 
     # Count images
     images_result = await db.execute(
-        select(func.count(Post.id)).where(Post.extension.in_(image_exts))
+        select(func.count(Post.id)).where(owned, Post.extension.in_(image_exts))
     )
     images = images_result.scalar() or 0
 
     # Count GIFs
     gifs_result = await db.execute(
-        select(func.count(Post.id)).where(Post.extension.in_(gif_exts))
+        select(func.count(Post.id)).where(owned, Post.extension.in_(gif_exts))
     )
     gifs = gifs_result.scalar() or 0
 
     # Count videos
     videos_result = await db.execute(
-        select(func.count(Post.id)).where(Post.extension.in_(video_exts))
+        select(func.count(Post.id)).where(owned, Post.extension.in_(video_exts))
     )
     videos = videos_result.scalar() or 0
 
     # Total file size
-    size_result = await db.execute(select(func.sum(Post.file_size)))
+    size_result = await db.execute(select(func.sum(Post.file_size)).where(owned))
     total_size = size_result.scalar() or 0
 
     # Oldest and newest posts
     oldest_result = await db.execute(
-        select(func.min(Post.created_at))
+        select(func.min(Post.created_at)).where(owned)
     )
     oldest_post = oldest_result.scalar()
 
     newest_result = await db.execute(
-        select(func.max(Post.created_at))
+        select(func.max(Post.created_at)).where(owned)
     )
     newest_post = newest_result.scalar()
 

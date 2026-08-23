@@ -3,13 +3,14 @@ import sys
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from .config import settings, get_bundle_dir
 from .database import init_db
+from .dependencies import get_current_user
 from .routers import uploads, upload_jobs, posts, tags, pools, notes, comments, sync, auto_tags, runtime, updates, site_imports, settings as settings_router, auth as auth_router
 
 # Configure logging
@@ -95,16 +96,18 @@ async def get_info():
 
 
 @app.get("/api/stats")
-async def get_stats():
-    """Get database statistics."""
+async def get_stats(current_user=Depends(get_current_user)):
+    """Get database statistics for this user's own library (plus anything shared with them)."""
     from sqlalchemy import select, func
     from .database import async_session
     from .models import Post, Tag, Pool
+    from .services.auth import visible_owner_ids
 
     async with async_session() as session:
-        post_count = await session.execute(select(func.count(Post.id)))
+        owner_ids = await visible_owner_ids(session, current_user)
+        post_count = await session.execute(select(func.count(Post.id)).where(Post.owner_id.in_(owner_ids)))
         tag_count = await session.execute(select(func.count(Tag.id)))
-        pool_count = await session.execute(select(func.count(Pool.id)))
+        pool_count = await session.execute(select(func.count(Pool.id)).where(Pool.owner_id.in_(owner_ids)))
 
         return {
             "posts": post_count.scalar() or 0,
