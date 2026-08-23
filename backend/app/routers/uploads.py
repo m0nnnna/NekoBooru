@@ -9,11 +9,13 @@ import httpx
 import html as html_module
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..config import settings
+from ..dependencies import get_current_user
+from ..models import User
 from ..services.media import check_ffmpeg_available
 from ..services.pixiv_ugoira import convert_ugoira_zip_to_mp4, normalize_frames, validate_pixiv_ugoira_url
 
@@ -62,7 +64,7 @@ def normalize_upload_extension(extension: str) -> str:
 
 
 @router.post("")
-async def upload_file(content: UploadFile = File(...)):
+async def upload_file(content: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     """
     Upload a file and get a token for creating a post.
     Compatible with szurubooru API.
@@ -162,7 +164,7 @@ UPLOAD_MEDIA_TYPES = {
 
 
 @router.get("/{token}/content")
-async def get_upload_content(token: str):
+async def get_upload_content(token: str, current_user: User = Depends(get_current_user)):
     """Serve a pending upload's file.
 
     The browser extension cannot preview media it never had a playable URL for
@@ -181,7 +183,7 @@ async def get_upload_content(token: str):
 
 
 @router.get("/{token}/auto-tags")
-async def auto_tags_for_upload(token: str):
+async def auto_tags_for_upload(token: str, current_user: User = Depends(get_current_user)):
     """Preview optional model tags for an uploaded token."""
     temp_path = get_upload_path(token)
     if not temp_path or not temp_path.exists():
@@ -204,7 +206,7 @@ async def auto_tags_for_upload(token: str):
     }
 
 
-async def _compute_auto_tag_preview(temp_path: Path, request: UploadAutoTagPreviewRequest) -> dict:
+async def _compute_auto_tag_preview(temp_path: Path, request: UploadAutoTagPreviewRequest, owner_id: int) -> dict:
     from ..services.auto_tag_jobs import _tag_media_async, _inherit_tags_from_similar
     from ..services.auto_tagger import load_options, merge_with_existing, promote_safety, validate_options
     from ..services.similarity import compute_dhash
@@ -218,7 +220,7 @@ async def _compute_auto_tag_preview(temp_path: Path, request: UploadAutoTagPrevi
             from ..database import async_session
             async with async_session() as db:
                 inherited_tags, inherited_evidence = await _inherit_tags_from_similar(
-                    db, phash, None, opts
+                    db, phash, None, opts, owner_id=owner_id
                 )
                 if inherited_tags:
                     existing_set = set(result.tags)
@@ -244,7 +246,9 @@ async def _compute_auto_tag_preview(temp_path: Path, request: UploadAutoTagPrevi
 
 
 @router.post("/{token}/auto-tags/preview")
-async def preview_auto_tags_for_upload(token: str, request: UploadAutoTagPreviewRequest):
+async def preview_auto_tags_for_upload(
+    token: str, request: UploadAutoTagPreviewRequest, current_user: User = Depends(get_current_user)
+):
     """Preview AI tag suggestions for a temporary upload token without creating a post.
 
     Synchronous variant kept for backwards compatibility. Clients behind a
@@ -255,7 +259,7 @@ async def preview_auto_tags_for_upload(token: str, request: UploadAutoTagPreview
     temp_path = get_upload_path(token)
     if not temp_path or not temp_path.exists():
         raise HTTPException(status_code=404, detail="Invalid or expired content token")
-    return await _compute_auto_tag_preview(temp_path, request)
+    return await _compute_auto_tag_preview(temp_path, request, current_user.id)
 
 
 # Async AI-preview jobs. Inference runs in a background task so each HTTP
@@ -277,9 +281,9 @@ def _prune_preview_jobs() -> None:
         preview_jobs.pop(jid, None)
 
 
-async def _run_preview_job(job_id: str, temp_path: Path, request: UploadAutoTagPreviewRequest) -> None:
+async def _run_preview_job(job_id: str, temp_path: Path, request: UploadAutoTagPreviewRequest, owner_id: int) -> None:
     try:
-        result = await _compute_auto_tag_preview(temp_path, request)
+        result = await _compute_auto_tag_preview(temp_path, request, owner_id)
         job = preview_jobs.get(job_id)
         if job is not None:
             job.update(status="completed", result=result)
@@ -291,7 +295,9 @@ async def _run_preview_job(job_id: str, temp_path: Path, request: UploadAutoTagP
 
 
 @router.post("/{token}/auto-tags/preview/start")
-async def start_preview_auto_tags_for_upload(token: str, request: UploadAutoTagPreviewRequest):
+async def start_preview_auto_tags_for_upload(
+    token: str, request: UploadAutoTagPreviewRequest, current_user: User = Depends(get_current_user)
+):
     """Kick off an AI tag preview in the background and return a job id to poll."""
     temp_path = get_upload_path(token)
     if not temp_path or not temp_path.exists():
@@ -302,12 +308,12 @@ async def start_preview_auto_tags_for_upload(token: str, request: UploadAutoTagP
     job = {"status": "running", "result": None, "error": None, "created": time.time()}
     preview_jobs[job_id] = job
     # Hold a reference so the task is not garbage-collected mid-run.
-    job["task"] = asyncio.create_task(_run_preview_job(job_id, temp_path, request))
+    job["task"] = asyncio.create_task(_run_preview_job(job_id, temp_path, request, current_user.id))
     return {"jobId": job_id, "status": "running"}
 
 
 @router.get("/auto-tags/preview-jobs/{job_id}")
-async def get_preview_auto_tags_job(job_id: str):
+async def get_preview_auto_tags_job(job_id: str, current_user: User = Depends(get_current_user)):
     """Poll an AI tag preview job started via the start endpoint."""
     job = preview_jobs.get(job_id)
     if not job:
@@ -333,7 +339,7 @@ MIME_TO_EXT = {
 
 
 @router.post("/from-url")
-async def upload_from_url(request: UrlFetchRequest):
+async def upload_from_url(request: UrlFetchRequest, current_user: User = Depends(get_current_user)):
     """
     Fetch a file from a URL and get a token for creating a post.
     Useful for pasting images from other websites.
@@ -451,7 +457,7 @@ def _normalize_fetch_url(url: str) -> str:
 
 
 @router.post("/from-pixiv-ugoira")
-async def upload_from_pixiv_ugoira(request: PixivUgoiraRequest):
+async def upload_from_pixiv_ugoira(request: PixivUgoiraRequest, current_user: User = Depends(get_current_user)):
     """Download a trusted Pixiv ugoira frame ZIP and convert it to MP4."""
     try:
         url = validate_pixiv_ugoira_url(request.url)
@@ -511,7 +517,7 @@ async def upload_from_pixiv_ugoira(request: PixivUgoiraRequest):
 
 
 @router.post("/from-ytdlp")
-async def upload_from_ytdlp(request: UrlFetchRequest):
+async def upload_from_ytdlp(request: UrlFetchRequest, current_user: User = Depends(get_current_user)):
     """
     Download a video using yt-dlp and get a token for creating a post.
     Supports Twitter/X, YouTube, TikTok, Instagram, Reddit, and 1000+ other sites.
@@ -537,7 +543,7 @@ async def upload_from_ytdlp(request: UrlFetchRequest):
             })
             ct = head_resp.headers.get('content-type', '').split(';')[0].strip()
             if ct in MIME_TO_EXT:
-                return await upload_from_url(UrlFetchRequest(url=url))
+                return await upload_from_url(UrlFetchRequest(url=url), current_user)
     except Exception:
         pass  # HEAD check failed — fall through to yt-dlp
 
@@ -777,11 +783,23 @@ async def _fetch_pleroma_attachments(host: str, path: str, client: httpx.AsyncCl
 
 
 @router.post("/from-fediverse")
-async def upload_from_fediverse(request: FediverseRequest):
+async def upload_from_fediverse(request: FediverseRequest, current_user: User = Depends(get_current_user)):
     """
     Fetch media from a Pleroma or Misskey post.
     Auto-detects the platform via NodeInfo, downloads all media attachments,
     and returns a token per attachment along with suggested tags.
+    """
+    return await _upload_from_fediverse_impl(request)
+
+
+async def _upload_from_fediverse_impl(request: FediverseRequest) -> dict:
+    """Actual implementation, callable without a request context.
+
+    services/upload_jobs.py's _run_fediverse runs as a background task with
+    no current_user available (the job's own creation was already
+    authenticated) - it calls this directly rather than the router function,
+    since calling a route that Depends(get_current_user) as a plain Python
+    function would fail with a missing argument.
     """
     url = request.url.strip()
 

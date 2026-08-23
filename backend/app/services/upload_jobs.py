@@ -676,7 +676,7 @@ async def _run_fediverse(job_id: str, cancel: threading.Event) -> None:
         from ..routers import uploads
 
         async with _network_slots:
-            result = await uploads.upload_from_fediverse(uploads.FediverseRequest(url=job.source_url or ""))
+            result = await uploads._upload_from_fediverse_impl(uploads.FediverseRequest(url=job.source_url or ""))
         if cancel.is_set():
             raise JobCancelled()
         imported = result.get("uploads") or []
