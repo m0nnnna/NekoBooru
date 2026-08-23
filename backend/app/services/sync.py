@@ -66,7 +66,7 @@ async def backfill_sync_log_if_empty(session: AsyncSession) -> int:
     return len(rows)
 
 
-def _log(connection, entity_type: str, entity_key, op: str):
+def _log(connection, entity_type: str, entity_key, op: str, user_id=None):
     if entity_key is None:
         return
     connection.execute(
@@ -75,6 +75,7 @@ def _log(connection, entity_type: str, entity_key, op: str):
             entity_key=str(entity_key),
             op=op,
             ts=datetime.utcnow(),
+            user_id=user_id,
         )
     )
 
@@ -87,11 +88,27 @@ def _post_sha_for_id(connection, post_id):
     ).scalar()
 
 
+def _post_owner_for_id(connection, post_id):
+    if post_id is None:
+        return None
+    return connection.execute(
+        select(Post.__table__.c.owner_id).where(Post.__table__.c.id == post_id)
+    ).scalar()
+
+
 def _pool_uuid_for_id(connection, pool_id):
     if pool_id is None:
         return None
     return connection.execute(
         select(Pool.__table__.c.uuid).where(Pool.__table__.c.id == pool_id)
+    ).scalar()
+
+
+def _pool_owner_for_id(connection, pool_id):
+    if pool_id is None:
+        return None
+    return connection.execute(
+        select(Pool.__table__.c.owner_id).where(Pool.__table__.c.id == pool_id)
     ).scalar()
 
 
@@ -109,11 +126,11 @@ def register_sync_listeners():
     #     in the serialized payload, so the client interprets the tombstone. ---
     @event.listens_for(Post, "after_insert")
     def _post_insert(mapper, connection, target):
-        _log(connection, "post", target.sha256, "upsert")
+        _log(connection, "post", target.sha256, "upsert", target.owner_id)
 
     @event.listens_for(Post, "after_update")
     def _post_update(mapper, connection, target):
-        _log(connection, "post", target.sha256, "upsert")
+        _log(connection, "post", target.sha256, "upsert", target.owner_id)
 
     # --- Tag ---
     @event.listens_for(Tag, "after_insert")
@@ -131,60 +148,71 @@ def register_sync_listeners():
     # --- Pool ---
     @event.listens_for(Pool, "after_insert")
     def _pool_insert(mapper, connection, target):
-        _log(connection, "pool", target.uuid, "upsert")
+        _log(connection, "pool", target.uuid, "upsert", target.owner_id)
 
     @event.listens_for(Pool, "after_update")
     def _pool_update(mapper, connection, target):
-        _log(connection, "pool", target.uuid, "upsert")
+        _log(connection, "pool", target.uuid, "upsert", target.owner_id)
 
     @event.listens_for(Pool, "after_delete")
     def _pool_delete(mapper, connection, target):
-        _log(connection, "pool", target.uuid, "delete")
+        _log(connection, "pool", target.uuid, "delete", target.owner_id)
 
     # --- Pool membership changes count as a change to the parent pool ---
     @event.listens_for(PoolPost, "after_insert")
     def _poolpost_insert(mapper, connection, target):
-        _log(connection, "pool", _pool_uuid_for_id(connection, target.pool_id), "upsert")
+        _log(
+            connection, "pool", _pool_uuid_for_id(connection, target.pool_id), "upsert",
+            _pool_owner_for_id(connection, target.pool_id),
+        )
 
     @event.listens_for(PoolPost, "after_update")
     def _poolpost_update(mapper, connection, target):
-        _log(connection, "pool", _pool_uuid_for_id(connection, target.pool_id), "upsert")
+        _log(
+            connection, "pool", _pool_uuid_for_id(connection, target.pool_id), "upsert",
+            _pool_owner_for_id(connection, target.pool_id),
+        )
 
     @event.listens_for(PoolPost, "after_delete")
     def _poolpost_delete(mapper, connection, target):
-        _log(connection, "pool", _pool_uuid_for_id(connection, target.pool_id), "upsert")
+        _log(
+            connection, "pool", _pool_uuid_for_id(connection, target.pool_id), "upsert",
+            _pool_owner_for_id(connection, target.pool_id),
+        )
 
     # --- Note ---
     @event.listens_for(Note, "after_insert")
     def _note_insert(mapper, connection, target):
-        _log(connection, "note", target.uuid, "upsert")
+        _log(connection, "note", target.uuid, "upsert", _post_owner_for_id(connection, target.post_id))
 
     @event.listens_for(Note, "after_update")
     def _note_update(mapper, connection, target):
-        _log(connection, "note", target.uuid, "upsert")
+        _log(connection, "note", target.uuid, "upsert", _post_owner_for_id(connection, target.post_id))
 
     @event.listens_for(Note, "after_delete")
     def _note_delete(mapper, connection, target):
-        _log(connection, "note", target.uuid, "delete")
+        _log(connection, "note", target.uuid, "delete", _post_owner_for_id(connection, target.post_id))
 
     # --- Comment ---
     @event.listens_for(Comment, "after_insert")
     def _comment_insert(mapper, connection, target):
-        _log(connection, "comment", target.uuid, "upsert")
+        _log(connection, "comment", target.uuid, "upsert", _post_owner_for_id(connection, target.post_id))
 
     @event.listens_for(Comment, "after_update")
     def _comment_update(mapper, connection, target):
-        _log(connection, "comment", target.uuid, "upsert")
+        _log(connection, "comment", target.uuid, "upsert", _post_owner_for_id(connection, target.post_id))
 
     @event.listens_for(Comment, "after_delete")
     def _comment_delete(mapper, connection, target):
-        _log(connection, "comment", target.uuid, "delete")
+        _log(connection, "comment", target.uuid, "delete", _post_owner_for_id(connection, target.post_id))
 
-    # --- Favorite: keyed by the favorited post's sha256 ---
+    # --- Favorite: keyed by the favorited post's sha256, scoped to the user
+    #     who favorited it (not the post owner - a shared-library viewer
+    #     favorites independently). ---
     @event.listens_for(Favorite, "after_insert")
     def _fav_insert(mapper, connection, target):
-        _log(connection, "favorite", _post_sha_for_id(connection, target.post_id), "upsert")
+        _log(connection, "favorite", _post_sha_for_id(connection, target.post_id), "upsert", target.user_id)
 
     @event.listens_for(Favorite, "after_delete")
     def _fav_delete(mapper, connection, target):
-        _log(connection, "favorite", _post_sha_for_id(connection, target.post_id), "delete")
+        _log(connection, "favorite", _post_sha_for_id(connection, target.post_id), "delete", target.user_id)

@@ -5,7 +5,12 @@
 
 Stable cross-device keys: posts -> sha256, tags -> name, pools/notes/comments
 -> uuid, favorites -> the post's sha256. Conflicts use last-write-wins by
-``updatedAt`` (single user across devices, so genuine conflicts are rare).
+``updatedAt`` (one user's own devices, so genuine conflicts are rare).
+
+Multi-user scope (v1): both endpoints only ever see/touch the calling
+user's own library (their own posts/pools/notes/comments/favorites) plus
+the global tag vocabulary. A library shared with this user by someone else
+is deliberately NOT synced here - sharing is a web-UI-only view for now.
 """
 from datetime import datetime
 from typing import Optional, Any
@@ -18,7 +23,8 @@ from sqlalchemy.orm import selectinload
 
 from ..database import get_db
 from ..config import settings
-from ..models import Post, Tag, Pool, PoolPost, Note, Comment, Favorite, SyncLog
+from ..dependencies import get_current_user
+from ..models import Post, Tag, Pool, PoolPost, Note, Comment, Favorite, SyncLog, User
 from ..models.post import PostTag
 from ..utils.hashing import calculate_sha256
 from ..services.media import get_media_info, create_thumbnail, move_to_storage
@@ -47,12 +53,15 @@ def _parse_dt(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
-async def _post_by_sha(db: AsyncSession, sha256: str) -> Optional[Post]:
-    result = await db.execute(
+async def _post_by_sha(db: AsyncSession, sha256: str, owner_id: Optional[int] = None) -> Optional[Post]:
+    stmt = (
         select(Post)
         .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites))
         .where(Post.sha256 == sha256)
     )
+    if owner_id is not None:
+        stmt = stmt.where(Post.owner_id == owner_id)
+    result = await db.execute(stmt)
     return result.scalars().first()
 
 
@@ -100,16 +109,26 @@ async def _serialize_comment(db: AsyncSession, comment: Comment) -> dict:
 async def get_changes(
     since: int = Query(0, ge=0, description="Last cursor the client has applied"),
     limit: int = Query(500, ge=1, le=2000),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Return entity changes with id > ``since``, plus the new cursor.
 
     Multiple log rows for the same entity within the window are collapsed to the
     latest state. Call repeatedly while ``hasMore`` is true.
+
+    Only this user's own library (plus the global tag vocabulary, where
+    ``user_id`` is NULL) is returned - see the module docstring.
     """
     rows = (
         await db.execute(
-            select(SyncLog).where(SyncLog.id > since).order_by(SyncLog.id.asc()).limit(limit)
+            select(SyncLog)
+            .where(
+                SyncLog.id > since,
+                (SyncLog.user_id.is_(None)) | (SyncLog.user_id == current_user.id),
+            )
+            .order_by(SyncLog.id.asc())
+            .limit(limit)
         )
     ).scalars().all()
 
@@ -135,11 +154,11 @@ async def get_changes(
 
         # op == "upsert": resolve the current entity, else emit a tombstone.
         if etype == "post":
-            post = await _post_by_sha(db, key)
+            post = await _post_by_sha(db, key, owner_id=current_user.id)
             if post is None:
                 changes.append({"type": "post", "op": "delete", "key": key})
             else:
-                changes.append({"type": "post", "op": "upsert", "key": key, "data": post.to_dict()})
+                changes.append({"type": "post", "op": "upsert", "key": key, "data": post.to_dict(current_user.id)})
 
         elif etype == "tag":
             tag = (
@@ -180,12 +199,17 @@ async def get_changes(
                 changes.append({"type": "comment", "op": "upsert", "key": key, "data": await _serialize_comment(db, comment)})
 
         elif etype == "favorite":
-            # Favorited iff a Favorite row exists for the post with this sha.
-            post = (await db.execute(select(Post).where(Post.sha256 == key))).scalars().first()
+            # Favorited iff a Favorite row exists for the post with this sha,
+            # for this user specifically (each user favorites independently).
+            post = (
+                await db.execute(select(Post).where(Post.sha256 == key, Post.owner_id == current_user.id))
+            ).scalars().first()
             favorited = False
             if post is not None:
                 fav = (
-                    await db.execute(select(Favorite).where(Favorite.post_id == post.id))
+                    await db.execute(
+                        select(Favorite).where(Favorite.post_id == post.id, Favorite.user_id == current_user.id)
+                    )
                 ).scalars().first()
                 favorited = fav is not None
             changes.append({
@@ -230,20 +254,25 @@ class PushRequest(BaseModel):
     changes: list[PushChange] = []
 
 
-async def _resolve_post_id(db: AsyncSession, sha256: Optional[str]) -> Optional[int]:
+async def _resolve_post_id(db: AsyncSession, sha256: Optional[str], owner_id: int) -> Optional[int]:
+    """Resolve a post id by sha256, scoped to this user's own library.
+
+    Sync never operates on someone else's (even shared-with-you) content -
+    see the module docstring.
+    """
     if not sha256:
         return None
     return (
-        await db.execute(select(Post.id).where(Post.sha256 == sha256))
+        await db.execute(select(Post.id).where(Post.sha256 == sha256, Post.owner_id == owner_id))
     ).scalar()
 
 
-async def _apply_post(db: AsyncSession, ch: PushChange) -> dict:
+async def _apply_post(db: AsyncSession, ch: PushChange, owner_id: int) -> dict:
     incoming_dt = _parse_dt(ch.updatedAt)
 
     # Delete (soft) by sha.
     if ch.op == "delete":
-        post = await _post_by_sha(db, ch.sha256) if ch.sha256 else None
+        post = await _post_by_sha(db, ch.sha256, owner_id=owner_id) if ch.sha256 else None
         if post and post.deleted_at is None:
             post.deleted_at = datetime.utcnow()
         return {"clientId": ch.clientId, "type": "post", "sha256": ch.sha256,
@@ -256,9 +285,10 @@ async def _apply_post(db: AsyncSession, ch: PushChange) -> dict:
             return {"clientId": ch.clientId, "type": "post", "status": "error",
                     "message": "Invalid or expired content token"}
         sha256 = calculate_sha256(temp_path)
-        existing = await _post_by_sha(db, sha256)
+        existing = await _post_by_sha(db, sha256, owner_id=owner_id)
         if existing:
-            # Dedup: same content already present. Merge metadata (LWW) and undelete.
+            # Dedup: same content already present in *this user's* library.
+            # Merge metadata (LWW) and undelete.
             remove_upload_token(ch.contentToken)
             temp_path.unlink(missing_ok=True)
             if existing.deleted_at is not None:
@@ -266,6 +296,17 @@ async def _apply_post(db: AsyncSession, ch: PushChange) -> dict:
             await _merge_post_metadata(db, existing, ch, incoming_dt)
             return {"clientId": ch.clientId, "type": "post", "sha256": sha256,
                     "serverId": existing.id, "status": "deduped"}
+
+        # sha256 is globally unique across all libraries: if some other user
+        # already has this exact file, materializing it here would collide on
+        # the DB constraint. Fail the item rather than leaking whose it is.
+        foreign = await _post_by_sha(db, sha256)
+        if foreign is not None:
+            remove_upload_token(ch.contentToken)
+            temp_path.unlink(missing_ok=True)
+            return {"clientId": ch.clientId, "type": "post", "sha256": sha256,
+                    "status": "error",
+                    "message": "This exact file already exists in another user's library."}
 
         extension = temp_path.suffix.lower()
         file_size = temp_path.stat().st_size
@@ -275,6 +316,7 @@ async def _apply_post(db: AsyncSession, ch: PushChange) -> dict:
         create_thumbnail(final_path, thumb_path, extension)
 
         post = Post(
+            owner_id=owner_id,
             sha256=sha256,
             filename=temp_path.name,
             extension=extension,
@@ -292,8 +334,8 @@ async def _apply_post(db: AsyncSession, ch: PushChange) -> dict:
         return {"clientId": ch.clientId, "type": "post", "sha256": sha256,
                 "serverId": post.id, "status": "created"}
 
-    # Metadata-only edit of an existing post (by sha).
-    post = await _post_by_sha(db, ch.sha256) if ch.sha256 else None
+    # Metadata-only edit of an existing post (by sha), scoped to this user.
+    post = await _post_by_sha(db, ch.sha256, owner_id=owner_id) if ch.sha256 else None
     if post is None:
         return {"clientId": ch.clientId, "type": "post", "sha256": ch.sha256,
                 "status": "error", "message": "Post not found and no content token"}
@@ -323,23 +365,27 @@ async def _merge_post_metadata(db: AsyncSession, post: Post, ch: PushChange,
     return "updated"
 
 
-async def _apply_favorite(db: AsyncSession, ch: PushChange) -> dict:
-    post_id = await _resolve_post_id(db, ch.sha256)
+async def _apply_favorite(db: AsyncSession, ch: PushChange, owner_id: int) -> dict:
+    post_id = await _resolve_post_id(db, ch.sha256, owner_id)
     if post_id is None:
         return {"type": "favorite", "sha256": ch.sha256, "status": "error",
                 "message": "Post not found"}
-    fav = (await db.execute(select(Favorite).where(Favorite.post_id == post_id))).scalars().first()
+    fav = (
+        await db.execute(select(Favorite).where(Favorite.post_id == post_id, Favorite.user_id == owner_id))
+    ).scalars().first()
     if ch.op == "delete":
         if fav:
             await db.delete(fav)
         return {"type": "favorite", "sha256": ch.sha256, "status": "unfavorited"}
     if not fav:
-        db.add(Favorite(post_id=post_id))
+        db.add(Favorite(post_id=post_id, user_id=owner_id))
     return {"type": "favorite", "sha256": ch.sha256, "status": "favorited"}
 
 
-async def _apply_pool(db: AsyncSession, ch: PushChange) -> dict:
-    pool = (await db.execute(select(Pool).where(Pool.uuid == ch.uuid))).scalars().first() if ch.uuid else None
+async def _apply_pool(db: AsyncSession, ch: PushChange, owner_id: int) -> dict:
+    pool = (
+        await db.execute(select(Pool).where(Pool.uuid == ch.uuid, Pool.owner_id == owner_id))
+    ).scalars().first() if ch.uuid else None
 
     if ch.op == "delete":
         if pool:
@@ -347,7 +393,7 @@ async def _apply_pool(db: AsyncSession, ch: PushChange) -> dict:
         return {"type": "pool", "uuid": ch.uuid, "status": "deleted"}
 
     if pool is None:
-        pool = Pool(uuid=ch.uuid, name=ch.name or "Untitled", description=ch.description)
+        pool = Pool(owner_id=owner_id, uuid=ch.uuid, name=ch.name or "Untitled", description=ch.description)
         db.add(pool)
         await db.flush()
     else:
@@ -361,7 +407,7 @@ async def _apply_pool(db: AsyncSession, ch: PushChange) -> dict:
         await db.execute(delete(PoolPost).where(PoolPost.pool_id == pool.id))
         order = 0
         for sha in ch.postSha256s:
-            pid = await _resolve_post_id(db, sha)
+            pid = await _resolve_post_id(db, sha, owner_id)
             if pid is not None:
                 db.add(PoolPost(pool_id=pool.id, post_id=pid, order=order))
                 order += 1
@@ -369,15 +415,21 @@ async def _apply_pool(db: AsyncSession, ch: PushChange) -> dict:
     return {"type": "pool", "uuid": pool.uuid, "serverId": pool.id, "status": "upserted"}
 
 
-async def _apply_note(db: AsyncSession, ch: PushChange) -> dict:
-    note = (await db.execute(select(Note).where(Note.uuid == ch.uuid))).scalars().first() if ch.uuid else None
+async def _apply_note(db: AsyncSession, ch: PushChange, owner_id: int) -> dict:
+    # Scoped through the owning post, same as notes.py: a note only exists on
+    # a post this user owns.
+    note = (
+        await db.execute(
+            select(Note).join(Post, Post.id == Note.post_id).where(Note.uuid == ch.uuid, Post.owner_id == owner_id)
+        )
+    ).scalars().first() if ch.uuid else None
 
     if ch.op == "delete":
         if note:
             await db.delete(note)
         return {"type": "note", "uuid": ch.uuid, "status": "deleted"}
 
-    post_id = await _resolve_post_id(db, ch.postSha256)
+    post_id = await _resolve_post_id(db, ch.postSha256, owner_id)
     if post_id is None and note is None:
         return {"type": "note", "uuid": ch.uuid, "status": "error", "message": "Post not found"}
 
@@ -397,15 +449,21 @@ async def _apply_note(db: AsyncSession, ch: PushChange) -> dict:
     return {"type": "note", "uuid": ch.uuid, "status": "upserted"}
 
 
-async def _apply_comment(db: AsyncSession, ch: PushChange) -> dict:
-    comment = (await db.execute(select(Comment).where(Comment.uuid == ch.uuid))).scalars().first() if ch.uuid else None
+async def _apply_comment(db: AsyncSession, ch: PushChange, owner_id: int) -> dict:
+    comment = (
+        await db.execute(
+            select(Comment)
+            .join(Post, Post.id == Comment.post_id)
+            .where(Comment.uuid == ch.uuid, Post.owner_id == owner_id)
+        )
+    ).scalars().first() if ch.uuid else None
 
     if ch.op == "delete":
         if comment:
             await db.delete(comment)
         return {"type": "comment", "uuid": ch.uuid, "status": "deleted"}
 
-    post_id = await _resolve_post_id(db, ch.postSha256)
+    post_id = await _resolve_post_id(db, ch.postSha256, owner_id)
     if post_id is None and comment is None:
         return {"type": "comment", "uuid": ch.uuid, "status": "error", "message": "Post not found"}
 
@@ -428,12 +486,21 @@ _DISPATCH = {
 
 
 @router.post("/push")
-async def push_changes(request: PushRequest, db: AsyncSession = Depends(get_db)):
+async def push_changes(
+    request: PushRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Apply a batch of offline client changes; returns per-item results.
 
     The returned ``cursor`` is the change-log head *after* applying this batch,
     so the client can advance past its own writes and avoid re-pulling them.
+    Every change is applied to (or created in) this user's own library only.
     """
+    # Captured up front: a rollback from an earlier item in this loop expires
+    # every ORM object on this session, including current_user, and touching
+    # current_user.id afterwards would trigger a synchronous lazy-refresh
+    # outside any await (MissingGreenlet). A plain int has no such lifecycle.
+    owner_id = current_user.id
+
     results = []
     for ch in request.changes:
         handler = _DISPATCH.get(ch.type)
@@ -442,7 +509,7 @@ async def push_changes(request: PushRequest, db: AsyncSession = Depends(get_db))
             continue
         # Commit per item so one bad item doesn't roll back the whole batch.
         try:
-            result = await handler(db, ch)
+            result = await handler(db, ch, owner_id)
             await db.commit()
             results.append(result)
         except Exception as e:
