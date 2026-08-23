@@ -23,6 +23,17 @@ from . import posts, uploads
 
 router = APIRouter(prefix="/api", tags=["upload-jobs"])
 
+# Every endpoint here requires a logged-in user (no anonymous access), but
+# unlike posts/pools/notes/comments, jobs aren't filtered by owner_id in the
+# database - UploadJob.owner_id exists but isn't read here. A job_id is a
+# random uuid4 (128 bits), generated fresh per job and never enumerable, so
+# it already functions as an unguessable capability token - the same model
+# this codebase already uses for upload_tokens in uploads.py. Jobs are also
+# ephemeral (auto-expired by cleanup_loop) and only become a real, owned
+# piece of content once /publish creates a Post, which - unlike this file -
+# does stamp the correct owner_id (see _publish below). Revisit this if jobs
+# ever need to be listable/resumable across devices for the same user.
+
 
 class SelectionRequest(BaseModel):
     startMs: int
@@ -64,7 +75,11 @@ def _http_error(exc: jobs.JobError) -> HTTPException:
 
 
 @router.post("/upload-jobs", status_code=202)
-async def create_upload_job(request: CreateUploadJobRequest, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+async def create_upload_job(
+    request: CreateUploadJobRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    current_user: User = Depends(get_current_user),
+):
     try:
         if request.kind == "remote_clip":
             if not request.sourceUrl:
@@ -88,7 +103,7 @@ async def create_upload_job(request: CreateUploadJobRequest, idempotency_key: st
 
 
 @router.put("/upload-jobs/{job_id}/content")
-async def put_upload_job_content(job_id: str, request: Request):
+async def put_upload_job_content(job_id: str, request: Request, current_user: User = Depends(get_current_user)):
     raw_length = request.headers.get("content-length")
     try:
         content_length = int(raw_length) if raw_length is not None else None
@@ -101,7 +116,7 @@ async def put_upload_job_content(job_id: str, request: Request):
 
 
 @router.get("/upload-jobs/{job_id}")
-async def get_upload_job(job_id: str):
+async def get_upload_job(job_id: str, current_user: User = Depends(get_current_user)):
     result = await jobs.snapshot(job_id)
     if result is None:
         raise HTTPException(status_code=404, detail={"code": "job_not_found", "message": "Upload job not found."})
@@ -109,7 +124,7 @@ async def get_upload_job(job_id: str):
 
 
 @router.get("/upload-jobs/{job_id}/events")
-async def upload_job_events(job_id: str):
+async def upload_job_events(job_id: str, current_user: User = Depends(get_current_user)):
     if await jobs.snapshot(job_id) is None:
         raise HTTPException(status_code=404, detail={"code": "job_not_found", "message": "Upload job not found."})
 
@@ -134,7 +149,7 @@ async def upload_job_events(job_id: str):
 
 
 @router.post("/upload-jobs/{job_id}/sample", status_code=202)
-async def sample_upload_job(job_id: str, request: SampleRequest):
+async def sample_upload_job(job_id: str, request: SampleRequest, current_user: User = Depends(get_current_user)):
     try:
         return await jobs.request_sample(job_id, request.startMs, request.endMs, request.revision)
     except jobs.JobError as exc:
@@ -142,7 +157,7 @@ async def sample_upload_job(job_id: str, request: SampleRequest):
 
 
 @router.post("/upload-jobs/{job_id}/render", status_code=202)
-async def render_upload_job(job_id: str, request: RenderRequest):
+async def render_upload_job(job_id: str, request: RenderRequest, current_user: User = Depends(get_current_user)):
     try:
         return await jobs.request_render(job_id, request.revision, request.profile)
     except jobs.JobError as exc:
@@ -297,7 +312,7 @@ async def publish_upload_job(
 
 
 @router.post("/upload-jobs/{job_id}/cancel", status_code=202)
-async def cancel_upload_job(job_id: str):
+async def cancel_upload_job(job_id: str, current_user: User = Depends(get_current_user)):
     try:
         return await jobs.cancel(job_id)
     except jobs.JobError as exc:
@@ -305,7 +320,7 @@ async def cancel_upload_job(job_id: str):
 
 
 @router.post("/upload-jobs/{job_id}/retry", status_code=202)
-async def retry_upload_job(job_id: str):
+async def retry_upload_job(job_id: str, current_user: User = Depends(get_current_user)):
     try:
         return await jobs.retry(job_id)
     except jobs.JobError as exc:
@@ -313,7 +328,7 @@ async def retry_upload_job(job_id: str):
 
 
 @router.delete("/upload-jobs/{job_id}", status_code=204)
-async def remove_upload_job(job_id: str):
+async def remove_upload_job(job_id: str, current_user: User = Depends(get_current_user)):
     try:
         await jobs.delete_job(job_id)
     except jobs.JobError as exc:
@@ -321,7 +336,12 @@ async def remove_upload_job(job_id: str):
 
 
 @router.get("/upload-artifacts/{artifact_id}/content")
-async def get_upload_artifact(artifact_id: str, download: bool = Query(False), db: AsyncSession = Depends(get_db)):
+async def get_upload_artifact(
+    artifact_id: str,
+    download: bool = Query(False),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     artifact = await db.get(UploadArtifact, artifact_id)
     if not artifact:
         raise HTTPException(status_code=404, detail={"code": "artifact_not_found", "message": "Upload artifact not found."})

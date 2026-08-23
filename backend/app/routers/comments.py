@@ -5,7 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import Comment, Post
+from ..dependencies import get_current_user
+from ..models import Comment, Post, User
+from ..services.auth import visible_owner_ids
 
 router = APIRouter(prefix="/api", tags=["comments"])
 
@@ -19,10 +21,14 @@ class UpdateCommentRequest(BaseModel):
 
 
 @router.get("/posts/{post_id}/comments")
-async def list_comments(post_id: int, db: AsyncSession = Depends(get_db)):
+async def list_comments(
+    post_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """List all comments on a post."""
-    # Verify post exists
-    post_result = await db.execute(select(Post).where(Post.id == post_id))
+    owner_ids = await visible_owner_ids(db, current_user)
+    post_result = await db.execute(
+        select(Post.id).where(Post.id == post_id, Post.owner_id.in_(owner_ids))
+    )
     if not post_result.scalars().first():
         raise HTTPException(status_code=404, detail="Post not found")
 
@@ -34,10 +40,18 @@ async def list_comments(post_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/posts/{post_id}/comments")
-async def create_comment(post_id: int, request: CreateCommentRequest, db: AsyncSession = Depends(get_db)):
+async def create_comment(
+    post_id: int,
+    request: CreateCommentRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Create a comment on a post."""
-    # Verify post exists
-    post_result = await db.execute(select(Post).where(Post.id == post_id))
+    # Commenting requires owning the post - a shared-library viewer can read
+    # but not annotate (sharing is read-only).
+    post_result = await db.execute(
+        select(Post.id).where(Post.id == post_id, Post.owner_id == current_user.id)
+    )
     if not post_result.scalars().first():
         raise HTTPException(status_code=404, detail="Post not found")
 
@@ -52,9 +66,18 @@ async def create_comment(post_id: int, request: CreateCommentRequest, db: AsyncS
 
 
 @router.put("/comments/{comment_id}")
-async def update_comment(comment_id: int, request: UpdateCommentRequest, db: AsyncSession = Depends(get_db)):
+async def update_comment(
+    comment_id: int,
+    request: UpdateCommentRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Update a comment."""
-    result = await db.execute(select(Comment).where(Comment.id == comment_id))
+    result = await db.execute(
+        select(Comment)
+        .join(Post, Post.id == Comment.post_id)
+        .where(Comment.id == comment_id, Post.owner_id == current_user.id)
+    )
     comment = result.scalars().first()
 
     if not comment:
@@ -71,9 +94,15 @@ async def update_comment(comment_id: int, request: UpdateCommentRequest, db: Asy
 
 
 @router.delete("/comments/{comment_id}")
-async def delete_comment(comment_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_comment(
+    comment_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Delete a comment."""
-    result = await db.execute(select(Comment).where(Comment.id == comment_id))
+    result = await db.execute(
+        select(Comment)
+        .join(Post, Post.id == Comment.post_id)
+        .where(Comment.id == comment_id, Post.owner_id == current_user.id)
+    )
     comment = result.scalars().first()
 
     if not comment:

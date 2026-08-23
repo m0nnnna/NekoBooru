@@ -5,7 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import Note, Post
+from ..dependencies import get_current_user
+from ..models import Note, Post, User
+from ..services.auth import visible_owner_ids
 
 router = APIRouter(prefix="/api", tags=["notes"])
 
@@ -27,10 +29,14 @@ class UpdateNoteRequest(BaseModel):
 
 
 @router.get("/posts/{post_id}/notes")
-async def list_notes(post_id: int, db: AsyncSession = Depends(get_db)):
+async def list_notes(
+    post_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """List all notes on a post."""
-    # Verify post exists
-    post_result = await db.execute(select(Post).where(Post.id == post_id))
+    owner_ids = await visible_owner_ids(db, current_user)
+    post_result = await db.execute(
+        select(Post.id).where(Post.id == post_id, Post.owner_id.in_(owner_ids))
+    )
     if not post_result.scalars().first():
         raise HTTPException(status_code=404, detail="Post not found")
 
@@ -40,10 +46,18 @@ async def list_notes(post_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/posts/{post_id}/notes")
-async def create_note(post_id: int, request: CreateNoteRequest, db: AsyncSession = Depends(get_db)):
+async def create_note(
+    post_id: int,
+    request: CreateNoteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Create a note on a post."""
-    # Verify post exists
-    post_result = await db.execute(select(Post).where(Post.id == post_id))
+    # Annotating requires owning the post - a shared-library viewer can read
+    # but not annotate (sharing is read-only).
+    post_result = await db.execute(
+        select(Post.id).where(Post.id == post_id, Post.owner_id == current_user.id)
+    )
     if not post_result.scalars().first():
         raise HTTPException(status_code=404, detail="Post not found")
 
@@ -68,9 +82,16 @@ async def create_note(post_id: int, request: CreateNoteRequest, db: AsyncSession
 
 
 @router.put("/notes/{note_id}")
-async def update_note(note_id: int, request: UpdateNoteRequest, db: AsyncSession = Depends(get_db)):
+async def update_note(
+    note_id: int,
+    request: UpdateNoteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Update a note."""
-    result = await db.execute(select(Note).where(Note.id == note_id))
+    result = await db.execute(
+        select(Note).join(Post, Post.id == Note.post_id).where(Note.id == note_id, Post.owner_id == current_user.id)
+    )
     note = result.scalars().first()
 
     if not note:
@@ -105,9 +126,13 @@ async def update_note(note_id: int, request: UpdateNoteRequest, db: AsyncSession
 
 
 @router.delete("/notes/{note_id}")
-async def delete_note(note_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_note(
+    note_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Delete a note."""
-    result = await db.execute(select(Note).where(Note.id == note_id))
+    result = await db.execute(
+        select(Note).join(Post, Post.id == Note.post_id).where(Note.id == note_id, Post.owner_id == current_user.id)
+    )
     note = result.scalars().first()
 
     if not note:

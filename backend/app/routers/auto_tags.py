@@ -5,13 +5,14 @@ from ipaddress import ip_address
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 
 from ..config import settings
 from ..database import async_session
-from ..models import AutoTagJob, AutoTagSuggestion
+from ..dependencies import get_current_user
+from ..models import AutoTagJob, AutoTagSuggestion, User
 from ..services import auto_tag_jobs
 from ..services.booru_suggest import (
     delete_gelbooru_credentials,
@@ -103,22 +104,22 @@ def _host_is_loopback(host: str) -> bool:
 
 
 @router.get("/settings")
-async def get_auto_tag_settings():
+async def get_auto_tag_settings(current_user: User = Depends(get_current_user)):
     return load_options().__dict__
 
 
 @router.put("/settings")
-async def put_auto_tag_settings(body: AutoTagSettingsBody):
+async def put_auto_tag_settings(body: AutoTagSettingsBody, current_user: User = Depends(get_current_user)):
     return save_options(body.settings).__dict__
 
 
 @router.get("/status")
-async def get_auto_tag_status():
+async def get_auto_tag_status(current_user: User = Depends(get_current_user)):
     return tagger_status()
 
 
 @router.post("/model/download")
-async def download_auto_tag_model():
+async def download_auto_tag_model(current_user: User = Depends(get_current_user)):
     try:
         return download_model()
     except RuntimeError as exc:
@@ -128,7 +129,7 @@ async def download_auto_tag_model():
 
 
 @router.get("/models")
-async def get_auto_tag_models():
+async def get_auto_tag_models(current_user: User = Depends(get_current_user)):
     return {
         "models": model_statuses(),
         "downloadJob": current_download_job(),
@@ -136,7 +137,7 @@ async def get_auto_tag_models():
 
 
 @router.post("/models/{model_id}/download")
-async def download_one_auto_tag_model(model_id: str):
+async def download_one_auto_tag_model(model_id: str, current_user: User = Depends(get_current_user)):
     try:
         return start_model_download([model_id])
     except ValueError as exc:
@@ -146,7 +147,7 @@ async def download_one_auto_tag_model(model_id: str):
 
 
 @router.post("/models/download-all")
-async def download_all_auto_tag_models():
+async def download_all_auto_tag_models(current_user: User = Depends(get_current_user)):
     try:
         ids = download_all_model_ids()
         return start_model_download(ids)
@@ -155,12 +156,12 @@ async def download_all_auto_tag_models():
 
 
 @router.get("/models/download-job")
-async def get_auto_tag_download_job():
+async def get_auto_tag_download_job(current_user: User = Depends(get_current_user)):
     return current_download_job()
 
 
 @router.post("/models/download-job/cancel")
-async def cancel_auto_tag_download_job():
+async def cancel_auto_tag_download_job(current_user: User = Depends(get_current_user)):
     try:
         return cancel_model_download()
     except RuntimeError as exc:
@@ -168,7 +169,7 @@ async def cancel_auto_tag_download_job():
 
 
 @router.post("/models/{model_id}/load")
-async def load_one_auto_tag_model(model_id: str):
+async def load_one_auto_tag_model(model_id: str, current_user: User = Depends(get_current_user)):
     try:
         return start_model_load(model_id)
     except ValueError as exc:
@@ -176,12 +177,12 @@ async def load_one_auto_tag_model(model_id: str):
 
 
 @router.get("/models/load-job")
-async def get_auto_tag_load_job():
+async def get_auto_tag_load_job(current_user: User = Depends(get_current_user)):
     return current_model_load_job()
 
 
 @router.post("/models/{model_id}/unload")
-async def unload_one_auto_tag_model(model_id: str):
+async def unload_one_auto_tag_model(model_id: str, current_user: User = Depends(get_current_user)):
     try:
         return unload_model(model_id)
     except ValueError as exc:
@@ -189,7 +190,7 @@ async def unload_one_auto_tag_model(model_id: str):
 
 
 @router.delete("/models/{model_id}")
-async def delete_one_auto_tag_model(model_id: str):
+async def delete_one_auto_tag_model(model_id: str, current_user: User = Depends(get_current_user)):
     try:
         return delete_model_cache(model_id)
     except ValueError as exc:
@@ -199,7 +200,7 @@ async def delete_one_auto_tag_model(model_id: str):
 
 
 @router.put("/huggingface-token")
-async def put_huggingface_token(body: HuggingFaceTokenBody):
+async def put_huggingface_token(body: HuggingFaceTokenBody, current_user: User = Depends(get_current_user)):
     try:
         save_huggingface_token(body.token)
     except ValueError as exc:
@@ -208,13 +209,13 @@ async def put_huggingface_token(body: HuggingFaceTokenBody):
 
 
 @router.delete("/huggingface-token")
-async def delete_huggingface_token_endpoint():
+async def delete_huggingface_token_endpoint(current_user: User = Depends(get_current_user)):
     delete_huggingface_token()
     return tagger_status()
 
 
 @router.put("/gelbooru-credentials")
-async def put_gelbooru_credentials(body: GelbooruCredentialsBody):
+async def put_gelbooru_credentials(body: GelbooruCredentialsBody, current_user: User = Depends(get_current_user)):
     try:
         save_gelbooru_credentials(body.userId, body.apiKey)
     except ValueError as exc:
@@ -223,13 +224,13 @@ async def put_gelbooru_credentials(body: GelbooruCredentialsBody):
 
 
 @router.delete("/gelbooru-credentials")
-async def delete_gelbooru_credentials_endpoint():
+async def delete_gelbooru_credentials_endpoint(current_user: User = Depends(get_current_user)):
     delete_gelbooru_credentials()
     return tagger_status()
 
 
 @router.put("/worker-token")
-async def put_worker_token(body: WorkerTokenBody):
+async def put_worker_token(body: WorkerTokenBody, current_user: User = Depends(get_current_user)):
     try:
         save_tagger_worker_token(body.token)
     except ValueError as exc:
@@ -238,7 +239,7 @@ async def put_worker_token(body: WorkerTokenBody):
 
 
 @router.delete("/worker-token")
-async def delete_worker_token_endpoint():
+async def delete_worker_token_endpoint(current_user: User = Depends(get_current_user)):
     delete_tagger_worker_token()
     return tagger_status()
 
@@ -287,19 +288,27 @@ async def infer_media(
         tmp_path.unlink(missing_ok=True)
 
 
+async def _require_own_job(job_id: int, current_user: User) -> None:
+    async with async_session() as db:
+        job = await db.get(AutoTagJob, job_id)
+        if not job or job.owner_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+
 @router.get("/estimate")
-async def estimate_auto_tag_job(mode: str = Query("lightly_tagged")):
-    return await auto_tag_jobs.estimate(mode)
+async def estimate_auto_tag_job(mode: str = Query("lightly_tagged"), current_user: User = Depends(get_current_user)):
+    return await auto_tag_jobs.estimate(mode, owner_id=current_user.id)
 
 
 @router.post("/jobs")
-async def create_auto_tag_job(body: JobCreateBody):
+async def create_auto_tag_job(body: JobCreateBody, current_user: User = Depends(get_current_user)):
     try:
         job = await auto_tag_jobs.create_job(
             mode=body.mode,
             dry_run=body.dryRun,
             post_ids=body.postIds,
             overrides=body.settings,
+            owner_id=current_user.id,
         )
         return job.to_dict()
     except RuntimeError as exc:
@@ -307,7 +316,13 @@ async def create_auto_tag_job(body: JobCreateBody):
 
 
 @router.get("/jobs/current")
-async def current_auto_tag_job():
+async def current_auto_tag_job(current_user: User = Depends(get_current_user)):
+    # The queued slot is one shared, instance-wide hardware resource (see
+    # active_task_running in services/auto_tag_jobs.py), so this deliberately
+    # reflects whichever job is active regardless of owner - every user needs
+    # to see "the GPU is busy" to make sense of their own 409s. Only counts/
+    # mode are exposed here, never per-post tag content, so this doesn't leak
+    # another user's library.
     async with async_session() as db:
         result = await db.execute(
             select(AutoTagJob)
@@ -320,16 +335,19 @@ async def current_auto_tag_job():
 
 
 @router.get("/jobs/{job_id}")
-async def get_auto_tag_job(job_id: int):
+async def get_auto_tag_job(job_id: int, current_user: User = Depends(get_current_user)):
     async with async_session() as db:
         job = await db.get(AutoTagJob, job_id)
-        if not job:
+        if not job or job.owner_id != current_user.id:
             raise HTTPException(status_code=404, detail="Job not found")
         return job.to_dict()
 
 
 @router.get("/jobs/{job_id}/suggestions")
-async def get_auto_tag_suggestions(job_id: int, page: int = 1, limit: int = 100):
+async def get_auto_tag_suggestions(
+    job_id: int, page: int = 1, limit: int = 100, current_user: User = Depends(get_current_user)
+):
+    await _require_own_job(job_id, current_user)
     async with async_session() as db:
         result = await db.execute(
             select(AutoTagSuggestion)
@@ -342,7 +360,8 @@ async def get_auto_tag_suggestions(job_id: int, page: int = 1, limit: int = 100)
 
 
 @router.post("/jobs/{job_id}/cancel")
-async def cancel_auto_tag_job(job_id: int):
+async def cancel_auto_tag_job(job_id: int, current_user: User = Depends(get_current_user)):
+    await _require_own_job(job_id, current_user)
     try:
         return await auto_tag_jobs.cancel_job(job_id)
     except ValueError:
@@ -350,7 +369,8 @@ async def cancel_auto_tag_job(job_id: int):
 
 
 @router.post("/jobs/{job_id}/apply")
-async def apply_auto_tag_job_suggestions(job_id: int):
+async def apply_auto_tag_job_suggestions(job_id: int, current_user: User = Depends(get_current_user)):
+    await _require_own_job(job_id, current_user)
     try:
         return await auto_tag_jobs.apply_job_suggestions(job_id)
     except ValueError:
