@@ -414,9 +414,31 @@ async def update_ytdlp(request: YtdlpUpdateRequest, current_user: User = Depends
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+async def _resolve_stats_user(user_id: Optional[int], current_user: User, db: AsyncSession) -> User:
+    """Which user's stats to compute - self by default, or (admin-only) another user via ?userId=.
+
+    Non-admins always get their own; passing someone else's id without
+    admin rights is a 403, not a silent fallback.
+    """
+    if user_id is None or user_id == current_user.id:
+        return current_user
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin only")
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalars().first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return target
+
+
 @router.get("/dashboard")
-async def get_dashboard(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Rich library statistics for the dashboard view - this user's own library plus whatever's shared with them."""
+async def get_dashboard(
+    userId: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rich library statistics for the dashboard view - this user's own library plus
+    whatever's shared with them, or (admin-only, via ``userId``) another user's."""
     from ..models import Tag, TagCategory, Pool, Favorite, Comment, Note
     from ..models.post import PostTag
 
@@ -424,7 +446,8 @@ async def get_dashboard(current_user: User = Depends(get_current_user), db: Asyn
     gif_exts = ['.gif']
     video_exts = ['.webm', '.mp4']
 
-    owner_ids = await visible_owner_ids(db, current_user)
+    stats_user = await _resolve_stats_user(userId, current_user, db)
+    owner_ids = await visible_owner_ids(db, stats_user)
     live = (Post.deleted_at.is_(None), Post.owner_id.in_(owner_ids))
     own_posts = select(Post.id).where(*live).subquery()
 
@@ -449,9 +472,9 @@ async def get_dashboard(current_user: User = Depends(get_current_user), db: Asyn
         select(func.count(Post.id)).where(*live, Post.id.not_in(select(tagged_subq.c.post_id)))
     )
 
-    total_tags = await scalar(select(func.count(Tag.id)))
+    total_tags = await scalar(select(func.count(Tag.id)).where(Tag.owner_id.in_(owner_ids)))
     total_pools = await scalar(select(func.count(Pool.id)).where(Pool.owner_id.in_(owner_ids)))
-    total_favorites = await scalar(select(func.count(Favorite.id)).where(Favorite.user_id == current_user.id))
+    total_favorites = await scalar(select(func.count(Favorite.id)).where(Favorite.user_id == stats_user.id))
     total_comments = await scalar(
         select(func.count(Comment.id)).join(Post, Post.id == Comment.post_id).where(Post.owner_id.in_(owner_ids))
     )
@@ -483,14 +506,19 @@ async def get_dashboard(current_user: User = Depends(get_current_user), db: Asyn
     ).all()
     top_tags = [{"name": n, "color": c or "#808080", "count": cnt} for n, c, cnt in top_rows]
 
-    # Tag counts per category - stays instance-wide (shared vocabulary, not
-    # private content; see the tag-scoping decision in the multi-user plan).
+    # Tag counts per category, scoped to what this user can see. Grouped by
+    # category *name* rather than id: a shared-with-me library has its own
+    # independent "general"/"artist"/etc. rows, and without this a category
+    # of the same name from each owner would show as a separate duplicate bar.
+    from sqlalchemy import and_ as _and
+
     cat_rows = (
         await db.execute(
-            select(TagCategory.name, TagCategory.color, func.count(Tag.id))
-            .outerjoin(Tag, Tag.category_id == TagCategory.id)
-            .group_by(TagCategory.id)
-            .order_by(TagCategory.order)
+            select(TagCategory.name, func.min(TagCategory.color), func.count(Tag.id))
+            .outerjoin(Tag, _and(Tag.category_id == TagCategory.id, Tag.owner_id.in_(owner_ids)))
+            .where(TagCategory.owner_id.in_(owner_ids))
+            .group_by(TagCategory.name)
+            .order_by(func.min(TagCategory.order))
         )
     ).all()
     tags_by_category = [{"name": n, "color": c, "count": cnt} for n, c, cnt in cat_rows]
@@ -539,14 +567,20 @@ async def get_dashboard(current_user: User = Depends(get_current_user), db: Asyn
 
 
 @router.get("/stats")
-async def get_stats(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Get server statistics for this user's own library plus whatever's shared with them."""
+async def get_stats(
+    userId: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get server statistics for this user's own library plus whatever's shared with them,
+    or (admin-only, via ``userId``) another user's."""
     # Image extensions (without the dot prefix stored in DB)
     image_exts = ['.jpg', '.jpeg', '.png', '.webp']
     gif_exts = ['.gif']
     video_exts = ['.webm', '.mp4']
 
-    owner_ids = await visible_owner_ids(db, current_user)
+    stats_user = await _resolve_stats_user(userId, current_user, db)
+    owner_ids = await visible_owner_ids(db, stats_user)
     owned = Post.owner_id.in_(owner_ids)
 
     # Count total files

@@ -276,7 +276,9 @@ def _tag_token_names(tokens: list[Token]) -> set[str]:
     }
 
 
-async def _alias_target_map(session: AsyncSession, names: set[str]) -> dict[str, str]:
+async def _alias_target_map(
+    session: AsyncSession, names: set[str], owner_ids: list[int] | None = None
+) -> dict[str, str]:
     """Resolve any of the given normalized search terms that name a TagAlias to its target's name.
 
     Search matches Tag rows directly, so a query for an aliased spelling (e.g.
@@ -286,32 +288,42 @@ async def _alias_target_map(session: AsyncSession, names: set[str]) -> dict[str,
     the qualified alias "sango_pokemon"), so this is queried per name rather
     than with a single IN(). Shared by the plain tag-query path and semantic
     expansion, which each normalize their own search terms before calling this.
+
+    ``owner_ids`` scopes the alias lookup to what the caller can see - aliases
+    are private per library now, so without this an unrelated user's
+    same-named alias could win the tiebreak and misroute the caller's search.
     """
     names = {name for name in names if name}
     if not names:
         return {}
     result: dict[str, str] = {}
     for name in names:
-        target_name = (
-            await session.execute(
-                select(Tag.name)
-                .join(TagAlias, TagAlias.target_id == Tag.id)
-                .where(_qualifier_fuzzy_condition(TagAlias.alias_name, name))
-                .order_by(func.length(TagAlias.alias_name).asc())
-                .limit(1)
-            )
-        ).scalars().first()
+        stmt = (
+            select(Tag.name)
+            .join(TagAlias, TagAlias.target_id == Tag.id)
+            .where(_qualifier_fuzzy_condition(TagAlias.alias_name, name))
+            .order_by(func.length(TagAlias.alias_name).asc())
+            .limit(1)
+        )
+        if owner_ids is not None:
+            stmt = stmt.where(TagAlias.owner_id.in_(owner_ids))
+        target_name = (await session.execute(stmt)).scalars().first()
         if target_name:
             result[name] = target_name
     return result
 
 
-async def _semantic_expansion_conditions(session: AsyncSession, query: str) -> list:
+async def _semantic_expansion_conditions(
+    session: AsyncSession, query: str, owner_ids: list[int] | None = None
+) -> list:
     """Expand plain-language search words into known tags and saved AI analysis.
 
     This never runs a model at search time. Each user word becomes an OR group
     of matching tag names and persisted Qwen analysis text; groups are ANDed
     together so "pink bikini" favors posts containing both concepts.
+
+    ``owner_ids`` scopes tag/alias lookups to what the caller can see (own
+    library plus anything shared with them).
     """
     words = _semantic_search_tokens(query)
     if not words:
@@ -319,7 +331,7 @@ async def _semantic_expansion_conditions(session: AsyncSession, query: str) -> l
 
     normalized_words = [normalize_tag(word) for word in words[:6]]
     normalized_words = [n for n in normalized_words if n]
-    alias_map = await _alias_target_map(session, set(normalized_words))
+    alias_map = await _alias_target_map(session, set(normalized_words), owner_ids)
 
     groups = []
     for normalized in normalized_words:
@@ -329,14 +341,15 @@ async def _semantic_expansion_conditions(session: AsyncSession, query: str) -> l
         # nothing. Semantic expansion replaces the plain tag conditions
         # entirely, so a miss here silently returned zero results.
         normalized = alias_map.get(normalized, normalized)
-        rows = (
-            await session.execute(
-                select(Tag.name)
-                .where(_semantic_tag_name_condition(normalized))
-                .order_by(Tag.usage_count.desc(), Tag.name.asc())
-                .limit(24)
-            )
-        ).scalars().all()
+        tag_stmt = (
+            select(Tag.name)
+            .where(_semantic_tag_name_condition(normalized))
+            .order_by(Tag.usage_count.desc(), Tag.name.asc())
+            .limit(24)
+        )
+        if owner_ids is not None:
+            tag_stmt = tag_stmt.where(Tag.owner_id.in_(owner_ids))
+        rows = (await session.execute(tag_stmt)).scalars().all()
         tag_names = [name for name in rows if name]
         conditions = []
         if tag_names:
@@ -381,10 +394,12 @@ async def get_post_neighbors(
         return {"prev": None, "next": None}
 
     cur_id, cur_val = current[0], current[1]
-    alias_map = await _alias_target_map(session, _tag_token_names(tokenize(query) if query else []))
+    alias_map = await _alias_target_map(
+        session, _tag_token_names(tokenize(query) if query else []), owner_ids
+    )
     conditions = build_conditions(query, alias_map, current_user_id)
     if semantic_search:
-        semantic_conditions = await _semantic_expansion_conditions(session, query)
+        semantic_conditions = await _semantic_expansion_conditions(session, query, owner_ids)
         if semantic_conditions:
             conditions = [Post.deleted_at.is_(None), *semantic_conditions]
     if owner_ids is not None:
@@ -432,10 +447,12 @@ async def search_posts(
         selectinload(Post.favorites),
     )
 
-    alias_map = await _alias_target_map(session, _tag_token_names(tokenize(query) if query else []))
+    alias_map = await _alias_target_map(
+        session, _tag_token_names(tokenize(query) if query else []), owner_ids
+    )
     all_conditions = build_conditions(query, alias_map, current_user_id)
     if semantic_search:
-        semantic_conditions = await _semantic_expansion_conditions(session, query)
+        semantic_conditions = await _semantic_expansion_conditions(session, query, owner_ids)
         if semantic_conditions:
             all_conditions = [Post.deleted_at.is_(None), *semantic_conditions]
     if owner_ids is not None:

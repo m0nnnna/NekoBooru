@@ -132,18 +132,19 @@ def register_sync_listeners():
     def _post_update(mapper, connection, target):
         _log(connection, "post", target.sha256, "upsert", target.owner_id)
 
-    # --- Tag ---
+    # --- Tag: private per library, so logged with the owner's user_id like
+    #     everything else (no longer a NULL-user_id global entry). ---
     @event.listens_for(Tag, "after_insert")
     def _tag_insert(mapper, connection, target):
-        _log(connection, "tag", target.name, "upsert")
+        _log(connection, "tag", target.name, "upsert", target.owner_id)
 
     @event.listens_for(Tag, "after_update")
     def _tag_update(mapper, connection, target):
-        _log(connection, "tag", target.name, "upsert")
+        _log(connection, "tag", target.name, "upsert", target.owner_id)
 
     @event.listens_for(Tag, "after_delete")
     def _tag_delete(mapper, connection, target):
-        _log(connection, "tag", target.name, "delete")
+        _log(connection, "tag", target.name, "delete", target.owner_id)
 
     # --- Pool ---
     @event.listens_for(Pool, "after_insert")

@@ -6,7 +6,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..database import get_db
+from ..database import ensure_default_categories, get_db
 from ..dependencies import SESSION_COOKIE_NAME, get_current_admin, get_current_user
 from ..models import (
     ApiToken,
@@ -16,6 +16,9 @@ from ..models import (
     Pool,
     Post,
     SyncLog,
+    Tag,
+    TagAlias,
+    TagCategory,
     UploadJob,
     User,
 )
@@ -101,18 +104,21 @@ async def bootstrap_admin(payload: BootstrapAdminRequest, response: Response, db
     await db.flush()
 
     # Backfill: every pre-existing row (this was a single-user install before
-    # this moment) becomes the new admin's library. Tag rows in sync_log stay
-    # global - they're shared vocabulary, not private content.
+    # this moment) becomes the new admin's library, including tags/categories/
+    # aliases - _migrate() already reassigned any legacy (owner_id NULL) ones
+    # to this admin if it ran first, but a same-transaction bootstrap on a
+    # brand-new install needs this too.
     await db.execute(update(Post).where(Post.owner_id.is_(None)).values(owner_id=admin.id))
     await db.execute(update(Pool).where(Pool.owner_id.is_(None)).values(owner_id=admin.id))
     await db.execute(update(UploadJob).where(UploadJob.owner_id.is_(None)).values(owner_id=admin.id))
     await db.execute(update(AutoTagJob).where(AutoTagJob.owner_id.is_(None)).values(owner_id=admin.id))
     await db.execute(update(Favorite).where(Favorite.user_id.is_(None)).values(user_id=admin.id))
-    await db.execute(
-        update(SyncLog)
-        .where(SyncLog.user_id.is_(None), SyncLog.entity_type != "tag")
-        .values(user_id=admin.id)
-    )
+    await db.execute(update(Tag).where(Tag.owner_id.is_(None)).values(owner_id=admin.id))
+    await db.execute(update(TagCategory).where(TagCategory.owner_id.is_(None)).values(owner_id=admin.id))
+    await db.execute(update(TagAlias).where(TagAlias.owner_id.is_(None)).values(owner_id=admin.id))
+    await db.execute(update(SyncLog).where(SyncLog.user_id.is_(None)).values(user_id=admin.id))
+
+    await ensure_default_categories(db, admin.id)
 
     session_id = await create_session(db, admin.id)
     await db.commit()
@@ -200,6 +206,8 @@ async def create_user(
         is_active=True,
     )
     db.add(user)
+    await db.flush()
+    await ensure_default_categories(db, user.id)
     await db.commit()
     return user.to_dict()
 

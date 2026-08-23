@@ -44,10 +44,17 @@ async def process_tags_for_post(
     post_id: int,
     tag_names: list[str],
     *,
+    owner_id: int,
     categories: dict[str, str] | None = None,
     display_names: dict[str, str] | None = None,
 ):
-    """Append tags to a post using direct SQL inserts."""
+    """Append tags to a post using direct SQL inserts.
+
+    ``owner_id`` scopes every tag/category/alias lookup and new-row creation
+    to this user's own library - tags are private per library, shared only
+    through a LibraryShare, same as posts. It's always the post's owner
+    (mutations are owner-only), never a shared-library viewer.
+    """
     if not tag_names:
         return
 
@@ -57,7 +64,7 @@ async def process_tags_for_post(
     display_names = {normalize_tag(k): v for k, v in (display_names or {}).items()}
     resolved_tag_ids = set()
 
-    cat_result = await db.execute(select(TagCategory))
+    cat_result = await db.execute(select(TagCategory).where(TagCategory.owner_id == owner_id))
     category_by_name = {cat.name: cat for cat in cat_result.scalars().all()}
     default_cat_id = category_by_name.get("general").id if category_by_name.get("general") else 1
 
@@ -67,7 +74,9 @@ async def process_tags_for_post(
             continue
 
         alias_result = await db.execute(
-            select(TagAlias).options(selectinload(TagAlias.target)).where(TagAlias.alias_name == tag_name)
+            select(TagAlias)
+            .options(selectinload(TagAlias.target))
+            .where(TagAlias.alias_name == tag_name, TagAlias.owner_id == owner_id)
         )
         alias = alias_result.scalars().first()
         if alias and alias.target:
@@ -77,12 +86,12 @@ async def process_tags_for_post(
         category = category_by_name.get(category_name) or category_by_name.get("general")
         category_id = category.id if category else default_cat_id
 
-        tag_result = await db.execute(select(Tag).where(Tag.name == tag_name))
+        tag_result = await db.execute(select(Tag).where(Tag.name == tag_name, Tag.owner_id == owner_id))
         tag = tag_result.scalars().first()
 
         display_name = display_names.get(tag_name) or qualifier_display_name(raw_name)
         if not tag:
-            tag = Tag(name=tag_name, category_id=category_id, display_name=display_name)
+            tag = Tag(owner_id=owner_id, name=tag_name, category_id=category_id, display_name=display_name)
             db.add(tag)
             await db.flush()
         else:
@@ -133,5 +142,7 @@ async def replace_tags_for_post(
         tag.usage_count = max(0, (tag.usage_count or 0) - 1)
 
     await db.execute(delete(PostTag).where(PostTag.c.post_id == post.id))
-    await process_tags_for_post(db, post.id, tag_names, categories=categories, display_names=display_names)
+    await process_tags_for_post(
+        db, post.id, tag_names, owner_id=post.owner_id, categories=categories, display_names=display_names
+    )
     post.updated_at = datetime.utcnow()

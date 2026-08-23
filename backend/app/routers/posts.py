@@ -273,6 +273,7 @@ async def create_post(
             db,
             post.id,
             final_tags,
+            owner_id=current_user_id,
             categories={**auto_categories, **(request.tagCategories or {})},
             display_names={**auto_display_names, **(request.tagDisplayNames or {})},
         )
@@ -314,9 +315,9 @@ async def create_post(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def process_tags_for_post(db: AsyncSession, post_id: int, tag_names: list[str]):
+async def process_tags_for_post(db: AsyncSession, post_id: int, tag_names: list[str], *, owner_id: int):
     """Process tags for a post using direct SQL inserts to avoid async issues."""
-    await apply_tags_for_post(db, post_id, tag_names)
+    await apply_tags_for_post(db, post_id, tag_names, owner_id=owner_id)
 
 
 @router.get("/posts")

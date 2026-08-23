@@ -3,14 +3,15 @@
 - ``GET  /api/sync/changes`` — pull everything that changed since a cursor.
 - ``POST /api/sync/push``    — push a batch of offline changes home.
 
-Stable cross-device keys: posts -> sha256, tags -> name, pools/notes/comments
--> uuid, favorites -> the post's sha256. Conflicts use last-write-wins by
-``updatedAt`` (one user's own devices, so genuine conflicts are rare).
+Stable cross-device keys: posts -> sha256, tags -> name (scoped to the
+owning user - see below), pools/notes/comments -> uuid, favorites -> the
+post's sha256. Conflicts use last-write-wins by ``updatedAt`` (one user's
+own devices, so genuine conflicts are rare).
 
 Multi-user scope (v1): both endpoints only ever see/touch the calling
-user's own library (their own posts/pools/notes/comments/favorites) plus
-the global tag vocabulary. A library shared with this user by someone else
-is deliberately NOT synced here - sharing is a web-UI-only view for now.
+user's own library - their own posts/pools/notes/comments/favorites/tags.
+A library shared with this user by someone else is deliberately NOT synced
+here - sharing is a web-UI-only view for now.
 """
 from datetime import datetime
 from typing import Optional, Any
@@ -117,8 +118,7 @@ async def get_changes(
     Multiple log rows for the same entity within the window are collapsed to the
     latest state. Call repeatedly while ``hasMore`` is true.
 
-    Only this user's own library (plus the global tag vocabulary, where
-    ``user_id`` is NULL) is returned - see the module docstring.
+    Only this user's own library is returned - see the module docstring.
     """
     rows = (
         await db.execute(
@@ -163,7 +163,9 @@ async def get_changes(
         elif etype == "tag":
             tag = (
                 await db.execute(
-                    select(Tag).options(selectinload(Tag.category)).where(Tag.name == key)
+                    select(Tag)
+                    .options(selectinload(Tag.category))
+                    .where(Tag.name == key, Tag.owner_id == current_user.id)
                 )
             ).scalars().first()
             if tag is None:
@@ -329,7 +331,7 @@ async def _apply_post(db: AsyncSession, ch: PushChange, owner_id: int) -> dict:
         )
         db.add(post)
         await db.flush()
-        await process_tags_for_post(db, post.id, ch.tags or [])
+        await process_tags_for_post(db, post.id, ch.tags or [], owner_id=owner_id)
         remove_upload_token(ch.contentToken)
         return {"clientId": ch.clientId, "type": "post", "sha256": sha256,
                 "serverId": post.id, "status": "created"}
@@ -358,7 +360,7 @@ async def _merge_post_metadata(db: AsyncSession, post: Post, ch: PushChange,
         changed = True
     if ch.tags is not None:
         await db.execute(delete(PostTag).where(PostTag.c.post_id == post.id))
-        await process_tags_for_post(db, post.id, ch.tags)
+        await process_tags_for_post(db, post.id, ch.tags, owner_id=post.owner_id)
         changed = True
     if changed:
         post.updated_at = datetime.utcnow()

@@ -569,12 +569,12 @@ export const api = {
   },
 
   // Stats
-  async getStats() {
-    return request('/settings/stats')
+  async getStats(userId) {
+    return request(userId ? `/settings/stats?userId=${userId}` : '/settings/stats')
   },
 
-  async getDashboard() {
-    return request('/settings/dashboard')
+  async getDashboard(userId) {
+    return request(userId ? `/settings/dashboard?userId=${userId}` : '/settings/dashboard')
   },
 
   // Health check

@@ -1,6 +1,15 @@
 <template>
   <div class="stats-view">
-    <h1>Library Statistics</h1>
+    <div class="header-row">
+      <h1>Library Statistics</h1>
+      <div v-if="authStore.isAdmin" class="user-picker">
+        <label for="stats-user">Viewing</label>
+        <select id="stats-user" v-model.number="viewingUserId" @change="load">
+          <option :value="0">Myself ({{ authStore.user?.username }})</option>
+          <option v-for="u in otherUsers" :key="u.id" :value="u.id">{{ u.username }}</option>
+        </select>
+      </div>
+    </div>
 
     <div v-if="loading" class="loading">Loading...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
@@ -111,6 +120,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '../api/client'
 import BreakdownBar from '../components/BreakdownBar.vue'
+import { useAuthStore } from '../stores/auth'
+
+const authStore = useAuthStore()
 
 const data = ref(null)
 const loading = ref(true)
@@ -120,6 +132,11 @@ const dupLoading = ref(false)
 const backfillRunning = ref(false)
 const backfillJob = ref(null)
 let backfillTimer = null
+
+// 0 = viewing your own stats. Only populated/used for admins.
+const viewingUserId = ref(0)
+const allUsers = ref([])
+const otherUsers = computed(() => allUsers.value.filter(u => u.id !== authStore.user?.id))
 
 const typeItems = computed(() => data.value ? [
   { label: 'Images', value: data.value.types.images, color: '#0075f8' },
@@ -146,13 +163,22 @@ function fmtDate(s) {
   return s ? new Date(s).toLocaleDateString() : '—'
 }
 
-onMounted(load)
+onMounted(async () => {
+  if (authStore.isAdmin) {
+    try {
+      allUsers.value = await api.getUsers()
+    } catch {
+      // Non-fatal: the picker just won't offer other users.
+    }
+  }
+  await load()
+})
 onUnmounted(() => { if (backfillTimer) clearInterval(backfillTimer) })
 
 async function load() {
   loading.value = true
   try {
-    data.value = await api.getDashboard()
+    data.value = await api.getDashboard(viewingUserId.value || undefined)
   } catch (e) {
     error.value = e.message
   } finally {
@@ -202,6 +228,31 @@ async function runBackfill() {
 
 h1 {
   margin: 0;
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.user-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.user-picker select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  color: var(--text-primary);
+  font-size: 0.85rem;
 }
 
 h2 {

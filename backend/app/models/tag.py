@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from ..database import Base
@@ -8,9 +8,13 @@ from .post import PostTag
 
 class TagCategory(Base):
     __tablename__ = "tag_categories"
+    __table_args__ = (UniqueConstraint("owner_id", "name", name="uq_tag_categories_owner_name"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(50), unique=True, nullable=False)
+    # Nullable only for rows created before the multi-user migration ran; see
+    # the backfill in database.py's _migrate().
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    name = Column(String(50), nullable=False)
     color = Column(String(7), default="#808080")  # Hex color
     order = Column(Integer, default=0)
 
@@ -27,9 +31,15 @@ class TagCategory(Base):
 
 class Tag(Base):
     __tablename__ = "tags"
+    __table_args__ = (UniqueConstraint("owner_id", "name", name="uq_tags_owner_name"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(255), unique=True, nullable=False, index=True)
+    # Nullable only for rows created before the multi-user migration ran; see
+    # the backfill in database.py's _migrate(). Tags are private to the
+    # library that created them, visible to another user only through a
+    # LibraryShare - the same model as Post.owner_id.
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    name = Column(String(255), nullable=False, index=True)
     # The source spelling before normalize_tag() flattened it, e.g.
     # "miyu (blue archive)" for the stored "miyu_blue_archive". Display only -
     # "name" stays the key, so search and dedupe are unaffected. Null for tags
@@ -88,9 +98,14 @@ class TagImplication(Base):
 
 class TagAlias(Base):
     __tablename__ = "tag_aliases"
+    __table_args__ = (UniqueConstraint("owner_id", "alias_name", name="uq_tag_aliases_owner_alias"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    alias_name = Column(String(255), unique=True, nullable=False, index=True)
+    # Denormalized from the target tag's owner so alias lookups (on the hot
+    # tagging path) don't need a join. Nullable only pre-migration, same as
+    # Tag.owner_id.
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    alias_name = Column(String(255), nullable=False, index=True)
     target_id = Column(Integer, ForeignKey("tags.id", ondelete="CASCADE"), nullable=False)
 
     target = relationship("Tag", back_populates="aliases")

@@ -145,8 +145,145 @@ def _migrate(conn):
                 f"CREATE INDEX IF NOT EXISTS ix_{table}_owner_id ON {table}(owner_id)"
             )
 
-    # sync_log: NULL user_id = a global/shared-vocabulary change (tags);
-    # non-NULL = scoped to that user's own library.
+    # Multi-user: tags/categories/aliases become private per library (each
+    # user's own vocabulary, shared only via LibraryShare) instead of one
+    # instance-wide set. SQLite can't ALTER a UNIQUE constraint, so - like
+    # the favorites rebuild below - swap the old single-column unique index
+    # for a new UNIQUE(owner_id, name) one via a full table rebuild.
+    #
+    # tags.category_id -> tag_categories and tag_aliases.target_id -> tags
+    # are live foreign keys, and SQLite silently rewrites a referencing
+    # table's FK text to point at the new name whenever the table it
+    # references is RENAMEd (e.g. tags -> tags_old repoints
+    # tag_aliases.target_id at "tags_old"). Rebuilding one table at a time
+    # (rename -> recreate -> drop the old one) then trips a FOREIGN KEY
+    # constraint failure on that DROP, because some *other*, not-yet-rebuilt
+    # table's schema now references the very "_old" table being dropped.
+    # Rebuilding in three separate passes - rename everything first, then
+    # recreate everything (parents before children, so a fresh CREATE's
+    # REFERENCES clause always names an already-real table), then drop every
+    # "_old" table last (children before parents, so nothing still
+    # references what's being dropped) - avoids that entirely.
+    #
+    # Gated on *any* of the three still missing owner_id, and all three are
+    # always rebuilt together (never just the missing ones) so the FK chain
+    # above stays intact. A table that already has owner_id (e.g. a dev
+    # server's autoreloader restarted mid-migration last time, part-applying
+    # it) keeps its existing values via the had_owner flags below rather
+    # than being reset to NULL.
+    had_tags_owner = _column_exists(conn, "tags", "owner_id")
+    had_categories_owner = _column_exists(conn, "tag_categories", "owner_id")
+    had_aliases_owner = _column_exists(conn, "tag_aliases", "owner_id")
+    if not (had_tags_owner and had_categories_owner and had_aliases_owner):
+        # An interrupted earlier attempt (e.g. the dev server's autoreloader
+        # killing the process mid-migration) can leave a "_old" table behind
+        # from a rename that never got followed by its DROP. It's always
+        # safe to discard: we only reach this branch because the *live*
+        # table (checked just above) is still in its pre-migration form, so
+        # it - not some abandoned rename target - is the authoritative
+        # source of truth, and nothing could have written to the orphaned
+        # "_old" table since it was renamed away.
+        # Reverse dependency order (children before parents), same reasoning
+        # as the real drop pass below: a leftover tag_aliases_old could
+        # itself hold a live FK to a leftover tags_old.
+        for table in ("tag_aliases", "tags", "tag_categories"):
+            conn.exec_driver_sql(f"DROP TABLE IF EXISTS {table}_old")
+
+        conn.exec_driver_sql("ALTER TABLE tag_categories RENAME TO tag_categories_old")
+        conn.exec_driver_sql("ALTER TABLE tags RENAME TO tags_old")
+        conn.exec_driver_sql("ALTER TABLE tag_aliases RENAME TO tag_aliases_old")
+
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE tag_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER REFERENCES users(id),
+                name VARCHAR(50) NOT NULL,
+                color VARCHAR(7),
+                "order" INTEGER,
+                UNIQUE(owner_id, name)
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            'INSERT INTO tag_categories (id, owner_id, name, color, "order") '
+            f'SELECT id, {"owner_id" if had_categories_owner else "NULL"}, name, color, "order" '
+            "FROM tag_categories_old"
+        )
+
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER REFERENCES users(id),
+                name VARCHAR(255) NOT NULL,
+                display_name VARCHAR(255),
+                category_id INTEGER REFERENCES tag_categories(id),
+                usage_count INTEGER,
+                created_at DATETIME,
+                UNIQUE(owner_id, name)
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            f"INSERT INTO tags (id, owner_id, name, display_name, category_id, usage_count, created_at) "
+            f'SELECT id, {"owner_id" if had_tags_owner else "NULL"}, name, display_name, category_id, '
+            "usage_count, created_at FROM tags_old"
+        )
+
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE tag_aliases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER REFERENCES users(id),
+                alias_name VARCHAR(255) NOT NULL,
+                target_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                UNIQUE(owner_id, alias_name)
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO tag_aliases (id, owner_id, alias_name, target_id) "
+            f'SELECT id, {"owner_id" if had_aliases_owner else "NULL"}, alias_name, target_id '
+            "FROM tag_aliases_old"
+        )
+
+        conn.exec_driver_sql("DROP TABLE tag_aliases_old")
+        conn.exec_driver_sql("DROP TABLE tags_old")
+        conn.exec_driver_sql("DROP TABLE tag_categories_old")
+
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_tag_categories_owner_id ON tag_categories(owner_id)"
+        )
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tags_owner_id ON tags(owner_id)")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tags_name ON tags(name)")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tag_aliases_owner_id ON tag_aliases(owner_id)")
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_tag_aliases_alias_name ON tag_aliases(alias_name)"
+        )
+
+    # Legacy backfill: an install that already had users before this
+    # migration ran left its tags/categories/aliases owner_id NULL (they
+    # used to be one instance-wide vocabulary). Assign them to the earliest
+    # admin, mirroring what bootstrap_admin does for posts/pools on a
+    # single-user install's first-ever bootstrap. A no-op once applied (and
+    # a no-op before any user exists - bootstrap_admin seeds fresh rows then).
+    has_users = conn.exec_driver_sql("SELECT COUNT(*) FROM users").scalar()
+    if has_users:
+        legacy_owner = conn.exec_driver_sql(
+            "SELECT id FROM users WHERE is_admin = 1 ORDER BY id LIMIT 1"
+        ).scalar()
+        if legacy_owner is None:
+            legacy_owner = conn.exec_driver_sql("SELECT id FROM users ORDER BY id LIMIT 1").scalar()
+        if legacy_owner is not None:
+            for table in ("tags", "tag_categories", "tag_aliases"):
+                conn.exec_driver_sql(
+                    f"UPDATE {table} SET owner_id = {int(legacy_owner)} WHERE owner_id IS NULL"
+                )
+
+    # sync_log: NULL user_id = a pre-bootstrap change from before any user
+    # existed; non-NULL = scoped to that user's own library (every entity,
+    # tags included, is per-user now).
     if not _column_exists(conn, "sync_log", "user_id"):
         conn.exec_driver_sql("ALTER TABLE sync_log ADD COLUMN user_id INTEGER REFERENCES users(id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sync_log_user_id ON sync_log(user_id)")
@@ -199,6 +336,45 @@ def _migrate(conn):
         pass
 
 
+# Default tag-category palette every library starts with. Each user gets
+# their own copy of these rows (see ensure_default_categories) rather than
+# one instance-wide set, matching how tags themselves are now per-user.
+DEFAULT_TAG_CATEGORIES = [
+    ("general", "#0075f8", 0),
+    ("artist", "#f8a100", 1),
+    ("character", "#00c853", 2),
+    ("copyright", "#d500f9", 3),
+    ("meta", "#ff5252", 4),
+    # Social handles - the tweet username the extension can save, and
+    # whatever other accounts get tagged later. Ordered last so adding
+    # it leaves the existing categories' order untouched.
+    ("user", "#00bcd4", 5),
+]
+
+
+async def ensure_default_categories(session: AsyncSession, user_id: int) -> None:
+    """Seed any of ``DEFAULT_TAG_CATEGORIES`` this user doesn't have yet.
+
+    Adds only what's missing rather than only seeding an empty set: a
+    category introduced after a library was created would otherwise never
+    appear in it. Called for every user at startup, and for a single user
+    right after they're created (bootstrap_admin / create_user).
+    """
+    from sqlalchemy import select
+    from .models import TagCategory
+
+    result = await session.execute(select(TagCategory.name).where(TagCategory.owner_id == user_id))
+    existing = {name for (name,) in result.all()}
+    missing = [
+        TagCategory(owner_id=user_id, name=name, color=color, order=order)
+        for name, color, order in DEFAULT_TAG_CATEGORIES
+        if name not in existing
+    ]
+    if missing:
+        session.add_all(missing)
+        await session.commit()
+
+
 async def init_db():
     """Initialize database tables."""
     from . import models  # noqa: F401
@@ -216,32 +392,15 @@ async def init_db():
     async with async_session() as session:
         await backfill_sync_log_if_empty(session)
 
-    # Seed default tag categories
+    # Seed default tag categories for every existing user. Covers both a
+    # genuinely fresh per-user library and the migration backfill case (an
+    # upgraded install where _migrate() just reassigned the old global
+    # categories to one admin, leaving every other user with none yet).
     async with async_session() as session:
-        from .models import TagCategory
         from sqlalchemy import select
+        from .models import User
 
-        # Add any default that is missing rather than only seeding an empty
-        # table: a category introduced after a library was created would
-        # otherwise never appear in it.
-        defaults = [
-            ("general", "#0075f8", 0),
-            ("artist", "#f8a100", 1),
-            ("character", "#00c853", 2),
-            ("copyright", "#d500f9", 3),
-            ("meta", "#ff5252", 4),
-            # Social handles - the tweet username the extension can save, and
-            # whatever other accounts get tagged later. Ordered last so adding
-            # it leaves the existing categories' order untouched.
-            ("user", "#00bcd4", 5),
-        ]
-        result = await session.execute(select(TagCategory))
-        existing = {category.name for category in result.scalars().all()}
-        missing = [
-            TagCategory(name=name, color=color, order=order)
-            for name, color, order in defaults
-            if name not in existing
-        ]
-        if missing:
-            session.add_all(missing)
-            await session.commit()
+        user_ids = [uid for (uid,) in (await session.execute(select(User.id))).all()]
+    for user_id in user_ids:
+        async with async_session() as session:
+            await ensure_default_categories(session, user_id)

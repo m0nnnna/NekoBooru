@@ -147,7 +147,7 @@ class AuthApiTests(unittest.TestCase):
 
         tag_sync_row = self._query_row("SyncLog", entity_type="tag")
         self.assertIsNotNone(tag_sync_row)
-        self.assertIsNone(tag_sync_row.user_id)
+        self.assertEqual(tag_sync_row.user_id, admin["id"])
 
         post_sync_row = self._query_row("SyncLog", entity_type="post", entity_key=sha256)
         self.assertEqual(post_sync_row.user_id, admin["id"])

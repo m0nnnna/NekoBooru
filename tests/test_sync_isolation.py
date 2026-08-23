@@ -9,8 +9,8 @@ from pathlib import Path
 
 class SyncIsolationTests(unittest.TestCase):
     """Phase 4: the Android/offline sync endpoints (routers/sync.py) only
-    ever see or touch the calling user's own library, plus the global tag
-    vocabulary.
+    ever see or touch the calling user's own library - tags included, since
+    tags are private per library now, same as posts.
     """
 
     @classmethod
@@ -111,8 +111,16 @@ class SyncIsolationTests(unittest.TestCase):
         self.assertIn(self.alice_sha, shas)
         self._logout()
 
-    def test_03_tag_vocabulary_is_visible_to_everyone(self):
+    def test_03_tags_are_private_like_posts(self):
+        # Bob never tagged anything with "a_tag" (alice did, in her own
+        # library) - it must not appear in his sync feed.
         self._login("bob", "bobpassword1")
+        changes = self.client.get("/api/sync/changes")
+        tag_keys = [c["key"] for c in changes.json()["changes"] if c["type"] == "tag"]
+        self.assertNotIn("a_tag", tag_keys)
+        self._logout()
+
+        self._login("alice", "alicepassword1")
         changes = self.client.get("/api/sync/changes")
         tag_keys = [c["key"] for c in changes.json()["changes"] if c["type"] == "tag"]
         self.assertIn("a_tag", tag_keys)

@@ -106,7 +106,7 @@ async def get_stats(current_user=Depends(get_current_user)):
     async with async_session() as session:
         owner_ids = await visible_owner_ids(session, current_user)
         post_count = await session.execute(select(func.count(Post.id)).where(Post.owner_id.in_(owner_ids)))
-        tag_count = await session.execute(select(func.count(Tag.id)))
+        tag_count = await session.execute(select(func.count(Tag.id)).where(Tag.owner_id.in_(owner_ids)))
         pool_count = await session.execute(select(func.count(Pool.id)).where(Pool.owner_id.in_(owner_ids)))
 
         return {

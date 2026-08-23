@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from ..database import get_db
 from ..dependencies import get_current_user
 from ..models import Tag, TagCategory, TagImplication, TagAlias, User
+from ..services.auth import visible_owner_ids
 
 router = APIRouter(prefix="/api", tags=["tags"])
 
@@ -93,8 +94,10 @@ async def list_tags(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List tags with search and pagination."""
-    stmt = select(Tag).options(selectinload(Tag.category))
+    """List tags with search and pagination, scoped to what this user can see
+    (their own library plus anything shared with them)."""
+    owner_ids = await visible_owner_ids(db, current_user)
+    stmt = select(Tag).options(selectinload(Tag.category)).where(Tag.owner_id.in_(owner_ids))
 
     # Apply search filter
     if q:
@@ -105,7 +108,7 @@ async def list_tags(
             stmt = stmt.where(False)
 
     # Get total count
-    count_stmt = select(func.count(Tag.id))
+    count_stmt = select(func.count(Tag.id)).where(Tag.owner_id.in_(owner_ids))
     if q:
         condition = _tag_name_search_condition(q)
         if condition is not None:
@@ -162,10 +165,11 @@ async def autocomplete_tags(
     if match_condition is None:
         return []
 
+    owner_ids = await visible_owner_ids(db, current_user)
     stmt = (
         select(Tag)
         .options(selectinload(Tag.category))
-        .where(match_condition)
+        .where(match_condition, Tag.owner_id.in_(owner_ids))
         .order_by(rank.asc(), Tag.usage_count.desc(), Tag.name.asc())
         .limit(limit)
     )
@@ -190,7 +194,9 @@ async def autocomplete_tags(
         # character whether the row came from here or from Danbooru.
         colors = {
             category.name: category.color
-            for category in (await db.execute(select(TagCategory))).scalars().all()
+            for category in (
+                await db.execute(select(TagCategory).where(TagCategory.owner_id == current_user.id))
+            ).scalars().all()
         }
         for row in remote:
             row["categoryColor"] = colors.get(row["category"], "#808080")
@@ -202,7 +208,8 @@ async def autocomplete_tags(
 
 @router.get("/tags/{tag_name}")
 async def get_tag(tag_name: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Get a single tag by name."""
+    """Get a single tag by name - this user's own, or from a library shared with them."""
+    owner_ids = await visible_owner_ids(db, current_user)
     result = await db.execute(
         select(Tag)
         .options(
@@ -211,7 +218,7 @@ async def get_tag(tag_name: str, current_user: User = Depends(get_current_user),
             selectinload(Tag.implications_to).selectinload(TagImplication.antecedent),
             selectinload(Tag.aliases),
         )
-        .where(Tag.name == tag_name)
+        .where(Tag.name == tag_name, Tag.owner_id.in_(owner_ids))
     )
     tag = result.scalars().first()
 
@@ -230,20 +237,24 @@ async def get_tag(tag_name: str, current_user: User = Depends(get_current_user),
 async def create_tag(
     request: CreateTagRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
-    """Create a new tag."""
+    """Create a new tag in this user's own library."""
     # Check if tag already exists
-    existing = await db.execute(select(Tag).where(Tag.name == request.name.lower()))
+    existing = await db.execute(
+        select(Tag).where(Tag.name == request.name.lower(), Tag.owner_id == current_user.id)
+    )
     if existing.scalars().first():
         raise HTTPException(status_code=409, detail="Tag already exists")
 
     # Get category
-    cat_result = await db.execute(select(TagCategory).where(TagCategory.name == request.category))
+    cat_result = await db.execute(
+        select(TagCategory).where(TagCategory.name == request.category, TagCategory.owner_id == current_user.id)
+    )
     category = cat_result.scalars().first()
 
     if not category:
         raise HTTPException(status_code=400, detail=f"Unknown category: {request.category}")
 
-    tag = Tag(name=request.name.lower().replace(" ", "_"), category_id=category.id)
+    tag = Tag(owner_id=current_user.id, name=request.name.lower().replace(" ", "_"), category_id=category.id)
     db.add(tag)
     await db.commit()
     await db.refresh(tag, ["category"])
@@ -258,9 +269,11 @@ async def update_tag(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update a tag."""
+    """Update a tag in this user's own library."""
     result = await db.execute(
-        select(Tag).options(selectinload(Tag.category)).where(Tag.name == tag_name)
+        select(Tag)
+        .options(selectinload(Tag.category))
+        .where(Tag.name == tag_name, Tag.owner_id == current_user.id)
     )
     tag = result.scalars().first()
 
@@ -271,13 +284,17 @@ async def update_tag(
         # Check for conflicts
         new_name = request.name.lower().replace(" ", "_")
         if new_name != tag.name:
-            existing = await db.execute(select(Tag).where(Tag.name == new_name))
+            existing = await db.execute(
+                select(Tag).where(Tag.name == new_name, Tag.owner_id == current_user.id)
+            )
             if existing.scalars().first():
                 raise HTTPException(status_code=409, detail="Tag name already taken")
             tag.name = new_name
 
     if request.category is not None:
-        cat_result = await db.execute(select(TagCategory).where(TagCategory.name == request.category))
+        cat_result = await db.execute(
+            select(TagCategory).where(TagCategory.name == request.category, TagCategory.owner_id == current_user.id)
+        )
         category = cat_result.scalars().first()
         if not category:
             raise HTTPException(status_code=400, detail=f"Unknown category: {request.category}")
@@ -292,8 +309,8 @@ async def update_tag(
 async def delete_tag(
     tag_name: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
-    """Delete a tag."""
-    result = await db.execute(select(Tag).where(Tag.name == tag_name))
+    """Delete a tag from this user's own library."""
+    result = await db.execute(select(Tag).where(Tag.name == tag_name, Tag.owner_id == current_user.id))
     tag = result.scalars().first()
 
     if not tag:
@@ -307,8 +324,10 @@ async def delete_tag(
 # Tag Categories
 @router.get("/tag-categories")
 async def list_categories(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """List all tag categories."""
-    result = await db.execute(select(TagCategory).order_by(TagCategory.order))
+    """List this user's own tag categories - the palette they tag against."""
+    result = await db.execute(
+        select(TagCategory).where(TagCategory.owner_id == current_user.id).order_by(TagCategory.order)
+    )
     categories = list(result.scalars().all())
     return [c.to_dict() for c in categories]
 
@@ -321,9 +340,11 @@ async def list_implications(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all tag implications."""
+    """List this user's own tag implications."""
     stmt = (
         select(TagImplication)
+        .join(Tag, Tag.id == TagImplication.antecedent_id)
+        .where(Tag.owner_id == current_user.id)
         .options(
             selectinload(TagImplication.antecedent),
             selectinload(TagImplication.consequent),
@@ -342,15 +363,19 @@ async def create_implication(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a tag implication."""
+    """Create a tag implication between two of this user's own tags."""
     # Get source tag
-    ant_result = await db.execute(select(Tag).where(Tag.name == request.antecedent.lower()))
+    ant_result = await db.execute(
+        select(Tag).where(Tag.name == request.antecedent.lower(), Tag.owner_id == current_user.id)
+    )
     antecedent = ant_result.scalars().first()
     if not antecedent:
         raise HTTPException(status_code=404, detail=f"Tag not found: {request.antecedent}")
 
     # Get target tag
-    con_result = await db.execute(select(Tag).where(Tag.name == request.consequent.lower()))
+    con_result = await db.execute(
+        select(Tag).where(Tag.name == request.consequent.lower(), Tag.owner_id == current_user.id)
+    )
     consequent = con_result.scalars().first()
     if not consequent:
         raise HTTPException(status_code=404, detail=f"Tag not found: {request.consequent}")
@@ -377,8 +402,12 @@ async def create_implication(
 async def delete_implication(
     impl_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
-    """Delete a tag implication."""
-    result = await db.execute(select(TagImplication).where(TagImplication.id == impl_id))
+    """Delete a tag implication, if its antecedent tag belongs to this user."""
+    result = await db.execute(
+        select(TagImplication)
+        .join(Tag, Tag.id == TagImplication.antecedent_id)
+        .where(TagImplication.id == impl_id, Tag.owner_id == current_user.id)
+    )
     impl = result.scalars().first()
 
     if not impl:
@@ -397,10 +426,11 @@ async def list_aliases(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all tag aliases."""
+    """List this user's own tag aliases."""
     stmt = (
         select(TagAlias)
         .options(selectinload(TagAlias.target))
+        .where(TagAlias.owner_id == current_user.id)
         .offset((page - 1) * limit)
         .limit(limit)
     )
@@ -413,26 +443,32 @@ async def list_aliases(
 async def create_alias(
     request: CreateAliasRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
-    """Create a tag alias."""
+    """Create a tag alias pointing at one of this user's own tags."""
     alias_name = request.alias.lower().replace(" ", "_")
 
     # Check if alias already exists
-    existing = await db.execute(select(TagAlias).where(TagAlias.alias_name == alias_name))
+    existing = await db.execute(
+        select(TagAlias).where(TagAlias.alias_name == alias_name, TagAlias.owner_id == current_user.id)
+    )
     if existing.scalars().first():
         raise HTTPException(status_code=409, detail="Alias already exists")
 
     # Check if alias name is already a real tag
-    existing_tag = await db.execute(select(Tag).where(Tag.name == alias_name))
+    existing_tag = await db.execute(
+        select(Tag).where(Tag.name == alias_name, Tag.owner_id == current_user.id)
+    )
     if existing_tag.scalars().first():
         raise HTTPException(status_code=409, detail="Alias name is already a tag")
 
     # Get target tag
-    target_result = await db.execute(select(Tag).where(Tag.name == request.target.lower()))
+    target_result = await db.execute(
+        select(Tag).where(Tag.name == request.target.lower(), Tag.owner_id == current_user.id)
+    )
     target = target_result.scalars().first()
     if not target:
         raise HTTPException(status_code=404, detail=f"Target tag not found: {request.target}")
 
-    alias = TagAlias(alias_name=alias_name, target_id=target.id)
+    alias = TagAlias(owner_id=current_user.id, alias_name=alias_name, target_id=target.id)
     db.add(alias)
     await db.commit()
     await db.refresh(alias, ["target"])
@@ -444,8 +480,10 @@ async def create_alias(
 async def delete_alias(
     alias_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
-    """Delete a tag alias."""
-    result = await db.execute(select(TagAlias).where(TagAlias.id == alias_id))
+    """Delete a tag alias from this user's own library."""
+    result = await db.execute(
+        select(TagAlias).where(TagAlias.id == alias_id, TagAlias.owner_id == current_user.id)
+    )
     alias = result.scalars().first()
 
     if not alias:
