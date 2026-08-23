@@ -80,7 +80,7 @@ async function loadPage(which) {
 
   try {
     const url = `${instanceUrl}/api/posts?q=${encodeURIComponent(q)}&page=${which}&limit=${PAGE_SIZE}`
-    const res = await fetch(url)
+    const res = await NekoAuth.authFetch(url)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
     if (token !== searchToken) return // a newer search superseded this one
@@ -105,7 +105,7 @@ function mediaUrl(relative) {
 
 async function loadStorageSettings() {
   try {
-    const res = await fetch(`${instanceUrl}/api/settings`)
+    const res = await NekoAuth.authFetch(`${instanceUrl}/api/settings`)
     if (!res.ok) return
     const data = await res.json()
     postsDir = data.posts_dir || data.postsDir || ''
@@ -222,7 +222,9 @@ function closeSoon() {
 }
 
 async function copyImageToClipboard(url) {
-  const res = await fetch(url)
+  // url is the instance's own media URL (post.contentUrl), which now
+  // requires the logged-in user's auth like the rest of the API.
+  const res = await NekoAuth.authFetch(url)
   if (!res.ok) throw new Error(`could not fetch image (HTTP ${res.status})`)
   const blob = await res.blob()
   // The Clipboard API only reliably accepts PNG, so normalise everything else.
@@ -354,7 +356,8 @@ function startDownload(url, filename) {
 }
 
 async function downloadMedia(url, filename) {
-  const res = await fetch(url)
+  // url is the instance's own media URL (post.contentUrl), same as above.
+  const res = await NekoAuth.authFetch(url)
   if (!res.ok) throw new Error(`could not fetch media (HTTP ${res.status})`)
   const blob = await res.blob()
   const objUrl = URL.createObjectURL(blob)
@@ -398,7 +401,7 @@ function onSearchInput() {
   }
   setTimeout(async () => {
     try {
-      const res = await fetch(
+      const res = await NekoAuth.authFetch(
         `${instanceUrl}/api/tags/autocomplete?q=${encodeURIComponent(word)}`
       )
       if (!res.ok) return

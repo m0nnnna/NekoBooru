@@ -49,7 +49,7 @@ async function ensureBackend() {
 
 async function backendHealthy() {
   try {
-    const response = await fetch(`${instanceUrl}/api/health`, { cache: 'no-store' })
+    const response = await NekoAuth.authFetch(`${instanceUrl}/api/health`, { cache: 'no-store' })
     return response.ok
   } catch {
     return false
@@ -57,7 +57,7 @@ async function backendHealthy() {
 }
 
 async function resolveGelbooru(job) {
-  const response = await fetch(`${instanceUrl}/api/site-imports/gelbooru/${encodeURIComponent(job.postId)}`)
+  const response = await NekoAuth.authFetch(`${instanceUrl}/api/site-imports/gelbooru/${encodeURIComponent(job.postId)}`)
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(formatError(data.detail || `Gelbooru metadata failed (HTTP ${response.status}).`))
   return {
@@ -173,7 +173,7 @@ async function importOne(job, item) {
   })
   const body = siteImportCore.siteImportPostBody(job, item, upload.token)
 
-  const response = await fetch(`${instanceUrl}/api/posts`, {
+  const response = await NekoAuth.authFetch(`${instanceUrl}/api/posts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -223,7 +223,7 @@ function stricterSafety(first, second) {
 }
 
 async function api(url, options) {
-  const response = await fetch(url, options)
+  const response = await NekoAuth.authFetch(url, options)
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(formatError(data.detail || `HTTP ${response.status}`))
   return data

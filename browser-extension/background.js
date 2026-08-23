@@ -5,7 +5,7 @@
 // Shared with the popup: booru site detection, the injected DOM scraper, and
 // the JSON parsers. The fetching itself happens here so it runs with the
 // extension's host permissions rather than a page's origin.
-importScripts('booru-tags.js', 'site-import-core.js')
+importScripts('neko-auth.js', 'booru-tags.js', 'site-import-core.js')
 
 const MENU_ID = 'nekobooru-upload'
 // Same title as MENU_ID so the two read as a single "Download to NekoBooru"

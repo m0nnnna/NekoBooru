@@ -1,4 +1,5 @@
 const instanceInput = document.getElementById('instance')
+const apiTokenInput = document.getElementById('api-token')
 const saveTweetTagInput = document.getElementById('save-tweet-tag')
 const saveTweetUsernameInput = document.getElementById('save-tweet-username')
 const saveSourcePageUrlInput = document.getElementById('save-source-page-url')
@@ -20,12 +21,14 @@ init()
 async function init() {
   const stored = await chrome.storage.sync.get([
     'instanceUrl',
+    'apiToken',
     'saveTweetTag',
     'saveTweetUsername',
     'saveSourcePageUrl',
     'saveMediaUrl',
   ])
   if (stored.instanceUrl) instanceInput.value = stored.instanceUrl
+  if (stored.apiToken) apiTokenInput.value = stored.apiToken
   saveTweetTagInput.checked = stored.saveTweetTag !== false
   saveTweetUsernameInput.checked = stored.saveTweetUsername === true
   saveSourcePageUrlInput.checked = stored.saveSourcePageUrl !== false
@@ -48,7 +51,8 @@ async function loadInstanceOptions() {
   }
   booruSuggestState.textContent = 'Reading this setting from your instance…'
   try {
-    const res = await fetch(`${url}/api/auto-tags/settings`)
+    const res = await NekoAuth.authFetch(`${url}/api/auto-tags/settings`)
+    if (res.status === 401) throw new Error('set your API token below first')
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const settings = await res.json()
     booruSuggestLoaded = settings.booruSuggestEnabled === true
@@ -66,10 +70,10 @@ async function loadInstanceOptions() {
 // current settings have to be re-read and handed back with the one key changed.
 async function saveBooruSuggest(url) {
   if (booruSuggestLoaded === null || booruSuggestInput.checked === booruSuggestLoaded) return
-  const res = await fetch(`${url}/api/auto-tags/settings`)
+  const res = await NekoAuth.authFetch(`${url}/api/auto-tags/settings`)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const current = await res.json()
-  const put = await fetch(`${url}/api/auto-tags/settings`, {
+  const put = await NekoAuth.authFetch(`${url}/api/auto-tags/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -102,6 +106,7 @@ async function save() {
   }
   await chrome.storage.sync.set({
     instanceUrl: url,
+    apiToken: apiTokenInput.value.trim(),
     saveTweetTag: saveTweetTagInput.checked,
     saveTweetUsername: saveTweetUsernameInput.checked,
     saveSourcePageUrl: saveSourcePageUrlInput.checked,

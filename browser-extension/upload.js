@@ -285,7 +285,7 @@ function pickTagDisplayNames(submittedTags) {
 
 async function checkBackendHealth() {
   try {
-    const res = await fetch(`${instanceUrl}/api/health`, { cache: 'no-store' })
+    const res = await NekoAuth.authFetch(`${instanceUrl}/api/health`, { cache: 'no-store' })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     els.serverHelper.classList.add('hidden')
     return true
@@ -366,7 +366,7 @@ function applyExtensionModelDefaults(modelDefaults = {}) {
 
 async function loadExtensionUploadDefaults(fallback = {}) {
   try {
-    const res = await fetch(`${instanceUrl}/api/settings/extension`, { cache: 'no-store' })
+    const res = await NekoAuth.authFetch(`${instanceUrl}/api/settings/extension`, { cache: 'no-store' })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const defaults = await res.json()
     applyExtensionUploadDefaults(defaults)
@@ -739,7 +739,7 @@ function onTagInput() {
   }
   debounceTimer = setTimeout(async () => {
     try {
-      const res = await fetch(
+      const res = await NekoAuth.authFetch(
         `${instanceUrl}/api/tags/autocomplete?q=${encodeURIComponent(word)}&includeRemote=true`
       )
       if (!res.ok) return
@@ -1113,7 +1113,7 @@ async function createPostFromPopup(options = {}) {
   const source = selectedSourceUrl()
   if (source) body.source = source
 
-  const res = await fetch(`${instanceUrl}/api/posts`, {
+  const res = await NekoAuth.authFetch(`${instanceUrl}/api/posts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1146,7 +1146,7 @@ async function updateCreatedPost() {
   if (Object.keys(updatedDisplayNames).length) body.tagDisplayNames = updatedDisplayNames
   const source = selectedSourceUrl()
   if (source) body.source = source
-  const res = await fetch(`${instanceUrl}/api/posts/${createdPost.id}`, {
+  const res = await NekoAuth.authFetch(`${instanceUrl}/api/posts/${createdPost.id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1162,7 +1162,7 @@ async function updateCreatedPost() {
 
 async function maybeSaveSemanticAnalysis(post, options = {}) {
   if (!els.saveSemanticAnalysis.checked || !post?.id || !autoTagSuggestion || !hasSemanticEvidence(autoTagSuggestion)) return
-  const res = await fetch(`${instanceUrl}/api/posts/${post.id}/ai-analysis`, {
+  const res = await NekoAuth.authFetch(`${instanceUrl}/api/posts/${post.id}/ai-analysis`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1196,7 +1196,7 @@ async function restoreDuplicatePost() {
   setStatus(`Restoring post #${duplicatePost.id}...`, 'working')
 
   try {
-    const res = await fetch(`${instanceUrl}/api/posts/${duplicatePost.id}/restore`, {
+    const res = await NekoAuth.authFetch(`${instanceUrl}/api/posts/${duplicatePost.id}/restore`, {
       method: 'POST',
     })
     if (!res.ok) {
@@ -1292,7 +1292,7 @@ async function runAiTag(event) {
     // Start a background preview job and poll it. Running inference inline as a
     // single long request times out behind a reverse proxy (HTTP 504); short
     // poll requests never do.
-    const startRes = await fetch(`${instanceUrl}/api/uploads/${encodeURIComponent(token)}/auto-tags/preview/start`, {
+    const startRes = await NekoAuth.authFetch(`${instanceUrl}/api/uploads/${encodeURIComponent(token)}/auto-tags/preview/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1620,7 +1620,7 @@ async function _loadAutoTagControls() {
     // status endpoint imports torch / probes CUDA and can take 30s+ (worse on a
     // network-share install), so it must NOT gate button visibility — otherwise
     // the Anime/Booru button is missing until that finishes.
-    const settingsRes = await fetch(`${instanceUrl}/api/auto-tags/settings`)
+    const settingsRes = await NekoAuth.authFetch(`${instanceUrl}/api/auto-tags/settings`)
     if (!settingsRes.ok) throw new Error('AI tag settings unavailable')
     autoTagSavedSettings = await settingsRes.json()
     autoTagSavedSettings.wdEnabled = autoTagSavedSettings.wdEnabled !== false
@@ -1642,7 +1642,7 @@ async function _loadAutoTagControls() {
     }
 
     // Then load the heavier runtime status to populate the model picker.
-    const statusRes = await fetch(`${instanceUrl}/api/auto-tags/status`)
+    const statusRes = await NekoAuth.authFetch(`${instanceUrl}/api/auto-tags/status`)
     if (!statusRes.ok) throw new Error('AI tag status unavailable')
     autoTagStatus = await statusRes.json()
     applyAiVisibility(Boolean(autoTagStatus.enabled))
@@ -1956,7 +1956,7 @@ async function loadAutoTagModel(modelId, options = {}) {
   await ensureBackendReady()
   const model = (autoTagStatus.models || []).find((item) => item.id === modelId)
   setStatus(`Loading ${model?.name || 'AI'} model weights...`, 'working')
-  const res = await fetch(`${instanceUrl}/api/auto-tags/models/${encodeURIComponent(modelId)}/load`, {
+  const res = await NekoAuth.authFetch(`${instanceUrl}/api/auto-tags/models/${encodeURIComponent(modelId)}/load`, {
     method: 'POST',
   })
   if (!res.ok) {
@@ -1972,7 +1972,7 @@ async function unloadAutoTagModel(modelId) {
   await ensureBackendReady()
   const model = (autoTagStatus.models || []).find((item) => item.id === modelId)
   setStatus(`Unloading ${model?.name || 'AI'} model...`, 'working')
-  const res = await fetch(`${instanceUrl}/api/auto-tags/models/${encodeURIComponent(modelId)}/unload`, {
+  const res = await NekoAuth.authFetch(`${instanceUrl}/api/auto-tags/models/${encodeURIComponent(modelId)}/unload`, {
     method: 'POST',
   })
   if (!res.ok) {
@@ -1991,7 +1991,7 @@ function pollAutoTagPreview(jobId) {
   return new Promise((resolve, reject) => {
     const timer = setInterval(async () => {
       try {
-        const res = await fetch(`${instanceUrl}/api/uploads/auto-tags/preview-jobs/${encodeURIComponent(jobId)}`)
+        const res = await NekoAuth.authFetch(`${instanceUrl}/api/uploads/auto-tags/preview-jobs/${encodeURIComponent(jobId)}`)
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
           throw new Error(err.detail || `HTTP ${res.status}`)
@@ -2017,7 +2017,7 @@ function pollModelLoad() {
     if (modelLoadPollTimer) clearInterval(modelLoadPollTimer)
     modelLoadPollTimer = setInterval(async () => {
       try {
-        const res = await fetch(`${instanceUrl}/api/auto-tags/models/load-job`)
+        const res = await NekoAuth.authFetch(`${instanceUrl}/api/auto-tags/models/load-job`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const job = await res.json()
         if (job?.message) {
@@ -2193,7 +2193,7 @@ async function capturedXMediaCandidates() {
 async function uploadMediaUrl(url, typeHint = '', options = {}) {
   if (!options.browserFirst) {
     try {
-      const res = await fetch(`${instanceUrl}/api/uploads/from-url`, {
+      const res = await NekoAuth.authFetch(`${instanceUrl}/api/uploads/from-url`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
@@ -2214,7 +2214,7 @@ async function uploadMediaUrl(url, typeHint = '', options = {}) {
   }
 
   try {
-    const res = await fetch(`${instanceUrl}/api/uploads/from-url`, {
+    const res = await NekoAuth.authFetch(`${instanceUrl}/api/uploads/from-url`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
@@ -2242,7 +2242,7 @@ async function uploadMediaUrlFromBrowser(url, typeHint = '', options = {}) {
   const formData = new FormData()
   formData.append('content', blob, filenameFromUrl(url, blob.type || typeHint))
 
-  const upRes = await fetch(`${instanceUrl}/api/uploads`, {
+  const upRes = await NekoAuth.authFetch(`${instanceUrl}/api/uploads`, {
     method: 'POST',
     body: formData,
   })
@@ -2353,7 +2353,7 @@ async function getContentToken() {
     let ytdlpError = ''
     try {
       const cookies = await ytdlpCookiesForUrl(ytdlpUrl)
-      const res = await fetch(`${instanceUrl}/api/uploads/from-ytdlp`, {
+      const res = await NekoAuth.authFetch(`${instanceUrl}/api/uploads/from-ytdlp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: ytdlpUrl, ...(cookies ? { cookies } : {}) }),
@@ -2398,7 +2398,7 @@ async function getContentToken() {
   }
 
   try {
-    const res = await fetch(`${instanceUrl}/api/uploads/from-url`, {
+    const res = await NekoAuth.authFetch(`${instanceUrl}/api/uploads/from-url`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: srcUrl }),
@@ -2423,7 +2423,7 @@ async function getContentToken() {
   const formData = new FormData()
   formData.append('content', blob, filenameFromUrl(srcUrl, blob.type))
 
-  const upRes = await fetch(`${instanceUrl}/api/uploads`, {
+  const upRes = await NekoAuth.authFetch(`${instanceUrl}/api/uploads`, {
     method: 'POST',
     body: formData,
   })
