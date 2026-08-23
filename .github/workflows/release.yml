@@ -71,6 +71,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
       - uses: android-actions/setup-android@v3
+      # gradle-wrapper.jar is deliberately not committed (see .gitignore) -
+      # provision Gradle directly instead of relying on ./gradlew.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
       - name: Generate the debug-style signing key
         run: |
           mkdir -p ~/.android
@@ -80,9 +85,7 @@ jobs:
             -dname "CN=Android Debug,O=Android,C=US"
       - name: Build release APK
         working-directory: android
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease
+        run: gradle assembleRelease
       - name: Stage APK
         run: |
           mkdir -p dist
