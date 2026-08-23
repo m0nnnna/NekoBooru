@@ -117,7 +117,7 @@ async def get_stats(current_user=Depends(get_current_user)):
 
 
 @app.get("/api/debug/paths")
-async def debug_paths():
+async def debug_paths(current_user=Depends(get_current_user)):
     """Debug endpoint to check frontend path resolution."""
     frozen = getattr(sys, 'frozen', False)
     bundle_dir = get_bundle_dir()
