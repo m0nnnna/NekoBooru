@@ -15,8 +15,10 @@ from sqlalchemy.orm import selectinload
 
 from ..database import get_db, async_session
 from ..config import settings
-from ..models import Post, Tag, TagCategory, TagAlias, TagImplication, Favorite
+from ..dependencies import get_current_user
+from ..models import Post, Tag, TagCategory, TagAlias, TagImplication, Favorite, User
 from ..models.post import PostTag
+from ..services.auth import visible_owner_ids
 from ..utils.hashing import calculate_sha256
 from ..services.media import (
     get_media_info,
@@ -97,17 +99,22 @@ class BulkOptimizeMediaRequest(BaseModel):
     applyMode: Literal["replace", "create"] = "replace"
 
 
-async def _post_by_sha256(db: AsyncSession, sha256: str) -> Post | None:
-    result = await db.execute(
+async def _post_by_sha256(db: AsyncSession, sha256: str, owner_ids: list[int] | None = None) -> Post | None:
+    stmt = (
         select(Post)
-        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites))
         .where(Post.sha256 == sha256)
     )
+    if owner_ids is not None:
+        stmt = stmt.where(Post.owner_id.in_(owner_ids))
+    result = await db.execute(stmt)
     return result.scalars().first()
 
 
-def _duplicate_post_exception(post: Post | None, sha256: str) -> HTTPException:
-    if post:
+def _duplicate_post_exception(
+    post: Post | None, sha256: str, current_user_id: int | None = None, visible: bool = True
+) -> HTTPException:
+    if post and visible:
         message = (
             "Same post detected. This content matches a deleted NekoBooru post."
             if post.deleted_at is not None
@@ -118,18 +125,29 @@ def _duplicate_post_exception(post: Post | None, sha256: str) -> HTTPException:
             detail={
                 "code": "duplicate_post",
                 "message": message,
-                "post": post.to_dict(),
+                "post": post.to_dict(current_user_id),
                 "postId": post.id,
                 "postUrl": f"/post/{post.id}",
                 "sha256": sha256,
                 "deleted": post.deleted_at is not None,
             },
         )
+    # The sha256 collided with a post that isn't visible to this user - a
+    # different user already has this exact file in their own (private)
+    # library. Don't leak that post's id, tags, or thumbnail; each library is
+    # supposed to be independent, so this user simply can't have their own
+    # copy of a file another library already claimed by content hash.
+    message = (
+        "This exact file already exists in another user's library. Each library "
+        "keeps its own content, so it can't be uploaded again here."
+        if post is not None
+        else "Same post detected, but the existing post could not be loaded. Refresh and try again."
+    )
     return HTTPException(
         status_code=409,
         detail={
             "code": "duplicate_post",
-            "message": "Same post detected, but the existing post could not be loaded. Refresh and try again.",
+            "message": message,
             "post": None,
             "postId": None,
             "postUrl": None,
@@ -139,27 +157,40 @@ def _duplicate_post_exception(post: Post | None, sha256: str) -> HTTPException:
 
 
 @router.post("/posts")
-async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get_db)):
+async def create_post(
+    request: CreatePostRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Create a new post from an uploaded file.
     Compatible with szurubooru API.
     """
+    # Captured up front: a rollback later in this function (duplicate-sha256
+    # IntegrityError) expires every ORM object on this session, including
+    # current_user, and touching current_user.id afterwards would trigger a
+    # synchronous lazy-refresh outside any await - MissingGreenlet. A plain
+    # int has no such lifecycle.
+    current_user_id = current_user.id
+
     # Get the uploaded file
     temp_path = get_upload_path(request.contentToken)
     if not temp_path or not temp_path.exists():
         raise HTTPException(status_code=400, detail="Invalid or expired content token")
 
+    owner_ids = await visible_owner_ids(db, current_user)
+
     try:
         # Calculate file hash
         sha256 = calculate_sha256(temp_path)
 
-        # Check for duplicate
-        existing_post = await _post_by_sha256(db, sha256)
+        # Check for duplicate within what this user can see
+        existing_post = await _post_by_sha256(db, sha256, owner_ids=owner_ids)
         if existing_post:
             # Clean up temp file
             temp_path.unlink(missing_ok=True)
             remove_upload_token(request.contentToken)
-            raise _duplicate_post_exception(existing_post, sha256)
+            raise _duplicate_post_exception(existing_post, sha256, current_user_id)
 
         # Get file info
         extension = temp_path.suffix.lower()
@@ -209,6 +240,7 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
 
         # Create post record
         post = Post(
+            owner_id=current_user_id,
             sha256=sha256,
             filename=temp_path.name,
             extension=extension,
@@ -227,9 +259,12 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
             await db.rollback()
             if "posts.sha256" not in str(exc):
                 raise
+            # sha256 is globally unique, so this collided with a post that
+            # exists but wasn't in this user's visible set above - i.e. it
+            # belongs to another user's library. Don't expose its details.
             existing_post = await _post_by_sha256(db, sha256)
             remove_upload_token(request.contentToken)
-            raise _duplicate_post_exception(existing_post, sha256)
+            raise _duplicate_post_exception(existing_post, sha256, current_user_id, visible=False)
 
         # Process tags using direct inserts (avoids lazy loading issues).
         # A category the client supplied comes from the source site's own
@@ -260,11 +295,11 @@ async def create_post(request: CreatePostRequest, db: AsyncSession = Depends(get
         # Reload with relationships for response
         result = await db.execute(
             select(Post)
-            .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
+            .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites))
             .where(Post.id == post.id)
         )
         post = result.scalars().first()
-        response = post.to_dict()
+        response = post.to_dict(current_user_id)
         if auto_warning:
             response["autoTagWarning"] = auto_warning
         return response
@@ -291,15 +326,22 @@ async def list_posts(
     limit: int = Query(42, ge=1, le=500),
     sort: str = Query("date"),
     order: str = Query("desc"),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List posts with search and pagination."""
     from ..services.auto_tagger import load_options
 
-    posts, total = await search_posts(db, q, page, limit, sort, order, semantic_search=load_options().semanticSearchEnabled)
+    owner_ids = await visible_owner_ids(db, current_user)
+    posts, total = await search_posts(
+        db, q, page, limit, sort, order,
+        semantic_search=load_options().semanticSearchEnabled,
+        owner_ids=owner_ids,
+        current_user_id=current_user.id,
+    )
 
     return {
-        "results": [p.to_dict() for p in posts],
+        "results": [p.to_dict(current_user.id) for p in posts],
         "total": total,
         "page": page,
         "limit": limit,
@@ -308,7 +350,7 @@ async def list_posts(
 
 
 @router.get("/posts/similarity/backfill")
-async def get_similarity_backfill(db: AsyncSession = Depends(get_db)):
+async def get_similarity_backfill(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Status of the perceptual-hash backfill plus how many posts still need one."""
     from ..services.similarity import backfill_status, count_missing
 
@@ -316,7 +358,7 @@ async def get_similarity_backfill(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/posts/similarity/backfill")
-async def start_similarity_backfill():
+async def start_similarity_backfill(current_user: User = Depends(get_current_user)):
     """Compute perceptual hashes for any posts missing one (older uploads)."""
     from ..services.similarity import start_backfill
 
@@ -324,14 +366,19 @@ async def start_similarity_backfill():
 
 
 @router.get("/posts/duplicates")
-async def list_duplicate_groups(db: AsyncSession = Depends(get_db)):
+async def list_duplicate_groups(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Groups of posts that share an identical perceptual hash (likely dupes)."""
     from sqlalchemy import func
+
+    owner_ids = await visible_owner_ids(db, current_user)
 
     dup_hashes = (
         await db.execute(
             select(Post.phash)
-            .where(Post.phash.is_not(None), Post.phash != "", Post.deleted_at.is_(None))
+            .where(
+                Post.phash.is_not(None), Post.phash != "", Post.deleted_at.is_(None),
+                Post.owner_id.in_(owner_ids),
+            )
             .group_by(Post.phash)
             .having(func.count(Post.id) > 1)
         )
@@ -342,14 +389,17 @@ async def list_duplicate_groups(db: AsyncSession = Depends(get_db)):
     rows = (
         await db.execute(
             select(Post)
-            .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
-            .where(Post.phash.in_(dup_hashes), Post.deleted_at.is_(None))
+            .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites))
+            .where(
+                Post.phash.in_(dup_hashes), Post.deleted_at.is_(None),
+                Post.owner_id.in_(owner_ids),
+            )
             .order_by(Post.phash, Post.id)
         )
     ).scalars().all()
     groups: dict[str, list] = {}
     for post in rows:
-        groups.setdefault(post.phash, []).append(post.to_dict())
+        groups.setdefault(post.phash, []).append(post.to_dict(current_user.id))
     return {"groups": [{"phash": h, "posts": p} for h, p in groups.items() if len(p) > 1]}
 
 
@@ -358,12 +408,19 @@ async def similar_posts(
     post_id: int,
     limit: int = Query(24, ge=1, le=100),
     max_distance: int = Query(12, ge=0, le=64),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Posts visually similar to this one (perceptual-hash nearest neighbours)."""
     from ..services.similarity import find_similar
 
-    return {"results": await find_similar(db, post_id, limit=limit, max_distance=max_distance)}
+    owner_ids = await visible_owner_ids(db, current_user)
+    return {
+        "results": await find_similar(
+            db, post_id, limit=limit, max_distance=max_distance,
+            owner_ids=owner_ids, current_user_id=current_user.id,
+        )
+    }
 
 
 @router.get("/posts/{post_id}/neighbors")
@@ -372,6 +429,7 @@ async def post_neighbors(
     q: str = Query("", description="Search query (same syntax as the list)"),
     sort: str = Query("date"),
     order: str = Query("desc"),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Prev/next post ids around this one within the given filtered/sorted view.
@@ -383,29 +441,41 @@ async def post_neighbors(
 
     from ..services.auto_tagger import load_options
 
-    return await get_post_neighbors(db, post_id, q, sort, order, semantic_search=load_options().semanticSearchEnabled)
+    owner_ids = await visible_owner_ids(db, current_user)
+    return await get_post_neighbors(
+        db, post_id, q, sort, order,
+        semantic_search=load_options().semanticSearchEnabled,
+        owner_ids=owner_ids,
+        current_user_id=current_user.id,
+    )
 
 
 @router.get("/posts/{post_id}")
-async def get_post(post_id: int, db: AsyncSession = Depends(get_db)):
+async def get_post(post_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Get a single post by ID."""
+    owner_ids = await visible_owner_ids(db, current_user)
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
-        .where(Post.id == post_id)
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites))
+        .where(Post.id == post_id, Post.owner_id.in_(owner_ids))
     )
     post = result.scalars().first()
 
     if not post or post.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    return post.to_dict()
+    return post.to_dict(current_user.id)
 
 
 @router.get("/posts/{post_id}/online-matches")
-async def get_post_online_matches(post_id: int, db: AsyncSession = Depends(get_db)):
+async def get_post_online_matches(
+    post_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Look for byte-exact copies without uploading the post anywhere."""
-    result = await db.execute(select(Post).where(Post.id == post_id, Post.deleted_at.is_(None)))
+    owner_ids = await visible_owner_ids(db, current_user)
+    result = await db.execute(
+        select(Post).where(Post.id == post_id, Post.deleted_at.is_(None), Post.owner_id.in_(owner_ids))
+    )
     post = result.scalars().first()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -420,9 +490,14 @@ async def get_post_online_matches(post_id: int, db: AsyncSession = Depends(get_d
 
 
 @router.get("/posts/{post_id}/ai-analysis")
-async def get_post_ai_analysis(post_id: int, db: AsyncSession = Depends(get_db)):
+async def get_post_ai_analysis(
+    post_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Return saved semantic/Qwen analysis for a post."""
-    result = await db.execute(select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None)))
+    owner_ids = await visible_owner_ids(db, current_user)
+    result = await db.execute(
+        select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None), Post.owner_id.in_(owner_ids))
+    )
     if not result.scalars().first():
         raise HTTPException(status_code=404, detail="Post not found")
     from ..services.ai_analysis import list_post_analysis
@@ -434,10 +509,13 @@ async def get_post_ai_analysis(post_id: int, db: AsyncSession = Depends(get_db))
 async def save_post_ai_analysis(
     post_id: int,
     request: SaveAiAnalysisRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Persist Qwen semantic evidence from an AI preview for later search."""
-    result = await db.execute(select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None)))
+    result = await db.execute(
+        select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None), Post.owner_id == current_user.id)
+    )
     if not result.scalars().first():
         raise HTTPException(status_code=404, detail="Post not found")
 
@@ -462,10 +540,13 @@ async def update_saved_post_ai_analysis(
     post_id: int,
     analysis_id: int,
     request: UpdateAiAnalysisRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Edit the saved semantic description for a post analysis."""
-    result = await db.execute(select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None)))
+    result = await db.execute(
+        select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None), Post.owner_id == current_user.id)
+    )
     if not result.scalars().first():
         raise HTTPException(status_code=404, detail="Post not found")
 
@@ -480,9 +561,13 @@ async def update_saved_post_ai_analysis(
 
 
 @router.delete("/posts/{post_id}/ai-analysis")
-async def delete_saved_post_ai_analysis(post_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_saved_post_ai_analysis(
+    post_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Remove saved semantic analysis for a post."""
-    result = await db.execute(select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None)))
+    result = await db.execute(
+        select(Post.id).where(Post.id == post_id, Post.deleted_at.is_(None), Post.owner_id == current_user.id)
+    )
     if not result.scalars().first():
         raise HTTPException(status_code=404, detail="Post not found")
     from ..services.ai_analysis import delete_post_analysis
@@ -493,10 +578,17 @@ async def delete_saved_post_ai_analysis(post_id: int, db: AsyncSession = Depends
 
 
 @router.put("/posts/{post_id}")
-async def update_post(post_id: int, request: UpdatePostRequest, db: AsyncSession = Depends(get_db)):
+async def update_post(
+    post_id: int,
+    request: UpdatePostRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Update a post."""
     result = await db.execute(
-        select(Post).options(selectinload(Post.tags).selectinload(Tag.category)).where(Post.id == post_id)
+        select(Post)
+        .options(selectinload(Post.tags).selectinload(Tag.category))
+        .where(Post.id == post_id, Post.owner_id == current_user.id)
     )
     post = result.scalars().first()
 
@@ -528,20 +620,22 @@ async def update_post(post_id: int, request: UpdatePostRequest, db: AsyncSession
     # Reload for response
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites))
         .where(Post.id == post_id)
     )
     post = result.scalars().first()
-    return post.to_dict()
+    return post.to_dict(current_user.id)
 
 
 @router.post("/posts/{post_id}/restore")
-async def restore_post(post_id: int, db: AsyncSession = Depends(get_db)):
+async def restore_post(
+    post_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Restore a soft-deleted post so duplicate uploads can recover it."""
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
-        .where(Post.id == post_id)
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites))
+        .where(Post.id == post_id, Post.owner_id == current_user.id)
     )
     post = result.scalars().first()
 
@@ -555,17 +649,36 @@ async def restore_post(post_id: int, db: AsyncSession = Depends(get_db)):
 
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites))
         .where(Post.id == post_id)
     )
     post = result.scalars().first()
-    return post.to_dict()
+    return post.to_dict(current_user.id)
+
+
+async def _require_own_post(post_id: int, current_user: User) -> None:
+    # A short-lived session of its own, not the request's Depends(get_db)
+    # session: preview_post/apply_post below open their own separate
+    # connection to do their actual work, and holding this request's session
+    # open with an uncommitted read transaction while that second connection
+    # tries to write causes "database is locked" on SQLite.
+    async with async_session() as session:
+        result = await session.execute(
+            select(Post.id).where(Post.id == post_id, Post.owner_id == current_user.id, Post.deleted_at.is_(None))
+        )
+        if not result.scalars().first():
+            raise HTTPException(status_code=404, detail="Post not found")
 
 
 @router.post("/posts/{post_id}/auto-tags/preview")
-async def preview_auto_tags(post_id: int, body: dict | None = None):
+async def preview_auto_tags(
+    post_id: int,
+    body: dict | None = None,
+    current_user: User = Depends(get_current_user),
+):
     """Preview AI tag suggestions for a single post without applying."""
     from ..services.auto_tag_jobs import preview_post
+    await _require_own_post(post_id, current_user)
     body = body or {}
     try:
         return await preview_post(post_id, overrides=body.get("settings") or {})
@@ -574,9 +687,14 @@ async def preview_auto_tags(post_id: int, body: dict | None = None):
 
 
 @router.post("/posts/{post_id}/auto-tags/apply")
-async def apply_auto_tags(post_id: int, body: dict | None = None):
+async def apply_auto_tags(
+    post_id: int,
+    body: dict | None = None,
+    current_user: User = Depends(get_current_user),
+):
     """Apply AI tag suggestions, or edited suggestions, to a single post."""
     from ..services.auto_tag_jobs import apply_post
+    await _require_own_post(post_id, current_user)
     body = body or {}
     try:
         return await apply_post(
@@ -595,7 +713,9 @@ async def apply_auto_tags(post_id: int, body: dict | None = None):
 
 
 @router.delete("/posts/{post_id}")
-async def delete_post(post_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_post(
+    post_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Soft-delete a post.
 
     The row and its files are kept (marked with ``deleted_at``) so the deletion
@@ -605,7 +725,7 @@ async def delete_post(post_id: int, db: AsyncSession = Depends(get_db)):
     from datetime import datetime
 
     result = await db.execute(
-        select(Post).where(Post.id == post_id)
+        select(Post).where(Post.id == post_id, Post.owner_id == current_user.id)
     )
     post = result.scalars().first()
 
@@ -619,7 +739,11 @@ async def delete_post(post_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/posts/bulk-delete")
-async def bulk_delete_posts(request: BulkDeleteRequest, db: AsyncSession = Depends(get_db)):
+async def bulk_delete_posts(
+    request: BulkDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Soft-delete many posts in one transaction (multi-select editing).
 
     Mirrors :func:`delete_post`: each row is marked with ``deleted_at`` (kept for
@@ -631,7 +755,9 @@ async def bulk_delete_posts(request: BulkDeleteRequest, db: AsyncSession = Depen
         return {"deleted": 0}
 
     result = await db.execute(
-        select(Post).where(Post.id.in_(request.postIds), Post.deleted_at.is_(None))
+        select(Post).where(
+            Post.id.in_(request.postIds), Post.deleted_at.is_(None), Post.owner_id == current_user.id
+        )
     )
     posts = list(result.scalars().all())
     now = datetime.utcnow()
@@ -642,7 +768,11 @@ async def bulk_delete_posts(request: BulkDeleteRequest, db: AsyncSession = Depen
 
 
 @router.post("/posts/bulk-update")
-async def bulk_update_posts(request: BulkUpdateRequest, db: AsyncSession = Depends(get_db)):
+async def bulk_update_posts(
+    request: BulkUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Apply scoped batch edits to selected posts.
 
     Supported tag modes:
@@ -665,7 +795,9 @@ async def bulk_update_posts(request: BulkUpdateRequest, db: AsyncSession = Depen
     result = await db.execute(
         select(Post)
         .options(selectinload(Post.tags).selectinload(Tag.category))
-        .where(Post.id.in_(request.postIds), Post.deleted_at.is_(None))
+        .where(
+            Post.id.in_(request.postIds), Post.deleted_at.is_(None), Post.owner_id == current_user.id
+        )
     )
     posts = list(result.scalars().all())
     incoming_tags = [tag for tag in (normalize_tag(raw) for raw in request.tags) if tag]
@@ -693,15 +825,20 @@ async def bulk_update_posts(request: BulkUpdateRequest, db: AsyncSession = Depen
 
 
 @router.post("/posts/bulk-optimize")
-async def bulk_optimize_posts(request: BulkOptimizeMediaRequest, db: AsyncSession = Depends(get_db)):
-    return await _bulk_optimize_posts_impl(request, db)
+async def bulk_optimize_posts(
+    request: BulkOptimizeMediaRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _bulk_optimize_posts_impl(request, db, owner_id=current_user.id)
 
 
 @router.post("/posts/optimize-jobs")
-async def start_optimize_job(request: BulkOptimizeMediaRequest):
+async def start_optimize_job(request: BulkOptimizeMediaRequest, current_user: User = Depends(get_current_user)):
     job_id = uuid.uuid4().hex
     job = {
         "id": job_id,
+        "ownerId": current_user.id,
         "status": "queued",
         "progress": 0,
         "message": "Queued media optimization",
@@ -714,16 +851,18 @@ async def start_optimize_job(request: BulkOptimizeMediaRequest):
     }
     with _optimize_jobs_lock:
         _optimize_jobs[job_id] = job
-    thread = threading.Thread(target=_run_optimize_job_thread, args=(job_id, request), daemon=True)
+    thread = threading.Thread(
+        target=_run_optimize_job_thread, args=(job_id, request, current_user.id), daemon=True
+    )
     thread.start()
     return job
 
 
 @router.get("/posts/optimize-jobs/{job_id}")
-async def get_optimize_job(job_id: str):
+async def get_optimize_job(job_id: str, current_user: User = Depends(get_current_user)):
     with _optimize_jobs_lock:
         job = _optimize_jobs.get(job_id)
-        if not job:
+        if not job or job.get("ownerId") != current_user.id:
             raise HTTPException(status_code=404, detail="Optimize job not found")
         return dict(job)
 
@@ -813,7 +952,7 @@ def _claim_optimize_preview(
     return {**preview, "path": preview_path}
 
 
-def _run_optimize_job_thread(job_id: str, request: BulkOptimizeMediaRequest):
+def _run_optimize_job_thread(job_id: str, request: BulkOptimizeMediaRequest, owner_id: int):
     async def runner():
         _set_optimize_job(job_id, status="running", progress=2, message="Starting media optimization")
 
@@ -822,7 +961,7 @@ def _run_optimize_job_thread(job_id: str, request: BulkOptimizeMediaRequest):
 
         try:
             async with async_session() as session:
-                result = await _bulk_optimize_posts_impl(request, session, progress=progress)
+                result = await _bulk_optimize_posts_impl(request, session, owner_id=owner_id, progress=progress)
                 await session.commit()
             _set_optimize_job(
                 job_id,
@@ -847,6 +986,7 @@ def _run_optimize_job_thread(job_id: str, request: BulkOptimizeMediaRequest):
 async def _bulk_optimize_posts_impl(
     request: BulkOptimizeMediaRequest,
     db: AsyncSession,
+    owner_id: int,
     progress: Callable[[int, str], None] | None = None,
 ):
     """Resize/re-encode selected post media and rewrite metadata.
@@ -875,8 +1015,8 @@ async def _bulk_optimize_posts_impl(
     image_quality = max(1, min(100, int(request.imageQuality or 85)))
     result = await db.execute(
         select(Post)
-        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
-        .where(Post.id.in_(request.postIds), Post.deleted_at.is_(None))
+        .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites))
+        .where(Post.id.in_(request.postIds), Post.deleted_at.is_(None), Post.owner_id == owner_id)
     )
     posts = list(result.scalars().all())
     results = []
@@ -1222,21 +1362,30 @@ async def serve_optimize_preview(preview_id: str):
 
 
 @router.post("/posts/{post_id}/favorite")
-async def toggle_favorite(post_id: int, db: AsyncSession = Depends(get_db)):
-    """Toggle favorite status on a post."""
+async def toggle_favorite(
+    post_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
+    """Toggle favorite status on a post for the current user.
+
+    A shared-library viewer may favorite a post they can see, independently
+    of the post's owner - so this looks up *this user's* favorite row, not
+    just whether the post has one at all.
+    """
+    owner_ids = await visible_owner_ids(db, current_user)
     result = await db.execute(
-        select(Post).options(selectinload(Post.favorite)).where(Post.id == post_id)
+        select(Post).options(selectinload(Post.favorites)).where(Post.id == post_id, Post.owner_id.in_(owner_ids))
     )
     post = result.scalars().first()
 
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    if post.favorite:
-        await db.delete(post.favorite)
+    existing = next((f for f in post.favorites if f.user_id == current_user.id), None)
+    if existing:
+        await db.delete(existing)
         is_favorited = False
     else:
-        fav = Favorite(post_id=post_id)
+        fav = Favorite(post_id=post_id, user_id=current_user.id)
         db.add(fav)
         is_favorited = True
 
@@ -1244,15 +1393,35 @@ async def toggle_favorite(post_id: int, db: AsyncSession = Depends(get_db)):
     return {"isFavorited": is_favorited}
 
 
+async def _require_media_access(filename: str, current_user: User, db: AsyncSession) -> None:
+    """Media/thumb filenames are ``{sha256}{ext}`` - content-addressed, so the
+    URL itself carries no owner info. Look the post up by its hash prefix and
+    404 (not 403) if it's outside what this user can see, same as any other
+    post lookup.
+    """
+    sha256_hex = filename[:64]
+    owner_ids = await visible_owner_ids(db, current_user)
+    result = await db.execute(select(Post.id).where(Post.sha256 == sha256_hex, Post.owner_id.in_(owner_ids)))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="File not found")
+
+
 # Media serving routes
 @router.get("/media/posts/{subdir}/{filename}")
-async def serve_post_media(subdir: str, filename: str, format: Optional[str] = None):
+async def serve_post_media(
+    subdir: str,
+    filename: str,
+    format: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Serve original post media files.
 
     Pass ``?format=gif`` on a video (mp4/webm) to download an animated GIF
     transcoded from the video. The conversion is cached so repeat requests are
     cheap. The stored file is never modified.
     """
+    await _require_media_access(filename, current_user, db)
     file_path = settings.posts_dir / subdir / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
@@ -1287,8 +1456,14 @@ async def serve_post_media(subdir: str, filename: str, format: Optional[str] = N
 
 
 @router.get("/media/thumbs/{subdir}/{filename}")
-async def serve_thumbnail(subdir: str, filename: str):
+async def serve_thumbnail(
+    subdir: str,
+    filename: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Serve thumbnail files."""
+    await _require_media_access(filename, current_user, db)
     file_path = settings.thumbs_dir / subdir / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Thumbnail not found")

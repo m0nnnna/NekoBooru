@@ -37,9 +37,23 @@ class AutoTagApiTests(unittest.TestCase):
 
         from fastapi.testclient import TestClient
         from app.main import app
+        from app.database import reset_engine_for_tests
+
+        # app.database's engine is a module-level singleton fixed at first
+        # import; under `unittest discover` every test class in the process
+        # would otherwise share whichever class's database happened to be
+        # created first, regardless of this class's own NEKO_DATA_DIR above.
+        reset_engine_for_tests()
 
         cls.client = TestClient(app)
         cls.client.__enter__()
+
+        # Posts/uploads/etc. require an authenticated session; bootstrap once
+        # and let the cookie persist for every test method in this class.
+        boot = cls.client.post(
+            "/api/auth/bootstrap-admin", json={"username": "test-admin", "password": "test-admin-password"}
+        )
+        assert boot.status_code == 200, boot.text
 
     @classmethod
     def tearDownClass(cls):

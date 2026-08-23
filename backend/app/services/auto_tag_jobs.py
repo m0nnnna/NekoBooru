@@ -338,7 +338,7 @@ async def apply_post(
     async with async_session() as db:
         post = (
             await db.execute(
-                select(Post).options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite)).where(Post.id == post_id, Post.deleted_at.is_(None))
+                select(Post).options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites)).where(Post.id == post_id, Post.deleted_at.is_(None))
             )
         ).scalars().first()
         if not post:
@@ -361,7 +361,7 @@ async def apply_post(
             elif generated_preview:
                 await save_analysis_from_result(db, post.id, generated_preview, opts=opts, profile=profile or "post")
         await db.commit()
-        await db.refresh(post, ["tags", "favorite"])
+        await db.refresh(post, ["tags", "favorites"])
         return post.to_dict()
 
 
@@ -405,7 +405,7 @@ async def apply_job_suggestions(job_id: int) -> dict:
             post = (
                 await db.execute(
                     select(Post)
-                    .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
+                    .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites))
                     .where(Post.id == suggestion.post_id, Post.deleted_at.is_(None))
                 )
             ).scalars().first()

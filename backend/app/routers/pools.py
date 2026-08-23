@@ -74,7 +74,7 @@ async def get_pool(pool_id: int, db: AsyncSession = Depends(get_db)):
             # post.tags AND post.favorite, and a lazy load of either explodes
             # with MissingGreenlet under the async engine.
             selectinload(Pool.posts).selectinload(PoolPost.post).selectinload(Post.tags).selectinload(Tag.category),
-            selectinload(Pool.posts).selectinload(PoolPost.post).selectinload(Post.favorite),
+            selectinload(Pool.posts).selectinload(PoolPost.post).selectinload(Post.favorites),
         )
         .where(Pool.id == pool_id)
     )

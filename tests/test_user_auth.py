@@ -10,18 +10,13 @@ from pathlib import Path
 class AuthApiTests(unittest.TestCase):
     """Covers the Phase 1 auth foundation: bootstrap, login/logout/me, admin
     user management, sharing grants, and API tokens. Per-router content
-    scoping (posts/pools/favorites private by owner) is a later phase and is
-    NOT exercised here - these tests only prove the auth machinery itself.
+    scoping (posts/pools/favorites private by owner) is exercised separately
+    in test_post_isolation.py.
 
-    Named to sort after test_auto_tags.py: app.database's ``engine`` is a
-    module-level singleton fixed at first import, so under `unittest
-    discover` every test class in the process ends up sharing whichever
-    class happened to import it first, regardless of each class's own
-    NEKO_DATA_DIR. That first class's temp dir also isn't fully released on
-    Windows (open handles from model/media I/O), so it keeps working for
-    everyone after it. A class that *does* clean up completely - like this
-    one - would strand every class that runs after it if it went first, so
-    don't rename this ahead of test_auto_tags.py.
+    Needs a database with zero users at the start, so it calls
+    ``reset_engine_for_tests()`` in setUpClass - see that function's
+    docstring in app/database.py for why every DB-backed test class needs it,
+    not just this one.
     """
 
     @classmethod
@@ -49,6 +44,15 @@ class AuthApiTests(unittest.TestCase):
 
         from fastapi.testclient import TestClient
         from app.main import app
+        from app.database import reset_engine_for_tests
+
+        # app.database's engine is a module-level singleton fixed at first
+        # import; under `unittest discover` every test class in the process
+        # would otherwise share whichever class's database happened to be
+        # created first, regardless of this class's own NEKO_DATA_DIR above -
+        # this class specifically needs a database with zero users in it, so
+        # this isn't optional here the way it might look elsewhere.
+        reset_engine_for_tests()
 
         cls.client = TestClient(app)
         cls.client.__enter__()
@@ -66,22 +70,34 @@ class AuthApiTests(unittest.TestCase):
                 os.environ[key] = value
         cls.tmp.cleanup()
 
-    def _upload_image_post(self):
-        from PIL import Image
+    def _seed_preexisting_content(self):
+        """Insert a post/pool/favorite/sync_log rows directly, bypassing the
+        (now-authenticated) HTTP API - this simulates data that was already
+        in the database from before the multi-user migration ever ran, which
+        is exactly what bootstrap-admin's backfill needs to handle. Real
+        pre-existing rows can no longer be produced by uploading through
+        /api/posts, since that endpoint requires a logged-in user now.
+        """
+        import hashlib
+        from app.database import async_session
+        from app.models import Favorite, Pool, Post, SyncLog
 
         stamp = time.time_ns()
-        image_path = Path(self.tmp.name) / f"sample-{stamp}.png"
-        Image.new("RGB", (16, 16), (10, 20, 30)).save(image_path)
-        with image_path.open("rb") as fh:
-            upload = self.client.post("/api/uploads", files={"content": (image_path.name, fh, "image/png")})
-        self.assertEqual(upload.status_code, 200, upload.text)
-        token = upload.json()["token"]
-        created = self.client.post(
-            "/api/posts",
-            json={"contentToken": token, "tags": [], "safety": "safe", "autoTag": False},
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        return created.json()
+        digest = hashlib.sha256(f"pre-existing-{stamp}".encode()).hexdigest()
+
+        async def _seed():
+            async with async_session() as session:
+                post = Post(sha256=digest, filename="pre-existing.png", extension=".png", file_size=1)
+                session.add(post)
+                await session.flush()
+                session.add(Favorite(post_id=post.id))
+                session.add(Pool(name="Pre-existing pool"))
+                session.add(SyncLog(entity_type="post", entity_key=digest, op="upsert"))
+                session.add(SyncLog(entity_type="tag", entity_key="some-preexisting-tag", op="upsert"))
+                await session.commit()
+                return post.id, post.sha256
+
+        return asyncio.run(_seed())
 
     def _query_row(self, model_name, **filters):
         from app import models
@@ -110,12 +126,7 @@ class AuthApiTests(unittest.TestCase):
         self.assertFalse(resp.json()["hasUsers"])
 
     def test_02_bootstrap_backfills_preexisting_content_to_new_admin(self):
-        post = self._upload_image_post()
-        fav = self.client.post(f"/api/posts/{post['id']}/favorite")
-        self.assertEqual(fav.status_code, 200, fav.text)
-
-        pool_resp = self.client.post("/api/pools", json={"name": "Pre-existing pool"})
-        self.assertEqual(pool_resp.status_code, 200, pool_resp.text)
+        post_id, sha256 = self._seed_preexisting_content()
 
         boot = self.client.post(
             "/api/auth/bootstrap-admin", json={"username": "admin", "password": "correct horse battery staple"}
@@ -125,20 +136,20 @@ class AuthApiTests(unittest.TestCase):
         self.assertTrue(admin["isAdmin"])
         self.__class__.admin_id = admin["id"]
 
-        db_post = self._query_row("Post", id=post["id"])
+        db_post = self._query_row("Post", id=post_id)
         self.assertEqual(db_post.owner_id, admin["id"])
 
         db_pool = self._query_row("Pool", name="Pre-existing pool")
         self.assertEqual(db_pool.owner_id, admin["id"])
 
-        db_fav = self._query_row("Favorite", post_id=post["id"])
+        db_fav = self._query_row("Favorite", post_id=post_id)
         self.assertEqual(db_fav.user_id, admin["id"])
 
-        tag_sync_rows = self._query_row("SyncLog", entity_type="tag")
-        if tag_sync_rows is not None:
-            self.assertIsNone(tag_sync_rows.user_id)
+        tag_sync_row = self._query_row("SyncLog", entity_type="tag")
+        self.assertIsNotNone(tag_sync_row)
+        self.assertIsNone(tag_sync_row.user_id)
 
-        post_sync_row = self._query_row("SyncLog", entity_type="post", entity_key=post["sha256"])
+        post_sync_row = self._query_row("SyncLog", entity_type="post", entity_key=sha256)
         self.assertEqual(post_sync_row.user_id, admin["id"])
 
     def test_03_bootstrap_fails_once_admin_exists(self):

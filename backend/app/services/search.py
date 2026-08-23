@@ -126,7 +126,11 @@ def _order_column(sort: str):
     }.get(sort, Post.created_at)
 
 
-def build_conditions(query: str, alias_map: dict[str, str] | None = None) -> list:
+def build_conditions(
+    query: str,
+    alias_map: dict[str, str] | None = None,
+    current_user_id: int | None = None,
+) -> list:
     """Translate a search query into a list of SQLAlchemy WHERE conditions.
 
     Shared by :func:`search_posts` and :func:`get_post_neighbors` so the gallery
@@ -136,6 +140,9 @@ def build_conditions(query: str, alias_map: dict[str, str] | None = None) -> lis
     canonical target tag name (e.g. "coral_pokemon"), from :func:`_alias_target_map`.
     Without it, searching an alias someone typed instead of the tag it merges
     into would silently return nothing.
+
+    ``current_user_id`` scopes the ``fav:`` filter to that user's own
+    favorites (each user favorites independently now), not the whole table.
     """
     tokens = tokenize(query) if query else []
 
@@ -164,12 +171,12 @@ def build_conditions(query: str, alias_map: dict[str, str] | None = None) -> lis
                 current_or_group = [and_conditions.pop()]
 
         elif token.type == TokenType.FILTER:
-            condition = apply_filter(token)
+            condition = apply_filter(token, current_user_id)
             if condition is not None:
                 and_conditions.append(condition)
 
         elif token.type == TokenType.NEGATED_FILTER:
-            condition = apply_filter(token)
+            condition = apply_filter(token, current_user_id)
             if condition is not None:
                 and_conditions.append(not_(condition))
 
@@ -350,6 +357,8 @@ async def get_post_neighbors(
     sort: str = "date",
     sort_order: str = "desc",
     semantic_search: bool = False,
+    owner_ids: list[int] | None = None,
+    current_user_id: int | None = None,
 ) -> dict:
     """Return the prev/next post ids around ``post_id`` within a filtered view.
 
@@ -357,25 +366,29 @@ async def get_post_neighbors(
     one in the list, next is the one after. So for the default newest-first
     view, the latest post has no prev (left does nothing) and right advances to
     the next-older post.
+
+    ``owner_ids`` restricts every candidate (including ``post_id`` itself) to
+    posts the caller can see - their own plus anything shared with them.
     """
     order_col = _order_column(sort)
+    current_conditions = [Post.id == post_id, Post.deleted_at.is_(None)]
+    if owner_ids is not None:
+        current_conditions.append(Post.owner_id.in_(owner_ids))
     current = (
-        await session.execute(
-            select(Post.id, order_col).where(
-                Post.id == post_id, Post.deleted_at.is_(None)
-            )
-        )
+        await session.execute(select(Post.id, order_col).where(*current_conditions))
     ).first()
     if not current:
         return {"prev": None, "next": None}
 
     cur_id, cur_val = current[0], current[1]
     alias_map = await _alias_target_map(session, _tag_token_names(tokenize(query) if query else []))
-    conditions = build_conditions(query, alias_map)
+    conditions = build_conditions(query, alias_map, current_user_id)
     if semantic_search:
         semantic_conditions = await _semantic_expansion_conditions(session, query)
         if semantic_conditions:
             conditions = [Post.deleted_at.is_(None), *semantic_conditions]
+    if owner_ids is not None:
+        conditions.append(Post.owner_id.in_(owner_ids))
     descending = sort_order != "asc"
 
     # Strictly-before / strictly-after in value, breaking ties by id.
@@ -404,20 +417,29 @@ async def search_posts(
     sort: str = "date",
     sort_order: str = "desc",
     semantic_search: bool = False,
+    owner_ids: list[int] | None = None,
+    current_user_id: int | None = None,
 ) -> tuple[list[Post], int]:
-    """Search posts with tag-based query syntax."""
+    """Search posts with tag-based query syntax.
+
+    ``owner_ids`` restricts results to posts owned by the caller or shared
+    with them; ``None`` means unrestricted (only used by internal/maintenance
+    callers, never a user-facing endpoint).
+    """
     # Base query with eager loading
     stmt = select(Post).options(
         selectinload(Post.tags).selectinload(Tag.category),
-        selectinload(Post.favorite),
+        selectinload(Post.favorites),
     )
 
     alias_map = await _alias_target_map(session, _tag_token_names(tokenize(query) if query else []))
-    all_conditions = build_conditions(query, alias_map)
+    all_conditions = build_conditions(query, alias_map, current_user_id)
     if semantic_search:
         semantic_conditions = await _semantic_expansion_conditions(session, query)
         if semantic_conditions:
             all_conditions = [Post.deleted_at.is_(None), *semantic_conditions]
+    if owner_ids is not None:
+        all_conditions.append(Post.owner_id.in_(owner_ids))
     if all_conditions:
         stmt = stmt.where(and_(*all_conditions))
 
@@ -445,7 +467,7 @@ async def search_posts(
     return posts, total
 
 
-def apply_filter(token: Token):
+def apply_filter(token: Token, current_user_id: int | None = None):
     """Apply a filter token to the query."""
     key = token.filter_key
     value = token.filter_value if hasattr(token, "filter_value") else token.value
@@ -487,10 +509,13 @@ def apply_filter(token: Token):
             return None
 
     elif key == "fav" or key == "favorite":
+        # Each user favorites independently, so this always means "favorited
+        # by *me*", never anyone who has ever favorited the post.
+        own_favorites = select(Favorite.post_id).where(Favorite.user_id == current_user_id)
         if value.lower() in ("true", "yes", "1"):
-            return Post.id.in_(select(Favorite.post_id))
+            return Post.id.in_(own_favorites)
         else:
-            return not_(Post.id.in_(select(Favorite.post_id)))
+            return not_(Post.id.in_(own_favorites))
 
     elif key == "pool":
         try:

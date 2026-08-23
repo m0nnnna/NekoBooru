@@ -63,7 +63,9 @@ class Post(Base):
     notes = relationship("Note", back_populates="post", cascade="all, delete-orphan")
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
     pools = relationship("PoolPost", back_populates="post", cascade="all, delete-orphan")
-    favorite = relationship("Favorite", back_populates="post", uselist=False, cascade="all, delete-orphan")
+    # One row per user who has favorited this post - each user favorites
+    # independently, so this is a list even though most posts have 0 or 1.
+    favorites = relationship("Favorite", back_populates="post", cascade="all, delete-orphan")
     ai_analyses = relationship("PostAiAnalysis", back_populates="post", cascade="all, delete-orphan")
 
     @property
@@ -77,7 +79,7 @@ class Post(Base):
         """Path to the thumbnail."""
         return f"{self.sha256[:2]}/{self.sha256}.jpg"
 
-    def to_dict(self):
+    def to_dict(self, current_user_id: int | None = None):
         return {
             "id": self.id,
             "sha256": self.sha256,
@@ -98,7 +100,10 @@ class Post(Base):
             # uncategorised entry rather than raising if some caller forgets,
             # because lazy-loading here would fail under async.
             "tagDetails": [_tag_detail(tag) for tag in self.tags] if self.tags else [],
-            "isFavorited": self.favorite is not None,
+            "isFavorited": (
+                current_user_id is not None
+                and any(f.user_id == current_user_id for f in (self.favorites or []))
+            ),
             "contentUrl": f"/api/media/posts/{self.content_path}",
             "thumbUrl": f"/api/media/thumbs/{self.thumb_path}",
         }

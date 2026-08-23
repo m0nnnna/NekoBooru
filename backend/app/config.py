@@ -111,8 +111,15 @@ class Settings(BaseSettings):
     @property
     def data_dir(self) -> Path:
         """Get data directory from settings file or use default."""
-        if os.environ.get("NEKO_DATA_DIR"):
-            return runtime_paths.data_dir
+        env_override = os.environ.get("NEKO_DATA_DIR")
+        if env_override:
+            # Resolve the env var directly rather than runtime_paths.data_dir:
+            # runtime_paths is computed once at first import of this process,
+            # so a later NEKO_DATA_DIR change (as every test's setUpClass
+            # does, under `unittest discover` sharing one process across test
+            # classes) would otherwise silently keep resolving to whichever
+            # directory was current the first time this module loaded.
+            return Path(env_override).expanduser().resolve()
         settings_manager = SettingsManager(self.config_file)
         configured_dir = settings_manager.get_data_dir()
         if configured_dir:
@@ -142,7 +149,12 @@ class Settings(BaseSettings):
     @property
     def cache_dir(self) -> Path:
         """Get cache directory (e.g. on-demand video->gif conversions)."""
-        if os.environ.get("NEKO_CACHE_DIR") or runtime_paths.packaged:
+        env_override = os.environ.get("NEKO_CACHE_DIR")
+        if env_override:
+            # See data_dir above: resolve the env var directly, not via the
+            # frozen runtime_paths singleton.
+            return Path(env_override).expanduser().resolve()
+        if runtime_paths.packaged:
             return runtime_paths.cache_dir
         return self.data_dir / "cache"
 

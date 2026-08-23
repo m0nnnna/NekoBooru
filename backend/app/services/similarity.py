@@ -105,7 +105,7 @@ async def find_similar(
     posts = (
         await session.execute(
             select(Post)
-            .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorite))
+            .options(selectinload(Post.tags).selectinload(Tag.category), selectinload(Post.favorites))
             .where(Post.id.in_(ids))
         )
     ).scalars().all()

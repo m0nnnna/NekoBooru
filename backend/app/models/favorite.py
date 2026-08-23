@@ -19,7 +19,7 @@ class Favorite(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    post = relationship("Post", back_populates="favorite")
+    post = relationship("Post", back_populates="favorites")
 
     def to_dict(self):
         return {

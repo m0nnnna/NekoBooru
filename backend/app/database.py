@@ -9,27 +9,71 @@ class Base(DeclarativeBase):
     pass
 
 
+def _attach_sqlite_pragma(sync_engine):
+    # Configure SQLite for safe concurrent access. The default rollback journal
+    # allows only one writer at a time and a busy_timeout of 0, so a background
+    # auto-tag job writing per-post collides with web/API writes and fails
+    # instantly with "database is locked". WAL lets readers run alongside a
+    # writer, and busy_timeout makes writers wait for the lock instead of
+    # erroring.
+    @event.listens_for(sync_engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
+
+
+def _create_engine():
+    new_engine = create_async_engine(f"sqlite+aiosqlite:///{settings.database_path}", echo=settings.debug)
+    _attach_sqlite_pragma(new_engine.sync_engine)
+    return new_engine
+
+
 # Create async engine for SQLite
-DATABASE_URL = f"sqlite+aiosqlite:///{settings.database_path}"
-engine = create_async_engine(DATABASE_URL, echo=settings.debug)
-
-# Configure SQLite for safe concurrent access. The default rollback journal
-# allows only one writer at a time and a busy_timeout of 0, so a background
-# auto-tag job writing per-post collides with web/API writes and fails
-# instantly with "database is locked". WAL lets readers run alongside a writer,
-# and busy_timeout makes writers wait for the lock instead of erroring.
-@event.listens_for(engine.sync_engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=30000")
-    cursor.execute("PRAGMA synchronous=NORMAL")
-    cursor.close()
-
+engine = _create_engine()
 
 # Session factory
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+def reset_engine_for_tests():
+    """Rebind ``engine``/``async_session`` to the current ``NEKO_DATA_DIR``.
+
+    ``engine`` is created once at import time. Under `unittest discover`,
+    every test module runs in the same process, so whichever test class's
+    setUpClass happens to import this module first "wins" that engine
+    permanently - every later class's own NEKO_DATA_DIR is silently ignored,
+    and they all share one database. Call this right after setting the
+    NEKO_* env vars in a test's setUpClass to get a genuinely isolated
+    database; dispose the returned/previous engine in tearDownClass the same
+    way tests/test_auto_tags.py already does.
+
+    Uses ``async_session.configure(bind=...)`` rather than replacing the
+    ``async_session`` object, so code elsewhere that already did
+    ``from .database import async_session`` keeps working - it's the same
+    sessionmaker, now pointed at the new engine. Code that imported ``engine``
+    directly (only services/backup.py) does not pick up the swap; that module
+    isn't exercised by the test suite.
+    """
+    global engine
+    # config.py only creates settings.data_dir (and its posts/thumbs/uploads/
+    # cache subdirs) once, at first import - fine in production (one process,
+    # one data dir for its whole life), but this function exists precisely
+    # because a test just pointed settings.data_dir somewhere new, and
+    # aiosqlite fails with "unable to open database file" against a directory
+    # that was never created.
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    settings.posts_dir.mkdir(parents=True, exist_ok=True)
+    settings.thumbs_dir.mkdir(parents=True, exist_ok=True)
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+    settings.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    engine = _create_engine()
+    async_session.configure(bind=engine)
+    return engine
 
 
 async def get_db():
