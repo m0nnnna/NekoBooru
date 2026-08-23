@@ -176,8 +176,8 @@ class SyncRepository(private val db: NekoDatabase) {
      * success the placeholder is removed and the canonical post arrives via the
      * next [pull]. Returns the number of changes successfully pushed.
      */
-    suspend fun push(serverUrl: String): Int {
-        val api = ApiFactory.create(serverUrl)
+    suspend fun push(serverUrl: String, apiToken: String? = null): Int {
+        val api = ApiFactory.create(serverUrl, apiToken)
         var pushed = 0
         for (c in outboxDao.all()) {
             val ok = when {
@@ -268,8 +268,9 @@ class SyncRepository(private val db: NekoDatabase) {
         url: String,
         tags: List<String>,
         safety: String,
+        apiToken: String? = null,
     ): Int {
-        val api = ApiFactory.create(serverUrl)
+        val api = ApiFactory.create(serverUrl, apiToken)
         val trimmed = url.trim()
         var created = 0
         when (UrlClassifier.classify(trimmed)) {
@@ -331,8 +332,8 @@ class SyncRepository(private val db: NekoDatabase) {
     }
 
     /** Pull all changes since the saved cursor into the local DB. */
-    suspend fun pull(serverUrl: String) {
-        val api = ApiFactory.create(serverUrl)
+    suspend fun pull(serverUrl: String, apiToken: String? = null) {
+        val api = ApiFactory.create(serverUrl, apiToken)
         val syncDao = db.syncStateDao()
         var cursor = syncDao.getCursor() ?: 0L
 

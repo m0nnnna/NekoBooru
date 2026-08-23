@@ -68,9 +68,9 @@ class AddViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = cur.copy(fetching = true, error = null)
         viewModelScope.launch {
             try {
-                val serverUrl = AppSettings(getApplication()).serverUrl
+                val appSettings = AppSettings(getApplication())
                 val created = withContext(Dispatchers.IO) {
-                    repo.submitUrlPost(serverUrl, url, cur.tags, cur.safety)
+                    repo.submitUrlPost(appSettings.serverUrl, url, cur.tags, cur.safety, appSettings.apiToken)
                 }
                 if (created == 0) {
                     _state.value = _state.value.copy(

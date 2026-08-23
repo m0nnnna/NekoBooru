@@ -8,6 +8,7 @@ import coil.memory.MemoryCache
 import com.nekobooru.app.data.AppSettings
 import com.nekobooru.app.sync.SyncScheduler
 import com.nekobooru.app.ui.AppThemeState
+import okhttp3.OkHttpClient
 
 class NekoApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
@@ -26,6 +27,23 @@ class NekoApp : Application(), ImageLoaderFactory {
      */
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)
+            .okHttpClient {
+                // Thumbnails/originals require a logged-in user now (see
+                // /api/media/*). Re-reads the token per request rather than
+                // baking one client in at startup, so logging in/out takes
+                // effect without rebuilding this loader.
+                OkHttpClient.Builder()
+                    .addInterceptor { chain ->
+                        val token = AppSettings(this).apiToken
+                        val request = if (!token.isNullOrBlank()) {
+                            chain.request().newBuilder().header("Authorization", "Bearer $token").build()
+                        } else {
+                            chain.request()
+                        }
+                        chain.proceed(request)
+                    }
+                    .build()
+            }
             .memoryCache {
                 MemoryCache.Builder(this).maxSizePercent(0.30).build()
             }

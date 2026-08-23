@@ -5,21 +5,30 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nekobooru.app.data.ApiFactory
 import com.nekobooru.app.data.AppSettings
 import com.nekobooru.app.data.ConnectionTester
 import com.nekobooru.app.data.OfflinePolicy
 import com.nekobooru.app.data.RetentionManager
 import com.nekobooru.app.data.SyncManager
 import com.nekobooru.app.data.ThemeMode
+import com.nekobooru.app.data.TokenLoginRequestDto
 import com.nekobooru.app.data.db.NekoDatabase
 import com.nekobooru.app.sync.SyncScheduler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import retrofit2.HttpException
 
 data class SettingsUiState(
     val serverUrl: String = AppSettings.DEFAULT_SERVER_URL,
+    val accountUsername: String? = null,
+    val loginUsername: String = "",
+    val loginPassword: String = "",
+    val loggingIn: Boolean = false,
     val offlinePolicy: OfflinePolicy = OfflinePolicy.RECENT_100,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val storageLabel: String = "App storage (private)",
@@ -29,7 +38,9 @@ data class SettingsUiState(
     val migrating: Boolean = false,
     val lastSyncedAt: Long = 0,
     val message: String? = null,
-)
+) {
+    val loggedIn: Boolean get() = !accountUsername.isNullOrBlank()
+}
 
 class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val settings = AppSettings(app)
@@ -38,6 +49,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(
         SettingsUiState(
             serverUrl = settings.serverUrl,
+            accountUsername = settings.accountUsername,
             offlinePolicy = settings.offlinePolicy,
             themeMode = settings.themeMode,
             storageLabel = storageLabel(),
@@ -99,9 +111,63 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     fun testConnection() {
         _state.value = _state.value.copy(testing = true, message = null)
         viewModelScope.launch {
-            val result = ConnectionTester.test(_state.value.serverUrl)
+            val result = ConnectionTester.test(_state.value.serverUrl, settings.apiToken)
             _state.value = _state.value.copy(testing = false, message = result)
         }
+    }
+
+    fun onLoginUsernameChange(username: String) {
+        _state.value = _state.value.copy(loginUsername = username)
+    }
+
+    fun onLoginPasswordChange(password: String) {
+        _state.value = _state.value.copy(loginPassword = password)
+    }
+
+    /**
+     * Log in against the configured server and store the token it returns.
+     * Every endpoint (including sync and media) requires this now - there's
+     * no session cookie fallback here, unlike the web UI, since a mobile app
+     * has no cookie jar shared with a browser.
+     */
+    fun login() {
+        val cur = _state.value
+        val username = cur.loginUsername.trim()
+        if (username.isEmpty() || cur.loginPassword.isEmpty()) {
+            _state.value = cur.copy(message = "Enter your username and password.")
+            return
+        }
+        _state.value = cur.copy(loggingIn = true, message = null)
+        viewModelScope.launch {
+            try {
+                val api = ApiFactory.create(cur.serverUrl)
+                val result = withContext(Dispatchers.IO) {
+                    api.tokenLogin(TokenLoginRequestDto(username, cur.loginPassword, label = "Android"))
+                }
+                settings.apiToken = result.token
+                settings.accountUsername = result.username
+                _state.value = _state.value.copy(
+                    loggingIn = false,
+                    accountUsername = result.username,
+                    loginPassword = "",
+                    message = "Logged in as ${result.username}.",
+                )
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(loggingIn = false, message = "Could not log in: ${loginErrorMessage(e)}")
+            }
+        }
+    }
+
+    fun logout() {
+        settings.apiToken = null
+        settings.accountUsername = null
+        _state.value = _state.value.copy(accountUsername = null, message = "Logged out.")
+    }
+
+    private fun loginErrorMessage(e: Exception): String = when {
+        e is HttpException && e.code() == 401 -> "invalid username or password"
+        e is HttpException && e.code() == 403 -> "that account has been deactivated"
+        else -> e.message ?: e.javaClass.simpleName
     }
 
     /**

@@ -76,6 +76,21 @@ class AppSettings(context: Context) {
         get() = prefs.getLong(KEY_LAST_SYNCED, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_SYNCED, value).apply()
 
+    /**
+     * Bearer token for this account, obtained by logging in against the server
+     * (Settings > Account). Every NekoBooru endpoint requires a logged-in user
+     * now, so this is attached as `Authorization: Bearer <token>` on every
+     * request the app makes - see [com.nekobooru.app.data.ApiFactory].
+     */
+    var apiToken: String?
+        get() = prefs.getString(KEY_API_TOKEN, null)
+        set(value) = prefs.edit().putString(KEY_API_TOKEN, value).apply()
+
+    /** Username shown in Settings once logged in; purely cosmetic. */
+    var accountUsername: String?
+        get() = prefs.getString(KEY_ACCOUNT_USERNAME, null)
+        set(value) = prefs.edit().putString(KEY_ACCOUNT_USERNAME, value).apply()
+
     companion object {
         const val DEFAULT_SERVER_URL = "http://10.0.2.2:8000"
         private const val KEY_SERVER_URL = "server_url"
@@ -84,5 +99,7 @@ class AppSettings(context: Context) {
         private const val KEY_THEME = "theme_mode"
         private const val KEY_VISIBLE_SAFETY = "visible_safety"
         private const val KEY_LAST_SYNCED = "last_synced_at"
+        private const val KEY_API_TOKEN = "api_token"
+        private const val KEY_ACCOUNT_USERNAME = "account_username"
     }
 }

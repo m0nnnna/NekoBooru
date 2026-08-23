@@ -11,9 +11,9 @@ import java.io.IOException
  */
 object ConnectionTester {
 
-    suspend fun test(serverUrl: String): String {
+    suspend fun test(serverUrl: String, apiToken: String? = null): String {
         val target = ApiFactory.normalizeBaseUrl(serverUrl)
-        val api = ApiFactory.create(serverUrl)
+        val api = ApiFactory.create(serverUrl, apiToken)
 
         // 1) Is anything that looks like NekoBooru answering?
         try {
@@ -31,11 +31,11 @@ object ConnectionTester {
         try {
             api.getChanges(since = 0, limit = 1)
         } catch (e: HttpException) {
-            return if (e.code() == 404) {
-                "Connected to $target, but /api/sync is missing (HTTP 404). The server is " +
+            return when (e.code()) {
+                401 -> "Connected to $target, but you're not logged in. Log in under Account below, then test again."
+                404 -> "Connected to $target, but /api/sync is missing (HTTP 404). The server is " +
                     "running an older build — update it to one with the sync layer."
-            } else {
-                "Connected to $target, but /api/sync returned HTTP ${e.code()}."
+                else -> "Connected to $target, but /api/sync returned HTTP ${e.code()}."
             }
         } catch (e: IOException) {
             return diagnoseIo(e, target)

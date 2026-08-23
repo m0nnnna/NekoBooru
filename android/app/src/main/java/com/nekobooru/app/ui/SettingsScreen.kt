@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nekobooru.app.data.OfflinePolicy
@@ -84,6 +85,48 @@ fun SettingsScreen(vm: SettingsViewModel, onBack: () -> Unit) {
                     )
                 }
                 Text("Test connection")
+            }
+
+            HorizontalDivider()
+
+            Text("Account", style = MaterialTheme.typography.titleMedium)
+            if (state.loggedIn) {
+                Text(
+                    "Logged in as ${state.accountUsername}.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedButton(onClick = vm::logout) { Text("Log out") }
+            } else {
+                Text(
+                    "Log in with your NekoBooru account so the app can pull and add content " +
+                        "on your behalf.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = state.loginUsername,
+                    onValueChange = vm::onLoginUsernameChange,
+                    label = { Text("Username") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = state.loginPassword,
+                    onValueChange = vm::onLoginPasswordChange,
+                    label = { Text("Password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(onClick = vm::login, enabled = !state.loggingIn) {
+                    if (state.loggingIn) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(end = 8.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    Text("Log in")
+                }
             }
 
             HorizontalDivider()

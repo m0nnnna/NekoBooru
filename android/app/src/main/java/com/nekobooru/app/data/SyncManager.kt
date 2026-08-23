@@ -24,9 +24,10 @@ object SyncManager {
         val settings = AppSettings(appContext)
         val repo = SyncRepository(NekoDatabase.get(appContext))
         val url = settings.serverUrl
+        val token = settings.apiToken
         return runCatching {
-            repo.push(url)
-            repo.pull(url)
+            repo.push(url, token)
+            repo.pull(url, token)
             settings.lastSyncedAt = System.currentTimeMillis()
             // Offline caching is best-effort and must not fail the sync.
             runCatching {

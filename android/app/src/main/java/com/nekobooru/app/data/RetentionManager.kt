@@ -77,7 +77,7 @@ class RetentionManager(context: Context) {
      */
     private suspend fun cacheThumbnails(serverUrl: String, posts: List<PostEntity>) {
         thumbsDir.mkdirs()
-        val api = ApiFactory.create(serverUrl)
+        val api = ApiFactory.create(serverUrl, AppSettings(appContext).apiToken)
         val missing = posts.filter {
             it.thumbUrl.isNotBlank() && !File(thumbsDir, it.sha256 + ".jpg").exists()
         }
@@ -121,7 +121,7 @@ class RetentionManager(context: Context) {
         if (isCached(post.localOriginalPath)) return post.localOriginalPath
         if (post.contentUrl.isBlank()) return null
         return try {
-            val api = ApiFactory.create(serverUrl)
+            val api = ApiFactory.create(serverUrl, AppSettings(appContext).apiToken)
             val url = ApiFactory.absoluteUrl(serverUrl, post.contentUrl)
             val body = api.download(url)
             val out: String = if (tree != null) {

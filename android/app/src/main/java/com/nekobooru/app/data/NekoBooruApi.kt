@@ -58,6 +58,15 @@ interface NekoBooruApi {
     @Streaming
     @GET
     suspend fun download(@Url url: String): ResponseBody
+
+    /**
+     * Username/password -> a fresh API token. Every other endpoint requires a
+     * logged-in user now; this is how the app obtains a bearer token to send
+     * as `Authorization: Bearer <token>` without holding a session cookie
+     * (see the matching comment on the backend route).
+     */
+    @POST("api/auth/token-login")
+    suspend fun tokenLogin(@Body body: TokenLoginRequestDto): TokenLoginResponseDto
 }
 
 /** Builds a [NekoBooruApi] bound to a given server base URL (e.g. http://10.0.2.2:8000/). */
@@ -67,22 +76,40 @@ object ApiFactory {
         coerceInputValues = true
     }
 
-    fun create(baseUrl: String): NekoBooruApi {
+    fun create(baseUrl: String, apiToken: String? = null): NekoBooruApi {
         val normalized = normalizeBaseUrl(baseUrl)
-        // Log requests to logcat (tag: OkHttp) so connection issues are diagnosable.
-        // Cleartext, LAN-only app, so logging the body is acceptable here.
-        val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
-        val client = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .addInterceptor(logging)
-            .build()
         return Retrofit.Builder()
             .baseUrl(normalized)
-            .client(client)
+            .client(authenticatedHttpClient(apiToken))
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
             .create(NekoBooruApi::class.java)
+    }
+
+    /**
+     * An [OkHttpClient] that attaches the stored token as a Bearer header, for
+     * use anywhere that talks to the instance outside Retrofit - Coil's global
+     * image loader and ExoPlayer's media source both stream `contentUrl`/
+     * `thumbUrl` directly and need the same header every other request gets.
+     */
+    fun authenticatedHttpClient(apiToken: String?): OkHttpClient {
+        // Log requests to logcat (tag: OkHttp) so connection issues are diagnosable.
+        // Cleartext, LAN-only app, so logging the body is acceptable here.
+        val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(logging)
+        if (!apiToken.isNullOrBlank()) {
+            builder.addInterceptor { chain ->
+                chain.proceed(
+                    chain.request().newBuilder()
+                        .header("Authorization", "Bearer $apiToken")
+                        .build()
+                )
+            }
+        }
+        return builder.build()
     }
 
     /**

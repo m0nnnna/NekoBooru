@@ -17,8 +17,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import com.nekobooru.app.data.AppSettings
 
 /**
  * In-app video playback (Media3/ExoPlayer), matching the website's
@@ -32,12 +36,24 @@ import androidx.media3.ui.PlayerView
 fun VideoPlayer(uri: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val player = remember(uri) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(uri))
-            repeatMode = Player.REPEAT_MODE_ALL   // loop
-            playWhenReady = true                  // autoplay
-            prepare()
+        // A streamed `uri` (server contentUrl) now requires a logged-in user;
+        // a local file://content:// uri (cached original) doesn't touch the
+        // network at all, and DefaultDataSource dispatches to it unchanged.
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory().apply {
+            AppSettings(context).apiToken?.takeIf { it.isNotBlank() }?.let { token ->
+                setDefaultRequestProperties(mapOf("Authorization" to "Bearer $token"))
+            }
         }
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .build()
+            .apply {
+                setMediaItem(MediaItem.fromUri(uri))
+                repeatMode = Player.REPEAT_MODE_ALL   // loop
+                playWhenReady = true                  // autoplay
+                prepare()
+            }
     }
     DisposableEffect(uri) {
         onDispose { player.release() }
