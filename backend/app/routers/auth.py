@@ -45,6 +45,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class TokenLoginRequest(BaseModel):
+    username: str
+    password: str
+    label: str = "Browser Extension"
+
+
 class CreateUserRequest(BaseModel):
     username: str
     password: str
@@ -80,6 +86,16 @@ def _set_session_cookie(response: Response, session_id: str) -> None:
 async def _has_any_user(db: AsyncSession) -> bool:
     result = await db.execute(select(func.count(User.id)))
     return (result.scalar() or 0) > 0
+
+
+async def _authenticate(db: AsyncSession, username: str, password: str) -> User:
+    result = await db.execute(select(User).where(User.username == username.strip()))
+    user = result.scalars().first()
+    if user is None or not verify_password(password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="This account has been deactivated")
+    return user
 
 
 @router.get("/status")
@@ -128,17 +144,30 @@ async def bootstrap_admin(payload: BootstrapAdminRequest, response: Response, db
 
 @router.post("/login")
 async def login(payload: LoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.username == payload.username.strip()))
-    user = result.scalars().first()
-    if user is None or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="This account has been deactivated")
-
+    user = await _authenticate(db, payload.username, payload.password)
     session_id = await create_session(db, user.id, request.headers.get("user-agent"))
     await db.commit()
     _set_session_cookie(response, session_id)
     return user.to_dict()
+
+
+@router.post("/token-login")
+async def token_login(payload: TokenLoginRequest, db: AsyncSession = Depends(get_db)):
+    """Username/password -> a fresh API token, for clients that can't hold a session cookie.
+
+    A browser extension page is a different site from the instance, so a
+    SameSite=Lax session cookie set here would never make it back on the
+    extension's later cross-site fetches. Skipping the cookie and minting a
+    bearer token in the same request lets the extension options page offer a
+    normal login form instead of asking the user to paste a token generated
+    in the web UI.
+    """
+    user = await _authenticate(db, payload.username, payload.password)
+    token, raw_token = await generate_api_token(db, user.id, payload.label)
+    await db.commit()
+    data = user.to_dict()
+    data["token"] = raw_token
+    return data
 
 
 @router.post("/logout")

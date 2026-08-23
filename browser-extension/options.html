@@ -33,13 +33,37 @@
       browser. Include the port if needed (e.g. <code>http://192.168.1.50:8000</code>).
     </p>
 
-    <label class="field-label" for="api-token">API Token</label>
-    <input id="api-token" type="password" placeholder="Paste a token generated in the web UI" />
-    <p class="help">
-      NekoBooru accounts are private now, so the extension needs its own token to act as
-      you. Log in to the web UI, open <strong>Settings → Account &amp; Sharing</strong>,
-      generate a token there, and paste it here.
-    </p>
+    <section id="login-section" class="options-section">
+      <h2>Account</h2>
+      <div id="logged-out-view">
+        <p class="help">
+          Log in with your NekoBooru account so the extension can add and pull content
+          on your behalf.
+        </p>
+        <label class="field-label" for="login-username">Username</label>
+        <input id="login-username" type="text" autocomplete="username" />
+        <label class="field-label" for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" />
+        <div class="row">
+          <button id="login" class="btn">Log in</button>
+        </div>
+      </div>
+      <div id="logged-in-view" class="hidden">
+        <p class="help">Logged in as <strong id="logged-in-username"></strong>.</p>
+        <div class="row">
+          <button id="logout" class="btn" style="background: var(--bg-tertiary); color: var(--text-primary);">Log out</button>
+        </div>
+      </div>
+      <details style="margin-top: 0.75rem;">
+        <summary style="cursor: pointer; color: var(--text-secondary); font-size: 0.85rem;">Use an API token instead</summary>
+        <label class="field-label" for="api-token">API Token</label>
+        <input id="api-token" type="password" placeholder="Paste a token generated in the web UI" />
+        <p class="help">
+          Generated in the web UI under <strong>Settings → Account &amp; Sharing</strong>.
+          Only needed if you'd rather not store your password-derived token via login above.
+        </p>
+      </details>
+    </section>
 
     <section class="options-section">
       <h2>Upload metadata</h2>

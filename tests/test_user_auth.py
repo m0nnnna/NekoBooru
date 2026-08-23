@@ -293,6 +293,31 @@ class AuthApiTests(unittest.TestCase):
             self.client.cookies.clear()
             self.client.cookies.update(saved_cookies)
 
+    def test_13_token_login_issues_a_bearer_token_without_a_session_cookie(self):
+        """The browser extension's options page logs in with username/password
+        directly against this endpoint rather than pasting a token generated in
+        the web UI - it must hand back a usable token and set no session cookie
+        (that cookie would never survive the extension's cross-site fetches).
+        """
+        self.client.cookies.clear()
+        resp = self.client.post(
+            "/api/auth/token-login", json={"username": "bob", "password": "hunter2222", "label": "Browser Extension"}
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        data = resp.json()
+        self.assertEqual(data["username"], "bob")
+        self.assertTrue(data["token"])
+        self.assertNotIn("neko_session", self.client.cookies)
+
+        raw_token = data["token"]
+        self.client.cookies.clear()
+        me = self.client.get("/api/auth/me", headers={"Authorization": f"Bearer {raw_token}"})
+        self.assertEqual(me.status_code, 200, me.text)
+        self.assertEqual(me.json()["username"], "bob")
+
+        bad = self.client.post("/api/auth/token-login", json={"username": "bob", "password": "wrong"})
+        self.assertEqual(bad.status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()
