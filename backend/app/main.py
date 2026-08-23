@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 
 from .config import settings, get_bundle_dir
 from .database import init_db
-from .routers import uploads, upload_jobs, posts, tags, pools, notes, comments, sync, auto_tags, runtime, updates, site_imports, settings as settings_router
+from .routers import uploads, upload_jobs, posts, tags, pools, notes, comments, sync, auto_tags, runtime, updates, site_imports, settings as settings_router, auth as auth_router
 
 # Configure logging
 logging.basicConfig(
@@ -50,18 +50,20 @@ app = FastAPI(
 )
 
 # CORS middleware. Restricted to local origins by default (see
-# settings.cors_origins). The app uses no cookies/auth, so credentials are not
-# allowed; widen NEKO_CORS_ORIGINS only if you deliberately serve the web UI to
-# another device's browser.
+# settings.cors_origins). Login uses an httpOnly session cookie, so credentials
+# must be allowed; cors_origin_list is always an explicit list (never "*"), so
+# this is safe. Widen NEKO_CORS_ORIGINS only if you deliberately serve the web
+# UI to another device's browser.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Include routers (must be before static file serving)
+app.include_router(auth_router.router)
 app.include_router(uploads.router)
 app.include_router(upload_jobs.router)
 app.include_router(posts.router)

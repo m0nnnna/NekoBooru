@@ -29,6 +29,8 @@ class UploadJob(Base):
     __tablename__ = "upload_jobs"
 
     id = Column(String(36), primary_key=True, default=_uuid)
+    # Nullable only for rows created before the multi-user migration ran.
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     kind = Column(String(32), nullable=False, index=True)
     status = Column(String(32), nullable=False, default="created", index=True)
     operation = Column(String(32), nullable=True)

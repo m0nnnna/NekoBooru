@@ -90,6 +90,49 @@ def _migrate(conn):
             f"CREATE UNIQUE INDEX IF NOT EXISTS ix_{table}_uuid ON {table}(uuid)"
         )
 
+    # Multi-user: ownership columns. Nullable at the DB level - NULL means
+    # "not yet claimed" and is only possible on a pre-existing install before
+    # its first-admin bootstrap runs (see routers/auth.py), which backfills
+    # every such row to the new admin in one transaction.
+    for table in ("posts", "pools", "upload_jobs", "auto_tag_jobs"):
+        if not _column_exists(conn, table, "owner_id"):
+            conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN owner_id INTEGER REFERENCES users(id)")
+            conn.exec_driver_sql(
+                f"CREATE INDEX IF NOT EXISTS ix_{table}_owner_id ON {table}(owner_id)"
+            )
+
+    # sync_log: NULL user_id = a global/shared-vocabulary change (tags);
+    # non-NULL = scoped to that user's own library.
+    if not _column_exists(conn, "sync_log", "user_id"):
+        conn.exec_driver_sql("ALTER TABLE sync_log ADD COLUMN user_id INTEGER REFERENCES users(id)")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sync_log_user_id ON sync_log(user_id)")
+
+    # favorites: was UNIQUE(post_id) system-wide; multi-user needs
+    # UNIQUE(post_id, user_id) so each user favorites independently. SQLite
+    # compiles a column-level unique=True into a table constraint that can't
+    # be altered directly, so this rebuilds the table instead of ALTERing it.
+    if not _column_exists(conn, "favorites", "user_id"):
+        conn.exec_driver_sql("ALTER TABLE favorites RENAME TO favorites_old")
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE favorites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id),
+                created_at DATETIME,
+                UNIQUE(post_id, user_id)
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO favorites (id, post_id, user_id, created_at) "
+            "SELECT id, post_id, NULL, created_at FROM favorites_old"
+        )
+        conn.exec_driver_sql("DROP TABLE favorites_old")
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_favorites_user_id ON favorites(user_id)"
+        )
+
     conn.exec_driver_sql(
         "CREATE INDEX IF NOT EXISTS ix_post_ai_analysis_post_id ON post_ai_analysis(post_id)"
     )

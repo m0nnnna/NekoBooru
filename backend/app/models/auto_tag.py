@@ -8,6 +8,11 @@ class AutoTagJob(Base):
     __tablename__ = "auto_tag_jobs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # Nullable only for rows created before the multi-user migration ran.
+    # Bulk jobs only ever process posts owned by this user; the GPU/model
+    # locks in auto_tagger.py stay instance-wide (a hardware constraint, not
+    # a privacy one), so this does not add per-owner concurrency.
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     status = Column(String(20), nullable=False, default="queued", index=True)
     mode = Column(String(32), nullable=False, default="lightly_tagged")
     dry_run = Column(Boolean, default=False)

@@ -28,3 +28,6 @@ class SyncLog(Base):
     entity_key = Column(String(255), nullable=False, index=True)
     op = Column(String(10), nullable=False)  # "upsert" | "delete"
     ts = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # NULL = a global/shared-vocabulary change (tags), visible to every
+    # syncing client. Non-NULL scopes the row to that user's own library.
+    user_id = Column(Integer, nullable=True, index=True)

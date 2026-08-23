@@ -5,6 +5,9 @@ async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`
   const config = {
     ...options,
+    // Send the httpOnly session cookie even when the frontend dev server
+    // (:5173) proxies to the backend (:8772) as a different origin.
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -28,6 +31,13 @@ async function request(endpoint, options = {}) {
       const thrown = new Error(message || `HTTP ${response.status}`)
       thrown.detail = detail
       thrown.status = response.status
+      // Let a single listener (see main.js) clear auth state and redirect to
+      // /login, instead of every call site checking response.status itself.
+      // The auth endpoints handle their own 401s (wrong password, expired
+      // bootstrap window) inline, so they opt out of the global redirect.
+      if (response.status === 401 && !endpoint.startsWith('/auth/')) {
+        window.dispatchEvent(new CustomEvent('neko:unauthorized'))
+      }
       throw thrown
     }
 
@@ -695,6 +705,77 @@ export const api = {
 
   async checkForUpdates() {
     return request('/updates/check', { method: 'POST' })
+  },
+
+  // Auth
+  async getAuthStatus() {
+    return request('/auth/status')
+  },
+
+  async bootstrapAdmin(username, password) {
+    return request('/auth/bootstrap-admin', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    })
+  },
+
+  async login(username, password) {
+    return request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    })
+  },
+
+  async logout() {
+    return request('/auth/logout', { method: 'POST' })
+  },
+
+  async getMe() {
+    return request('/auth/me')
+  },
+
+  async getUsers() {
+    return request('/auth/users')
+  },
+
+  async createUser(data) {
+    return request('/auth/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async updateUser(id, data) {
+    return request(`/auth/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async getShares() {
+    return request('/auth/shares')
+  },
+
+  async setShares(granteeUsernames) {
+    return request('/auth/shares', {
+      method: 'PUT',
+      body: JSON.stringify({ granteeUsernames }),
+    })
+  },
+
+  async getApiTokens() {
+    return request('/auth/tokens')
+  },
+
+  async createApiToken(label) {
+    return request('/auth/tokens', {
+      method: 'POST',
+      body: JSON.stringify({ label }),
+    })
+  },
+
+  async deleteApiToken(id) {
+    return request(`/auth/tokens/${id}`, { method: 'DELETE' })
   },
 }
 

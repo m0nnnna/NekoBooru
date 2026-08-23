@@ -1,6 +1,6 @@
 <template>
   <div id="app" :class="{ 'dark-mode': isDarkMode }">
-    <header class="app-header">
+    <header class="app-header" v-if="!route.meta.public">
       <div class="header-left">
         <router-link to="/" class="logo">
           <span class="logo-ears" aria-hidden="true"></span>
@@ -13,10 +13,13 @@
           <router-link to="/upload">Upload</router-link>
           <router-link to="/stats">Stats</router-link>
           <router-link to="/settings">Settings</router-link>
+          <router-link v-if="authStore.isAdmin" to="/admin/users">Users</router-link>
         </nav>
       </div>
       <div class="header-right">
         <SearchBar />
+        <span v-if="authStore.user" class="current-user">{{ authStore.user.username }}</span>
+        <button v-if="authStore.isAuthenticated" class="btn btn-secondary btn-sm" @click="handleLogout">Log out</button>
         <button class="theme-toggle desktop-theme-toggle" @click="toggleDarkMode" :title="isDarkMode ? 'Light mode' : 'Dark mode'">
           {{ isDarkMode ? '&#9788;' : '&#9789;' }}
         </button>
@@ -37,17 +40,19 @@
         <router-link to="/upload" @click="closeMobileMenu">Upload</router-link>
         <router-link to="/stats" @click="closeMobileMenu">Stats</router-link>
         <router-link to="/settings" @click="closeMobileMenu">Settings</router-link>
+        <router-link v-if="authStore.isAdmin" to="/admin/users" @click="closeMobileMenu">Users</router-link>
+        <button v-if="authStore.isAuthenticated" class="mobile-theme-toggle" @click="handleLogout">Log out</button>
         <button class="mobile-theme-toggle" @click="toggleDarkMode">
           {{ isDarkMode ? '&#9788; Light Mode' : '&#9789; Dark Mode' }}
         </button>
       </nav>
     </div>
 
-    <BackendStatus />
+    <BackendStatus v-if="!route.meta.public" />
     <main class="app-main">
       <router-view />
     </main>
-    <footer class="neko-footer">
+    <footer class="neko-footer" v-if="!route.meta.public">
       <span class="paw-trail">&#x1F43E; &#x1F43E; &#x1F43E;</span>
     </footer>
   </div>
@@ -55,13 +60,21 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import SearchBar from './components/SearchBar.vue'
 import BackendStatus from './components/BackendStatus.vue'
+import { useAuthStore } from './stores/auth'
 
 const isDarkMode = ref(true)
 const mobileMenuOpen = ref(false)
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
+
+async function handleLogout() {
+  await authStore.logout()
+  router.push({ name: 'login' })
+}
 
 onMounted(() => {
   const saved = localStorage.getItem('darkMode')
@@ -302,6 +315,12 @@ button {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.current-user {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  white-space: nowrap;
 }
 
 .theme-toggle {

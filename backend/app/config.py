@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     auto_tagger_max_tags: int = 40
     auto_tagger_apply_safety: bool = True
 
+    # Multi-user auth. Session cookies default to non-Secure because the app
+    # binds loopback/LAN plain HTTP by default; flip session_cookie_secure to
+    # true once you put NekoBooru behind HTTPS (a browser silently drops
+    # Secure cookies over plain HTTP, which would make login look broken).
+    session_ttl_days: int = 30
+    session_cookie_secure: bool = False
+
     # Server settings
     # Bind to loopback by default so the API is reachable only from this
     # machine. The app has no authentication, so exposing it on a network gives

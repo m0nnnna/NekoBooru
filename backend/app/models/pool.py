@@ -14,6 +14,9 @@ class Pool(Base):
     __tablename__ = "pools"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # Nullable only for rows created before the multi-user migration ran;
+    # the bootstrap-admin flow backfills every such row to the first admin.
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     # Stable cross-device identity for sync (server id is local-only).
     uuid = Column(String(36), unique=True, nullable=False, index=True, default=_new_uuid)
     name = Column(String(255), nullable=False)

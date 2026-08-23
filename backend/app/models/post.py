@@ -38,6 +38,9 @@ class Post(Base):
     __tablename__ = "posts"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # Nullable only for rows created before the multi-user migration ran;
+    # the bootstrap-admin flow backfills every such row to the first admin.
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     sha256 = Column(String(64), unique=True, nullable=False, index=True)
     filename = Column(String(255), nullable=False)
     extension = Column(String(10), nullable=False)

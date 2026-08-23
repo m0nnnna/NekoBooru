@@ -1,6 +1,19 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 
 const routes = [
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('../views/LoginView.vue'),
+    meta: { public: true },
+  },
+  {
+    path: '/admin/users',
+    name: 'admin-users',
+    component: () => import('../views/AdminUsersView.vue'),
+    meta: { requiresAdmin: true },
+  },
   {
     path: '/',
     name: 'home',
@@ -46,6 +59,30 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+})
+
+router.beforeEach(async (to) => {
+  const authStore = useAuthStore()
+
+  // main.js resolves this once before the app mounts; guard against a
+  // reload racing that init by resolving it here too if it somehow hasn't.
+  if (!authStore.resolved) {
+    await authStore.init()
+  }
+
+  if (to.meta.public) {
+    return true
+  }
+
+  if (!authStore.isAuthenticated) {
+    return { name: 'login', query: to.fullPath !== '/' ? { redirect: to.fullPath } : undefined }
+  }
+
+  if (to.meta.requiresAdmin && !authStore.isAdmin) {
+    return { name: 'home' }
+  }
+
+  return true
 })
 
 export default router
