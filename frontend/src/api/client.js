@@ -738,6 +738,10 @@ export const api = {
     return request('/auth/users')
   },
 
+  async getDirectory() {
+    return request('/auth/directory')
+  },
+
   async createUser(data) {
     return request('/auth/users', {
       method: 'POST',

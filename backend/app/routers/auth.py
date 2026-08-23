@@ -145,6 +145,19 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
     return {"ok": True}
 
 
+@router.get("/directory")
+async def list_directory(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Other active usernames - enough for any user to pick who to share with.
+
+    Unlike GET /users (admin-only, full account details), this is available
+    to every logged-in user and returns just usernames.
+    """
+    result = await db.execute(
+        select(User.username).where(User.id != current_user.id, User.is_active.is_(True)).order_by(User.username)
+    )
+    return [row[0] for row in result.all()]
+
+
 @router.get("/me")
 async def me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     shared_with_me = await db.execute(
