@@ -165,6 +165,17 @@ def _migrate(conn):
     # "_old" table last (children before parents, so nothing still
     # references what's being dropped) - avoids that entirely.
     #
+    # post_tags.tag_id and tag_implications.antecedent_id/consequent_id are
+    # NOT part of this trio but still reference tags(id) ON DELETE CASCADE,
+    # so they get the exact same silent FK rewrite the moment "tags" is
+    # renamed to "tags_old" - and SQLite honors ON DELETE CASCADE on a DROP
+    # TABLE the same as on a DELETE, so the final "DROP TABLE tags_old"
+    # below silently deleted every row of both tables (an earlier build of
+    # this migration didn't rebuild them here and shipped that data loss).
+    # They're rebuilt in the same three passes as the trio - renamed here,
+    # recreated further down once "tags" exists again, dropped last - so by
+    # the time tags_old is dropped nothing still cascade-references it.
+    #
     # Gated on *any* of the three still missing owner_id, and all three are
     # always rebuilt together (never just the missing ones) so the FK chain
     # above stays intact. A table that already has owner_id (e.g. a dev
@@ -186,12 +197,14 @@ def _migrate(conn):
         # Reverse dependency order (children before parents), same reasoning
         # as the real drop pass below: a leftover tag_aliases_old could
         # itself hold a live FK to a leftover tags_old.
-        for table in ("tag_aliases", "tags", "tag_categories"):
+        for table in ("tag_aliases", "post_tags", "tag_implications", "tags", "tag_categories"):
             conn.exec_driver_sql(f"DROP TABLE IF EXISTS {table}_old")
 
         conn.exec_driver_sql("ALTER TABLE tag_categories RENAME TO tag_categories_old")
         conn.exec_driver_sql("ALTER TABLE tags RENAME TO tags_old")
         conn.exec_driver_sql("ALTER TABLE tag_aliases RENAME TO tag_aliases_old")
+        conn.exec_driver_sql("ALTER TABLE post_tags RENAME TO post_tags_old")
+        conn.exec_driver_sql("ALTER TABLE tag_implications RENAME TO tag_implications_old")
 
         conn.exec_driver_sql(
             """
@@ -248,7 +261,43 @@ def _migrate(conn):
             "FROM tag_aliases_old"
         )
 
+        # "tags" (the new one, live again) exists by this point, so these
+        # REFERENCES clauses bind to it directly rather than getting rewritten.
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE post_tags (
+                post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+                tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                PRIMARY KEY (post_id, tag_id)
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO post_tags (post_id, tag_id) SELECT post_id, tag_id FROM post_tags_old"
+        )
+
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE tag_implications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                antecedent_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                consequent_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO tag_implications (id, antecedent_id, consequent_id) "
+            "SELECT id, antecedent_id, consequent_id FROM tag_implications_old"
+        )
+
+        # Children before parents: post_tags_old/tag_implications_old/
+        # tag_aliases_old all still carry a live ON DELETE CASCADE reference
+        # to tags_old, so they must be dropped before tags_old is - dropping
+        # tags_old first would cascade-delete the very rows just copied out
+        # of them (this is exactly the data loss described above).
         conn.exec_driver_sql("DROP TABLE tag_aliases_old")
+        conn.exec_driver_sql("DROP TABLE post_tags_old")
+        conn.exec_driver_sql("DROP TABLE tag_implications_old")
         conn.exec_driver_sql("DROP TABLE tags_old")
         conn.exec_driver_sql("DROP TABLE tag_categories_old")
 
@@ -261,6 +310,62 @@ def _migrate(conn):
         conn.exec_driver_sql(
             "CREATE INDEX IF NOT EXISTS ix_tag_aliases_alias_name ON tag_aliases(alias_name)"
         )
+
+    # Repair for an install that already ran an earlier, buggy build of the
+    # rebuild above (one that didn't know about post_tags/tag_implications -
+    # see the comment on the block above). That build left "tags" itself
+    # fine, but post_tags.tag_id and tag_implications.antecedent_id/
+    # consequent_id still say "REFERENCES tags_old(id)" in their stored
+    # schema - a table that no longer exists, since it was dropped at the
+    # end of that migration (which is also what silently cascade-deleted
+    # every row of both tables at that moment). The dangling reference then
+    # makes every subsequent INSERT into either table fail outright with
+    # "no such table: main.tags_old" under PRAGMA foreign_keys=ON, so a post
+    # or an implication can never regain a tag. This runs unconditionally
+    # (not gated on had_*_owner above, since that gate is already satisfied
+    # on an install this happened to) and just repoints the schema at the
+    # live "tags" table - it cannot recover rows already lost to the
+    # cascade, only stop the ongoing breakage.
+    def _references_stale_tags_table(table: str) -> bool:
+        row = conn.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=:t", {"t": table}
+        ).fetchone()
+        return bool(row) and "tags_old" in row[0]
+
+    if _references_stale_tags_table("post_tags"):
+        conn.exec_driver_sql("DROP TABLE IF EXISTS post_tags_old")
+        conn.exec_driver_sql("ALTER TABLE post_tags RENAME TO post_tags_old")
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE post_tags (
+                post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+                tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                PRIMARY KEY (post_id, tag_id)
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO post_tags (post_id, tag_id) SELECT post_id, tag_id FROM post_tags_old"
+        )
+        conn.exec_driver_sql("DROP TABLE post_tags_old")
+
+    if _references_stale_tags_table("tag_implications"):
+        conn.exec_driver_sql("DROP TABLE IF EXISTS tag_implications_old")
+        conn.exec_driver_sql("ALTER TABLE tag_implications RENAME TO tag_implications_old")
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE tag_implications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                antecedent_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                consequent_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO tag_implications (id, antecedent_id, consequent_id) "
+            "SELECT id, antecedent_id, consequent_id FROM tag_implications_old"
+        )
+        conn.exec_driver_sql("DROP TABLE tag_implications_old")
 
     # Legacy backfill: an install that already had users before this
     # migration ran left its tags/categories/aliases owner_id NULL (they

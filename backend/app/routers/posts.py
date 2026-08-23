@@ -1263,6 +1263,7 @@ async def _bulk_optimize_posts_impl(
             if request.applyMode == "create":
                 variant = "social" if compatibility == "social" else "optimized"
                 new_post = Post(
+                    owner_id=post.owner_id,
                     sha256=new_sha,
                     filename=f"{Path(post.filename).stem}_{variant}{output_extension}",
                     extension=output_extension,
@@ -1276,7 +1277,9 @@ async def _bulk_optimize_posts_impl(
                 )
                 db.add(new_post)
                 await db.flush()
-                await apply_tags_for_post(db, new_post.id, [tag.name for tag in (post.tags or [])])
+                await apply_tags_for_post(
+                    db, new_post.id, [tag.name for tag in (post.tags or [])], owner_id=post.owner_id
+                )
                 optimized += 1
                 results.append({
                     "postId": post.id,
