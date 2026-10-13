@@ -2,7 +2,9 @@
   // Where the import buttons go on each site's page (Danbooru, Gelbooru,
   // Pixiv, Sankaku), plus the import page's post body, progress text and
   // media selection. Part of globalThis.NekoBooruSiteImport (see
-  // site-import-core.js). No dependencies.
+  // site-import-core.js). The post body and progress text come from
+  // booru-import-rules.js, which loads first.
+  const rules = root.NekoBooruImportRules || require('./booru-import-rules.js')
 
   // "Posts | Artist" over a Danbooru search: the import goes right of the last
   // of those links (Artist, or a wiki link, else Posts) in the same item.
@@ -35,18 +37,20 @@
     return { list, after: after && after.parentElement === list ? after : null }
   }
 
+  // The post body itself is booru-import-rules.js's; the extension picks the
+  // source fallback and runs AI tagging on Pixiv imports only.
   function siteImportPostBody(job, item, contentToken) {
     const pixiv = job?.kind === 'pixiv'
-    return {
+    return rules.importPostBody({
       contentToken,
-      safety: item?.safety || 'safe',
-      tags: item?.tags || [],
-      tagCategories: item?.tagCategories || {},
-      tagDisplayNames: item?.tagDisplayNames || {},
+      safety: item?.safety,
+      tags: item?.tags,
+      tagCategories: item?.tagCategories,
+      tagDisplayNames: item?.tagDisplayNames,
       source: item?.source || job?.canonicalUrl,
       autoTag: pixiv,
       autoTagProfile: pixiv ? 'pixiv_import' : 'gelbooru_import',
-    }
+    })
   }
 
   function selectGelbooruActionFavorite(controls) {
@@ -184,21 +188,6 @@
     return null
   }
 
-  // "Downloading original… 12.3 / 36.0 MB (34%) · 180 KB/s · 70s". The rate
-  // shows a slow source (Sankaku throttles video) for what it is.
-  function downloadProgressText(progress, elapsedMs) {
-    const received = Math.max(0, Number(progress?.received) || 0)
-    const total = Math.max(0, Number(progress?.total) || 0)
-    const seconds = Math.max(0, Math.round((Number(elapsedMs) || 0) / 1000))
-    const megabytes = (bytes) => (bytes / 1048576).toFixed(1)
-    const parts = [total
-      ? `${megabytes(received)} / ${megabytes(total)} MB (${Math.min(100, Math.floor((received * 100) / total))}%)`
-      : `${megabytes(received)} MB`]
-    if (seconds > 0 && received > 0) parts.push(`${Math.round(received / 1024 / seconds)} KB/s`)
-    parts.push(`${seconds}s`)
-    return `Downloading original… ${parts.join(' · ')}`
-  }
-
   function selectedSiteImportMedia(media, selectedIndexes) {
     const selected = new Set(Array.from(selectedIndexes || []).map((value) => Number(value)))
     return Array.from(media || []).filter((item, i) => selected.has(Number.isInteger(item?.index) ? item.index : i))
@@ -212,7 +201,7 @@
     selectPixivShareControl,
     selectSankakuFlagControl,
     selectedSiteImportMedia,
-    downloadProgressText,
+    downloadProgressText: rules.downloadProgressText,
     siteImportPostBody,
   }
   root.NekoBooruSiteImportControls = api

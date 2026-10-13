@@ -12,6 +12,9 @@ const els = {
 }
 let instanceUrl = ''
 const siteImportCore = globalThis.NekoBooruSiteImport
+// The post body, duplicate merge, pacing and back-off (booru-import-rules.js),
+// shared with the web app's import queue.
+const rules = globalThis.NekoBooruImportRules
 const SITE_LABELS = {
   gelbooru: 'Gelbooru',
   gelbooru_search: 'Gelbooru',
@@ -21,11 +24,9 @@ const SITE_LABELS = {
   sankaku: 'Sankaku',
 }
 const BATCH_KINDS = new Set(['danbooru_search', 'gelbooru_search'])
-// A search page imports one post after another, never in parallel, with a
-// pause between downloads so a big page cannot trip the site's limits. A
-// 429/503 backs off and retries rather than failing the post.
-const BATCH_DOWNLOAD_GAP_MS = 1500
-const BATCH_RETRY_DELAYS_MS = [10000, 30000, 60000]
+// A search page imports one post after another, never in parallel, with
+// rules.DOWNLOAD_GAP_MS between downloads; a 429/503 backs off and retries
+// rather than failing the post.
 
 init()
 
@@ -203,7 +204,7 @@ async function importAll(job) {
         setItem(rowIndex, 'done', `Already existed · not downloaded · tags merged · post #${merged.id}`)
         downloadedLast = false
       } else {
-        if (batch && downloadedLast) await sleep(BATCH_DOWNLOAD_GAP_MS)
+        if (batch && downloadedLast) await sleep(rules.DOWNLOAD_GAP_MS)
         const result = batch
           ? await importWithBackoff(job, item, rowIndex)
           : await importOne(job, item, (text) => setItem(rowIndex, 'working', text))
@@ -259,11 +260,10 @@ async function importWithBackoff(job, item, rowIndex) {
     try {
       return await importOne(job, item, (text) => setItem(rowIndex, 'working', text))
     } catch (error) {
-      const message = error?.message || String(error)
-      const delay = BATCH_RETRY_DELAYS_MS[attempt]
-      if (!/HTTP (429|503)\b/.test(message) || delay === undefined) throw error
+      const delay = rules.throttleDelayMs(error, attempt)
+      if (delay === null) throw error
       const site = SITE_LABELS[job.kind] || 'The site'
-      setItem(rowIndex, 'working', `${site} asked to slow down · retrying in ${Math.round(delay / 1000)} s…`)
+      setItem(rowIndex, 'working', rules.slowDownText(site, delay))
       setStatus(`${site} is rate limiting; waiting ${Math.round(delay / 1000)} s before retrying.`, 'working')
       await sleep(delay)
     }
@@ -328,7 +328,7 @@ async function importOne(job, item, onProgress = () => {}) {
   })
   const data = await response.json().catch(() => ({}))
   if (response.ok) return { id: data.id, duplicate: false }
-  if (response.status !== 409 || data.detail?.code !== 'duplicate_post') {
+  if (!rules.isDuplicatePost(response.status, data.detail)) {
     throw new Error(formatError(data.detail || `Post creation failed (HTTP ${response.status}).`))
   }
   return mergeDuplicate(job, data.detail, item)
@@ -362,24 +362,14 @@ function followDownload(progressId, onProgress) {
 }
 
 async function mergeDuplicate(job, detail, item) {
-  let post = detail.post || {}
-  const postId = Number(detail.postId || post.id)
-  if (!postId) throw new Error('The original already exists, but NekoBooru did not return its post ID.')
-  if (detail.deleted || post.deletedAt) {
-    post = await api(`${instanceUrl}/api/posts/${postId}/restore`, { method: 'POST' })
-  }
-  const tags = [...new Set([...(post.tags || []), ...(item.tags || [])])]
-  const safety = stricterSafety(post.safety, item.safety)
+  const { postId, post: found, deleted } = rules.duplicateTarget(detail)
+  const post = deleted
+    ? await api(`${instanceUrl}/api/posts/${postId}/restore`, { method: 'POST' })
+    : found
   await api(`${instanceUrl}/api/posts/${postId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      tags,
-      safety,
-      source: post.source || item.source || null,
-      tagCategories: item.tagCategories || {},
-      tagDisplayNames: item.tagDisplayNames || {},
-    }),
+    body: JSON.stringify(rules.mergePostBody(post, item)),
   })
   if (job.kind === 'pixiv') {
     setStatus(`Post #${postId} already exists; running and saving its AI tags…`, 'working')
@@ -390,11 +380,6 @@ async function mergeDuplicate(job, detail, item) {
     })
   }
   return { id: postId, duplicate: true }
-}
-
-function stricterSafety(first, second) {
-  const order = ['safe', 'sketchy', 'unsafe']
-  return order[Math.max(order.indexOf(first), order.indexOf(second), 0)]
 }
 
 async function api(url, options) {

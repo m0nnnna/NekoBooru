@@ -2,7 +2,9 @@
   // Site-import helpers every importer shares: tag normalizing, the post-ID
   // and host checks, and the sanitizing of what crosses from a content
   // script. Part of globalThis.NekoBooruSiteImport (see site-import-core.js);
-  // load before site-import-sankaku.js and site-import-core.js.
+  // load after booru-import-rules.js and before site-import-sankaku.js and
+  // site-import-core.js.
+  const rules = root.NekoBooruImportRules || require('./booru-import-rules.js')
 
   function normalizeTag(raw) {
     return String(raw || '')
@@ -102,16 +104,10 @@
     return ['q', 'questionable', 's', 'sensitive'].includes(rating) ? 'sketchy' : 'safe'
   }
 
-  // NekoBooru flattens tag names to letters, digits and _ : . - only, so a
-  // Danbooru tag like "seitokai_ni_mo_ana_wa_aru!" keeps its spelling only as
-  // the display name - which is also what the tag menu's booru searches use.
+  // Display names keyed by the tag as given (booru-import-rules.js owns the
+  // rule).
   function booruDisplayNames(tags) {
-    const names = {}
-    for (const tag of tags) {
-      // All-symbol tags ("?", "@_@") flatten to nothing and are dropped anyway.
-      if (/[^\p{L}\p{N}_:.-]/u.test(tag) && /[\p{L}\p{N}]/u.test(tag)) names[tag] = tag.replace(/_/g, ' ')
-    }
-    return names
+    return rules.booruDisplayNames(tags)
   }
 
   const api = {

@@ -170,6 +170,35 @@ function searchJob(media) {
 const tests = []
 const test = (name, run) => tests.push({ name, run })
 
+test('pacing constants and Retry-After hints', () => {
+  const rules = require('./booru-import-rules.js')
+  assert.equal(rules.DOWNLOAD_GAP_MS, fixture.pacing.downloadGapMs)
+  assert.deepEqual(rules.RETRY_DELAYS_MS, fixture.pacing.retryDelaysMs)
+  assert.equal(rules.MAX_THROTTLE_WAIT_MS, fixture.pacing.maxThrottleWaitMs)
+  // The extension's errors carry the status in their text only; the hints
+  // reach the web app, and the rule is the same one.
+  for (const entry of fixture.throttleHints) {
+    assert.equal(rules.throttleDelayMs(entry.error, entry.attempt), entry.expectedMs, entry.name)
+  }
+})
+
+test('every script list loads the rules before site-import-shared.js', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'manifest.json'), 'utf8'))
+  const background = fs.readFileSync(path.join(__dirname, 'background.js'), 'utf8')
+  const importScripts = background.match(/importScripts\(([^)]*site-import-shared\.js[^)]*)\)/)[1]
+    .split(',').map((file) => file.trim().replace(/^'|'$/g, ''))
+  const lists = [
+    PAGE_SCRIPTS,
+    importScripts,
+    ...manifest.content_scripts.map((entry) => entry.js).filter((files) => files.includes('site-import-shared.js')),
+  ]
+  assert.equal(lists.length, 4)
+  for (const files of lists) {
+    assert.ok(files.indexOf('booru-import-rules.js') >= 0, files.join(', '))
+    assert.ok(files.indexOf('booru-import-rules.js') < files.indexOf('site-import-shared.js'), files.join(', '))
+  }
+})
+
 test('download progress text', () => {
   const { downloadProgressText } = require('./site-import-core.js')
   for (const entry of fixture.progressText) {
