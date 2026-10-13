@@ -426,22 +426,5 @@ def runtime_available(model_id: str) -> bool:
 
 
 def download_model() -> dict:
-    job = start_model_download(["wd"])
-    return {
-        "enabled": opts.enabled,
-        "model": _wd_tagger.name,
-        "modelId": WD_MODEL_ID,
-        "modelLoaded": _wd_tagger.is_loaded(),
-        "modelDownloaded": model_cache["downloaded"],
-        "modelFiles": model_cache["files"],
-        "models": model_statuses(),
-        "downloadJob": current_download_job(),
-        "loadJob": current_model_load_job(),
-        "torch": _torch_runtime_info(),
-        "onnx": _onnx_runtime_info(),
-        "torchDevice": opts.torchDevice,
-        "qwenDevice": _semantic_tagger_for_options(opts).device_info(),
-        "semanticModelId": opts.semanticModelId,
-        "remote": _remote_worker_status(opts),
-        "huggingFaceTokenConfigured": bool(huggingface_token()),
-    }
+    start_model_download(["wd"])
+    return status()

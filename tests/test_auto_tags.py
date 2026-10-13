@@ -976,6 +976,16 @@ class AutoTagApiTests(unittest.TestCase):
         self.assertTrue(response.json()["downloaded"])
         self.assertEqual(response.json()["modelId"], "SmilingWolf/wd-eva02-large-tagger-v3")
 
+    def test_download_model_starts_the_wd_download_and_returns_status(self):
+        from app.services.auto_tagger import models as at_models
+
+        with patch.object(at_models, "start_model_download") as start,                 patch.object(at_models, "status", return_value={"downloadJob": {"id": "job"}}) as status:
+            result = at_models.download_model()
+
+        start.assert_called_once_with(["wd"])
+        status.assert_called_once_with()
+        self.assertEqual(result, {"downloadJob": {"id": "job"}})
+
     def test_concurrent_infer_requests_serialize_without_blocking_the_api(self):
         """Several extension popups tagging at once must queue, not collide."""
         import threading
