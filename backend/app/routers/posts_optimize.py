@@ -26,7 +26,6 @@ from ..models import Post, Tag, User
 from ..utils.hashing import calculate_sha256
 from ..services.media import create_thumbnail, get_media_info, optimize_media_to_temp
 from ..services.tagging import process_tags_for_post as apply_tags_for_post
-from . import posts as posts_router
 
 router = APIRouter()
 
@@ -588,3 +587,9 @@ async def serve_optimize_preview(preview_id: str):
         ".mp4": "video/mp4",
     }
     return FileResponse(file_path, media_type=media_types.get(extension, "application/octet-stream"))
+
+
+# Imported last, not first: routers.posts imports this module while it is itself
+# loading, and the names above are only read through it at call time. Either
+# module can then be imported first.
+from . import posts as posts_router  # noqa: E402

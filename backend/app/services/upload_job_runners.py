@@ -28,7 +28,6 @@ from ..config import settings
 from ..database import async_session
 from ..models import UploadArtifact
 from .media import get_video_info
-from . import upload_jobs as jobs
 
 
 async def _run_direct(job_id: str, cancel: threading.Event) -> None:
@@ -506,3 +505,9 @@ async def _run_render(job_id: str, cancel: threading.Event) -> None:
         await jobs.update_job(job_id, status="render_ready", ready_for="publish", overall_progress=100, message="Final clip ready for review", stages=jobs.completed_stages("render"), metrics={})
     except Exception as exc:
         await jobs._fail(job_id, exc)
+
+
+# Imported last, not first: services.upload_jobs imports this module while it is itself
+# loading, and the names above are only read through it at call time. Either
+# module can then be imported first.
+from . import upload_jobs as jobs  # noqa: E402
