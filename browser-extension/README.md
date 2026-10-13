@@ -235,7 +235,10 @@ the extension needs to be signed/packaged.
 | --- | --- |
 | `manifest.json` | Extension manifest (MV3). |
 | `background.js` | Registers the context menus and opens the popups. |
-| `upload.html` / `upload.js` / `upload.css` | The upload popup UI + logic (CSS shared with the picker). |
+| `upload.html` / `upload.js` / `upload.css` | The upload popup UI + logic (CSS shared with the picker). `upload.js` is the entry and loads last. |
+| `upload-ai-models.js` | Upload popup AI model lists: profile defaults, model-key array, id→flag map, runtime requirements. |
+| `upload-ai-controls.js` / `upload-ai-preview.js` | Upload popup AI tagging: model picker, profiles, loads, and the suggestion preview. |
+| `upload-preview.js` / `upload-tags.js` / `upload-media-fetch.js` | Upload popup media preview, tag box, and getting media (cookies, X capture, content token) to the server. |
 | `picker.html` / `picker.js` | The "insert from NekoBooru" browse/search popup. |
 | `options.html` / `options.js` | Settings page (instance URL). |
 | `trace-moe-buttons.js` | trace.moe content script: the result player's NekoBooru button. |
