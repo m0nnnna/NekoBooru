@@ -17,7 +17,7 @@ assert.equal(decodeHtmlEntities(42), '42')
 
 // One owner: the scripts that read Gelbooru-family text must not grow their
 // own copy of the decoder again.
-for (const file of ['site-import-core.js', 'booru-tags.js']) {
+for (const file of ['site-import-core.js', 'site-import-shared.js', 'site-import-sankaku.js', 'site-import-controls.js', 'booru-tags.js']) {
   const source = fs.readFileSync(path.join(__dirname, file), 'utf8')
   assert.doesNotMatch(source, /&\(\?:#\(x\[0-9a-f\]/, `${file} carries its own entity decoder`)
 }

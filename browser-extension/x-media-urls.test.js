@@ -6,7 +6,8 @@
 //
 // The helpers exist once per entry point (service worker, content script,
 // upload popup) because none of them share a bundle, so each copy is pulled
-// straight out of its own source file and checked against the others.
+// straight out of its own source file (background-x-media.js, track-cursor-x.js,
+// upload-media-fetch.js) and checked against the others.
 
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -43,7 +44,7 @@ const GIF = [
   'https://video.twimg.com/tweet_video/HRX3yt8aIAAcKgH.mp4',
 ]
 
-const background = loadHelpers('background.js', [
+const background = loadHelpers('background-x-media.js', [
   'tweetIdFromUrl',
   'xMediaIndexFromUrl',
   'withXMediaIndexPath',
@@ -52,13 +53,13 @@ const background = loadHelpers('background.js', [
   'normalizeUploadSrcUrl',
   'normalizeMediaList',
 ])
-const upload = loadHelpers('upload.js', [
+const upload = loadHelpers('upload-media-fetch.js', [
   'tweetIdFromUrl',
   'xMediaIndexFromUrl',
   'isTwitterMediaCdnUrl',
 ])
 const cursor = loadHelpers(
-  'track-cursor.js',
+  'track-cursor-x.js',
   ['normalizedStatusUrl', 'tweetIdFromUrl', 'xMediaIndexFromUrl', 'withLocationMediaIndex'],
   { isXHost: () => true, location: { origin: 'https://x.com', href: `${TWEET}/photo/2` } },
 )
@@ -66,7 +67,7 @@ const cursor = loadHelpers(
 // capturedXAttachment reads the module-level cache, so give it one.
 const cache = new Map()
 const captured = loadHelpers(
-  'background.js',
+  'background-x-media.js',
   ['tweetIdFromUrl', 'xMediaIndexFromUrl', 'capturedXAttachment'],
   {
     xMediaCache: cache,
