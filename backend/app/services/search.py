@@ -313,6 +313,21 @@ async def _alias_target_map(
     return result
 
 
+def _safety_filter_query(query: str) -> str:
+    """Just the query's safety: filters, which semantic expansion must keep.
+
+    The gallery's rating checkboxes add -safety:<rating> to every search, and
+    semantic expansion replaces the plain conditions wholesale - so without
+    this, unticking a rating did nothing as soon as a tag was in the box.
+    """
+    kept = []
+    for part in (query or "").split():
+        key, sep, _ = part.lstrip("-").partition(":")
+        if sep and key.lower() == "safety":
+            kept.append(part)
+    return " ".join(kept)
+
+
 async def _semantic_expansion_conditions(
     session: AsyncSession, query: str, owner_ids: list[int] | None = None
 ) -> list:
@@ -401,7 +416,11 @@ async def get_post_neighbors(
     if semantic_search:
         semantic_conditions = await _semantic_expansion_conditions(session, query, owner_ids)
         if semantic_conditions:
-            conditions = [Post.deleted_at.is_(None), *semantic_conditions]
+            conditions = [
+                Post.deleted_at.is_(None),
+                *build_conditions(_safety_filter_query(query), None, current_user_id),
+                *semantic_conditions,
+            ]
     if owner_ids is not None:
         conditions.append(Post.owner_id.in_(owner_ids))
     descending = sort_order != "asc"
@@ -460,7 +479,11 @@ async def search_posts(
     if semantic_search:
         semantic_conditions = await _semantic_expansion_conditions(session, query, owner_ids)
         if semantic_conditions:
-            all_conditions = [Post.deleted_at.is_(None), *semantic_conditions]
+            all_conditions = [
+                Post.deleted_at.is_(None),
+                *build_conditions(_safety_filter_query(query), None, current_user_id),
+                *semantic_conditions,
+            ]
     if owner_ids is not None:
         all_conditions.append(Post.owner_id.in_(owner_ids))
     if all_conditions:

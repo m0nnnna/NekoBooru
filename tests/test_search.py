@@ -200,6 +200,23 @@ class AliasAwareSearchTests(unittest.TestCase):
         self.assertEqual(total, 1)
         self.assertEqual(posts[0].id, self.post_id)
 
+    def test_semantic_search_keeps_the_rating_filters(self):
+        """The gallery's rating checkboxes append -safety:<rating>; semantic
+        expansion used to drop them, so unticking "safe" filtered nothing once
+        a tag was typed. The fixture post is safe."""
+        from app.database import async_session
+        from app.services.search import search_posts
+
+        async def _search(query):
+            async with async_session() as session:
+                return await search_posts(session, query=query, semantic_search=True)
+
+        _, hidden = asyncio.run(_search("sango -safety:safe"))
+        self.assertEqual(hidden, 0)
+        posts, shown = asyncio.run(_search("sango -safety:unsafe"))
+        self.assertEqual(shown, 1)
+        self.assertEqual(posts[0].id, self.post_id)
+
 
 class BooruSuggestRateLimitTests(unittest.TestCase):
     """Typing must not turn into a request per keystroke against public boorus.
