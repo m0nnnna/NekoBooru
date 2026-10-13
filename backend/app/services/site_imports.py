@@ -344,9 +344,13 @@ async def _danbooru_spellings(client: httpx.AsyncClient, tags: list[str]) -> dic
             result[antecedent] = consequent
     rest = [tag for tag in missing if tag not in result]
 
-    # Otherwise swap the qualifier for one Danbooru treats as the same series,
-    # in either direction (uma_musume -> umamusume, dead_or_alive <- doa), or
-    # for its initials - and keep it only if Danbooru really uses the result.
+    # Otherwise try the other name order (e621's yui_hirasawa is Danbooru's
+    # hirasawa_yui), then swap the qualifier for one Danbooru treats as the
+    # same series, in either direction (uma_musume -> umamusume,
+    # dead_or_alive <- doa), or for its initials - keeping a candidate only
+    # if Danbooru really uses it.
+    from .e621_names import swapped_name
+
     qualifiers = sorted({match.group("qualifier") for tag in rest if (match := _QUALIFIED_TAG.match(tag))})
     variants: dict[str, list[str]] = {qualifier: [] for qualifier in qualifiers}
     if qualifiers:
@@ -358,12 +362,14 @@ async def _danbooru_spellings(client: httpx.AsyncClient, tags: list[str]) -> dic
                 variants[consequent].append(antecedent)
     candidates: dict[str, list[str]] = {}
     for tag in rest:
+        swapped = swapped_name(tag)
+        candidates[tag] = [swapped] if swapped else []
         match = _QUALIFIED_TAG.match(tag)
         if not match:
             continue
         base, qualifier = match.group("base"), match.group("qualifier")
         options = variants.get(qualifier, []) + [_initials(qualifier)]
-        candidates[tag] = [f"{base}_({option})" for option in dict.fromkeys(options) if option and option != qualifier]
+        candidates[tag] += [f"{base}_({option})" for option in dict.fromkeys(options) if option and option != qualifier]
     found = await _danbooru_used_names(client, sorted({name for names in candidates.values() for name in names}))
     for tag in rest:
         result[tag] = next((name for name in candidates.get(tag, []) if name in found), None)
@@ -378,13 +384,20 @@ async def danbooru_names(
 ) -> dict[str, str]:
     """Map each character/copyright tag Danbooru spells differently to its spelling.
 
+    Character tags are all checked (an unqualified one may be in the other
+    name order); copyright tags only when qualified.
+
     Lookups that fail leave the tags as they are and are not cached, so an
     outage never renames anything and the next import tries again.
     """
     wanted = [
         tag
         for tag in dict.fromkeys(str(tag).strip().lower() for tag in tags)
-        if tag and categories.get(tag) in {"character", "copyright"} and _QUALIFIED_TAG.match(tag)
+        if tag
+        and (
+            categories.get(tag) == "character"
+            or (categories.get(tag) == "copyright" and _QUALIFIED_TAG.match(tag))
+        )
     ][:MAX_NAME_LOOKUPS]
     renames: dict[str, str] = {}
     if not wanted:
