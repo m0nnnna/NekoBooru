@@ -1,0 +1,214 @@
+{
+  "_comment": "Trimmed real responses from https://danbooru.donmai.us/posts.json (anonymous, rating:g queries, 2026-10-13): a png with a sample, an mp4, an ugoira (zip) and a banned row; plus the 422 body for a three-term query.",
+  "posts": [
+    {
+      "id": 12370916,
+      "created_at": "2026-10-13T00:49:19.383-04:00",
+      "score": 3,
+      "source": "https://i.pximg.net/img-original/img/2026/10/13/12/00/25/150799323_p0.png",
+      "md5": "1afe4a4b32b9460b7ec9fe9b77390513",
+      "rating": "g",
+      "image_width": 2723,
+      "image_height": 3008,
+      "file_ext": "png",
+      "file_size": 1795595,
+      "is_pending": false,
+      "is_deleted": false,
+      "is_banned": false,
+      "tag_string_general": "1boy 1girl animal_ear_fluff animal_ears blue_eyes cat_ears cat_girl comic exercising flower gym_shorts gym_uniform hair_flower hair_ornament hairband halo hands_on_own_knees jacket long_hair looking_at_viewer multicolored_jacket official_alternate_costume open_mouth orange_hair shorts sit-up smile track_jacket two-tone_jacket white_flower white_hairband yellow_halo",
+      "tag_string_artist": "aventador",
+      "tag_string_copyright": "blue_archive",
+      "tag_string_character": "doodle_sensei_(blue_archive) mari_(blue_archive) mari_(track)_(blue_archive) sensei_(blue_archive)",
+      "tag_string_meta": "absurdres commentary_request highres translation_request",
+      "file_url": "https://cdn.donmai.us/original/1a/fe/1afe4a4b32b9460b7ec9fe9b77390513.png",
+      "large_file_url": "https://cdn.donmai.us/sample/1a/fe/sample-1afe4a4b32b9460b7ec9fe9b77390513.jpg",
+      "preview_file_url": "https://cdn.donmai.us/180x180/1a/fe/1afe4a4b32b9460b7ec9fe9b77390513.jpg",
+      "media_asset": {
+        "file_ext": "png",
+        "variants": [
+          {
+            "type": "180x180",
+            "url": "https://cdn.donmai.us/180x180/1a/fe/1afe4a4b32b9460b7ec9fe9b77390513.jpg",
+            "width": 163,
+            "height": 180,
+            "file_ext": "jpg"
+          },
+          {
+            "type": "360x360",
+            "url": "https://cdn.donmai.us/360x360/1a/fe/1afe4a4b32b9460b7ec9fe9b77390513.jpg",
+            "width": 326,
+            "height": 360,
+            "file_ext": "jpg"
+          },
+          {
+            "type": "720x720",
+            "url": "https://cdn.donmai.us/720x720/1a/fe/1afe4a4b32b9460b7ec9fe9b77390513.webp",
+            "width": 652,
+            "height": 720,
+            "file_ext": "webp"
+          },
+          {
+            "type": "sample",
+            "url": "https://cdn.donmai.us/sample/1a/fe/sample-1afe4a4b32b9460b7ec9fe9b77390513.jpg",
+            "width": 850,
+            "height": 939,
+            "file_ext": "jpg"
+          },
+          {
+            "type": "original",
+            "url": "https://cdn.donmai.us/original/1a/fe/1afe4a4b32b9460b7ec9fe9b77390513.png",
+            "width": 2723,
+            "height": 3008,
+            "file_ext": "png"
+          }
+        ]
+      }
+    },
+    {
+      "id": 12371022,
+      "created_at": "2026-10-13T01:25:47.062-04:00",
+      "score": 2,
+      "source": "https://x.com/HoundShou/status/2109133946252558483",
+      "md5": "feace8b8e57900e58af3244ffaf7bc20",
+      "rating": "g",
+      "image_width": 1400,
+      "image_height": 1400,
+      "file_ext": "mp4",
+      "file_size": 1920779,
+      "is_pending": false,
+      "is_deleted": false,
+      "is_banned": false,
+      "tag_string_general": "1girl :t anger_vein animal_ears animalization bird black_coat black_skirt blonde_hair blush brown_hair cat_ears chibi coat genderswap genderswap_(mtf) green_eyes green_necktie grey_shirt gryffindor kemonomimi_mode long_hair looking_at_viewer middle_finger necktie pout puffy_cheeks red_scarf robe scarf school_uniform shirt simple_background skirt slytherin solo striped_clothes striped_scarf tearing_up two-sided_fabric two-sided_robe two-tone_robe v-shaped_eyebrows very_long_hair yellow_scarf yurie_mouth",
+      "tag_string_artist": "v.a._(vanilla)",
+      "tag_string_copyright": "harry_potter_(series) wizarding_world",
+      "tag_string_character": "harry_potter malfoid rubeus_hagrid",
+      "tag_string_meta": "animated commentary english_commentary highres sound video",
+      "file_url": "https://cdn.donmai.us/original/fe/ac/feace8b8e57900e58af3244ffaf7bc20.mp4",
+      "large_file_url": "https://cdn.donmai.us/original/fe/ac/feace8b8e57900e58af3244ffaf7bc20.mp4",
+      "preview_file_url": "https://cdn.donmai.us/180x180/fe/ac/feace8b8e57900e58af3244ffaf7bc20.jpg",
+      "media_asset": {
+        "file_ext": "mp4",
+        "variants": [
+          {
+            "type": "180x180",
+            "url": "https://cdn.donmai.us/180x180/fe/ac/feace8b8e57900e58af3244ffaf7bc20.jpg",
+            "width": 180,
+            "height": 180,
+            "file_ext": "jpg"
+          },
+          {
+            "type": "360x360",
+            "url": "https://cdn.donmai.us/360x360/fe/ac/feace8b8e57900e58af3244ffaf7bc20.jpg",
+            "width": 360,
+            "height": 360,
+            "file_ext": "jpg"
+          },
+          {
+            "type": "720x720",
+            "url": "https://cdn.donmai.us/720x720/fe/ac/feace8b8e57900e58af3244ffaf7bc20.webp",
+            "width": 720,
+            "height": 720,
+            "file_ext": "webp"
+          },
+          {
+            "type": "original",
+            "url": "https://cdn.donmai.us/original/fe/ac/feace8b8e57900e58af3244ffaf7bc20.mp4",
+            "width": 1400,
+            "height": 1400,
+            "file_ext": "mp4"
+          }
+        ]
+      }
+    },
+    {
+      "id": 12370555,
+      "created_at": "2026-10-12T23:22:01.604-04:00",
+      "score": 2,
+      "source": "https://i.pximg.net/img-zip-ugoira/img/2025/06/05/19/50/15/131209042_ugoira1920x1080.zip?original",
+      "md5": "7539b7c9eb620eab1df7593d73dd02c5",
+      "rating": "g",
+      "image_width": 975,
+      "image_height": 1146,
+      "file_ext": "zip",
+      "file_size": 24747222,
+      "is_pending": true,
+      "is_deleted": false,
+      "is_banned": false,
+      "tag_string_general": "1girl ? @_@ blinking blue_bow blue_bowtie blue_eyes blue_hair blue_skirt bow bowtie chair collared_shirt desk fake_phone_screenshot fake_screenshot food-themed_hair_ornament hair_ornament long_hair looking_at_viewer pineapple_hair_ornament pixel_art recording school_chair school_desk shirt sitting skirt solo v white_shirt",
+      "tag_string_artist": "pine_(pine_candy8181)",
+      "tag_string_copyright": "original",
+      "tag_string_character": "",
+      "tag_string_meta": "animated commentary_request ugoira",
+      "file_url": "https://cdn.donmai.us/original/75/39/7539b7c9eb620eab1df7593d73dd02c5.zip",
+      "large_file_url": "https://cdn.donmai.us/sample/75/39/sample-7539b7c9eb620eab1df7593d73dd02c5.webm",
+      "preview_file_url": "https://cdn.donmai.us/180x180/75/39/7539b7c9eb620eab1df7593d73dd02c5.jpg",
+      "media_asset": {
+        "file_ext": "zip",
+        "variants": [
+          {
+            "type": "180x180",
+            "url": "https://cdn.donmai.us/180x180/75/39/7539b7c9eb620eab1df7593d73dd02c5.jpg",
+            "width": 153,
+            "height": 180,
+            "file_ext": "jpg"
+          },
+          {
+            "type": "360x360",
+            "url": "https://cdn.donmai.us/360x360/75/39/7539b7c9eb620eab1df7593d73dd02c5.jpg",
+            "width": 306,
+            "height": 360,
+            "file_ext": "jpg"
+          },
+          {
+            "type": "720x720",
+            "url": "https://cdn.donmai.us/720x720/75/39/7539b7c9eb620eab1df7593d73dd02c5.webp",
+            "width": 613,
+            "height": 720,
+            "file_ext": "webp"
+          },
+          {
+            "type": "sample",
+            "url": "https://cdn.donmai.us/sample/75/39/sample-7539b7c9eb620eab1df7593d73dd02c5.webm",
+            "width": 850,
+            "height": 999,
+            "file_ext": "webm"
+          },
+          {
+            "type": "original",
+            "url": "https://cdn.donmai.us/original/75/39/7539b7c9eb620eab1df7593d73dd02c5.zip",
+            "width": 975,
+            "height": 1146,
+            "file_ext": "zip"
+          }
+        ]
+      }
+    },
+    {
+      "id": 12370595,
+      "created_at": "2026-10-12T23:31:36.155-04:00",
+      "score": 0,
+      "source": "https://bsky.app/profile/did:plc:rrjqkqgynfkrvh5ukcrjia25/post/3mxpv6x2i6s2e",
+      "rating": "g",
+      "image_width": 2039,
+      "image_height": 3200,
+      "file_ext": "jpg",
+      "file_size": 1992013,
+      "is_pending": false,
+      "is_deleted": false,
+      "is_banned": true,
+      "tag_string_general": "1girl black_hair gloves green_eyes hood hood_down hoodie long_hair mole mole_under_eye multiple_views novelty_glasses open_mouth school_uniform semi-rimless_eyewear serafuku short_hair sunglasses under-rim_eyewear",
+      "tag_string_artist": "natsuyiro_x",
+      "tag_string_copyright": "cho_kaguya-hime!",
+      "tag_string_character": "sakayori_iroha sakayori_iroha_(tsukuyomi) sakayori_iroha_(wego)",
+      "tag_string_meta": "absurdres chinese_commentary commentary_request highres",
+      "media_asset": {
+        "file_ext": "jpg"
+      }
+    }
+  ],
+  "tagLimitError": {
+    "success": false,
+    "error": "PostQuery::TagLimitError",
+    "message": "You cannot search for more than 2 tags at a time."
+  }
+}
