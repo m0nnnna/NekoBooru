@@ -339,6 +339,33 @@ class TagAliasMergeTests(unittest.TestCase):
         self.assertIsNone(self._tag("sayuri_doa")["sankakuName"])
         self.assertEqual(self.client.post("/api/tags/no_such_tag/sankaku-name").status_code, 404)
 
+    def test_e621_name_is_looked_up_once_on_demand(self):
+        self._post(["hirasawa_yui"], {"hirasawa_yui": "character"})
+        lookup = AsyncMock(return_value="yui_hirasawa")
+        with patch("app.services.e621_names.lookup_e621_name", lookup):
+            first = self.client.post("/api/tags/hirasawa_yui/e621-name")
+            second = self.client.post("/api/tags/hirasawa_yui/e621-name")
+        self.assertEqual(first.json(), {"e621Name": "yui_hirasawa", "found": True})
+        self.assertEqual(second.json(), {"e621Name": "yui_hirasawa", "found": True})
+        lookup.assert_awaited_once_with("hirasawa_yui")
+        self.assertEqual(self._tag("hirasawa_yui")["e621Name"], "yui_hirasawa")
+
+    def test_e621_name_lookup_misses_and_failures_store_nothing(self):
+        import httpx
+        from app.services.site_imports import SourceThrottled
+
+        self._post(["akiyama_mio"], {"akiyama_mio": "character"})
+        with patch("app.services.e621_names.lookup_e621_name", AsyncMock(return_value=None)):
+            missed = self.client.post("/api/tags/akiyama_mio/e621-name")
+        with patch("app.services.e621_names.lookup_e621_name", AsyncMock(side_effect=httpx.ConnectError("offline"))):
+            failed = self.client.post("/api/tags/akiyama_mio/e621-name")
+        with patch("app.services.e621_names.lookup_e621_name", AsyncMock(side_effect=SourceThrottled("429"))):
+            throttled = self.client.post("/api/tags/akiyama_mio/e621-name")
+        for response in (missed, failed, throttled):
+            self.assertEqual(response.json(), {"e621Name": "akiyama_mio", "found": False})
+        self.assertIsNone(self._tag("akiyama_mio")["e621Name"])
+        self.assertEqual(self.client.post("/api/tags/no_such_tag/e621-name").status_code, 404)
+
 
 class DanbooruNameTests(unittest.TestCase):
     @classmethod

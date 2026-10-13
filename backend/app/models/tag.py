@@ -51,6 +51,10 @@ class Tag(Base):
     # honoka_doa. Only Sankaku searches use it; null means the booru spelling
     # works there too.
     sankaku_name = Column(String(255), nullable=True)
+    # The same for e621, which orders two-part names given-name first
+    # (yui_hirasawa for hirasawa_yui). Filled by the first e621 search link
+    # click; null means the booru spelling works there or was never looked up.
+    e621_name = Column(String(255), nullable=True)
     category_id = Column(Integer, ForeignKey("tag_categories.id"), default=1)
     usage_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -77,6 +81,7 @@ class Tag(Base):
             "name": self.name,
             "displayName": self.display_name or self.name.replace("_", " "),
             "sankakuName": self.sankaku_name,
+            "e621Name": self.e621_name,
             "category": self.category.name if self.category else "general",
             "categoryColor": self.category.color if self.category else "#808080",
             "usageCount": self.usage_count,

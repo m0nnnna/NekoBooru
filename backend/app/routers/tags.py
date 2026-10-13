@@ -306,6 +306,42 @@ async def resolve_sankaku_name(
     return {"sankakuName": found, "found": True}
 
 
+@router.post("/tags/{tag_name}/e621-name")
+async def resolve_e621_name(
+    tag_name: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
+    """The name to search e621 for, looked up the first time it is needed.
+
+    e621 orders two-part names given-name first (yui_hirasawa for
+    hirasawa_yui) and spells some qualifiers in full. Same contract as the
+    Sankaku lookup: a found name is stored on the tag; a miss or a failure
+    returns the tag's booru spelling and stores nothing.
+    """
+    import httpx
+    from ..services import e621_names
+    from ..services.site_imports import SourceThrottled
+
+    owner_ids = await visible_owner_ids(db, current_user)
+    result = await db.execute(select(Tag).where(Tag.name == tag_name, Tag.owner_id.in_(owner_ids)))
+    tag = result.scalars().first()
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    if tag.e621_name:
+        return {"e621Name": tag.e621_name, "found": True}
+
+    spelling = tag_spelling(tag)
+    try:
+        found = await e621_names.lookup_e621_name(spelling)
+    except (SourceThrottled, httpx.HTTPError, ValueError):
+        return {"e621Name": spelling, "found": False}
+    if not found:
+        return {"e621Name": spelling, "found": False}
+    if tag.owner_id == current_user.id:
+        tag.e621_name = found
+        await db.commit()
+    return {"e621Name": found, "found": True}
+
+
 @router.put("/tags/{tag_name}")
 async def update_tag(
     tag_name: str,

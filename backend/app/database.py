@@ -423,6 +423,8 @@ def _migrate(conn):
     # owner-migration rebuild of "tags" above, which copies a fixed column list.
     if not _column_exists(conn, "tags", "sankaku_name"):
         conn.exec_driver_sql("ALTER TABLE tags ADD COLUMN sankaku_name VARCHAR(255)")
+    if not _column_exists(conn, "tags", "e621_name"):
+        conn.exec_driver_sql("ALTER TABLE tags ADD COLUMN e621_name VARCHAR(255)")
 
     # post_tags' primary key is (post_id, tag_id), which cannot answer "which
     # posts carry tag X" - the lookup every tag search, negation and
