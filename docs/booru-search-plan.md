@@ -269,8 +269,9 @@ rows use `safe`/`questionable`), `width`, `height`, `file_url`, `sample_url`,
   "more pages exist" means the page came back full.
 - Categories: **not available**. The dapi tag endpoint
   (`s=tag&q=index&names=...&json=1`) answers XML and ignores `names`
-  (verified), so Safebooru imports stay general-only as the draft says (see
-  open question 1 for the optional Danbooru-based resolver).
+  (verified). Since P7 (`eaf1e3f`) imports resolve categories through
+  Danbooru's `/tags.json` instead (`frontend/src/remote/danbooruCategories.js`,
+  `browser-extension/danbooru-categories.js`); unknown tags stay general.
 - Rating -> safety: `general`/`safe`/`g`/`s` -> safe, `sensitive`/`questionable`/`q`
   -> sketchy, `explicit`/`e` -> unsafe.
 - Query syntax as Gelbooru (`-tag`, `rating:`, `sort:id:asc`, `md5:`).
@@ -1393,7 +1394,7 @@ merged".
 | 4 | Sankaku's signed file URLs expire within hours; a long import queue would download dead links. | `adapter.refresh(post)` right before each download (3.5, 3.7). |
 | 5 | `e926.net` vs `e621.net` share ids; two id tags would break the in-library lookup. | Always `e621_<id>`; the source is labelled "e621 / e926" (1.3). |
 | 6 | Browser cannot send a User-Agent; e621 wants client identification. | `_client=NekoBooru/1.0` on every browser request; honest UA server-side for `*.e621.net`/`*.e926.net` downloads (2.6). |
-| 7 | Safebooru categories: the draft hoped for a lookup; the dapi tag endpoint ignores `names` and answers XML (verified). | Safebooru imports stay general-only; open question 1 offers a Danbooru-backed resolver as a follow-up. |
+| 7 | Safebooru categories: the draft hoped for a lookup; the dapi tag endpoint ignores `names` and answers XML (verified). | P7 (`eaf1e3f`) resolves Safebooru categories through Danbooru's `/tags.json` at import time (batched 80, cached a day); unknown tags stay general. |
 | 8 | How the "in library" lookup scopes to shared libraries. | `visible_owner_ids` on both `Tag.owner_id` and `Post.owner_id`, soft-deleted excluded (2.4). |
 | 9 | Selection keys for library posts after Stage 0 are unknown. | Fixed remote format `<site>:<id>`, library `nekobooru:<id>` by default, with a one-place conversion rule (3.1, 4.3). |
 | 10 | Imported posts are not on the current library page, so batch tools cannot find their post objects. | `importedPosts` map merged into the selected-posts helper (4.4). |
