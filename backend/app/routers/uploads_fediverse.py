@@ -1,8 +1,7 @@
 """Uploads imported from a Fediverse post (Mastodon, Misskey and Pleroma families).
 
-Included into routers.uploads.router, which re-exports every name here. Names it
-needs from routers.uploads (the upload-token store and MIME_TO_EXT) are looked up
-as ``uploads.<name>`` at call time.
+Included into routers.uploads.router. Names it needs from routers.uploads (the
+upload-token store) are looked up as ``uploads.<name>`` at call time.
 """
 
 import html as html_module
@@ -19,6 +18,7 @@ from pydantic import BaseModel
 from ..config import settings
 from ..dependencies import get_current_user
 from ..models import User
+from .uploads_fetch import MIME_TO_EXT
 
 router = APIRouter()
 
@@ -80,7 +80,7 @@ async def _fetch_misskey_attachments(host: str, path: str, client: httpx.AsyncCl
         if not media_url:
             continue
         mime = f.get("type", "")
-        ext = uploads.MIME_TO_EXT.get(mime)
+        ext = MIME_TO_EXT.get(mime)
         if not ext:
             ext_from_url = uploads.normalize_upload_extension(Path(urlparse(media_url).path).suffix.lower())
             ext = ext_from_url if ext_from_url in settings.allowed_extensions else ".jpg"
@@ -118,7 +118,7 @@ async def _fetch_pleroma_attachments(host: str, path: str, client: httpx.AsyncCl
                 ".png": "image/png", ".gif": "image/gif",
                 ".webp": "image/webp", ".mp4": "video/mp4", ".webm": "video/webm",
             }.get(ext_from_url, "")
-        ext = uploads.MIME_TO_EXT.get(mime)
+        ext = MIME_TO_EXT.get(mime)
         if not ext:
             ext_from_url = uploads.normalize_upload_extension(Path(urlparse(media_url).path).suffix.lower())
             ext = ext_from_url if ext_from_url in settings.allowed_extensions else ".jpg"
@@ -202,7 +202,7 @@ async def _upload_from_fediverse_impl(request: FediverseRequest) -> dict:
 
                 # Re-check extension from actual content-type (catches GIF-served-as-mp4 etc.)
                 actual_ct = media_resp.headers.get('content-type', '').split(';')[0].strip()
-                actual_ext = uploads.MIME_TO_EXT.get(actual_ct, ext)
+                actual_ext = MIME_TO_EXT.get(actual_ct, ext)
 
                 if actual_ext not in settings.allowed_extensions:
                     continue

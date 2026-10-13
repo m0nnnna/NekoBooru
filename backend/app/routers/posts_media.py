@@ -1,6 +1,6 @@
 """Favorites and authenticated media/thumbnail serving for posts.
 
-Included into routers.posts.router, which re-exports every name here.
+Included into routers.posts.router.
 """
 
 from pathlib import Path

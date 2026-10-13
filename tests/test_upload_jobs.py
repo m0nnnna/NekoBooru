@@ -188,7 +188,7 @@ class UploadJobApiTests(unittest.TestCase):
         self.assertEqual(partial.content, content[:8])
 
     def test_x_filter_prevents_upscale_and_enforces_aspect_limit(self):
-        from app.services.upload_jobs import x_video_filter
+        from app.services.upload_job_runners import x_video_filter
 
         landscape = x_video_filter(True)
         portrait = x_video_filter(False)

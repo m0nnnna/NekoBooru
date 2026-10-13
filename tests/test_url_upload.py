@@ -123,7 +123,7 @@ class UrlUploadTests(unittest.TestCase):
 
     def test_signed_sankaku_links_to_one_file_count_as_the_same_download(self):
         from urllib.parse import urlparse
-        from app.routers.uploads import _download_key
+        from app.routers.uploads_fetch import _download_key
 
         first = urlparse("https://v.sankakucomplex.com/data/ae/65/ae65.mp4?e=1&expires=1&m=a&token=x")
         second = urlparse("https://v.sankakucomplex.com/data/ae/65/ae65.mp4?e=2&expires=2&m=b&token=y")

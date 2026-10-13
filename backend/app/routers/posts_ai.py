@@ -1,6 +1,6 @@
 """Post AI endpoints: saved AI analyses and per-post auto-tag preview/apply.
 
-Included into routers.posts.router, which re-exports every name here.
+Included into routers.posts.router.
 """
 
 from typing import Optional

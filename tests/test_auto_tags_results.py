@@ -85,7 +85,7 @@ class AutoTagResultTests(unittest.TestCase):
         self.assertEqual(video.categories["video"], "meta")
 
     def test_twitter_media_url_normalizes_to_original_variant(self):
-        from app.routers.uploads import _normalize_fetch_url
+        from app.routers.uploads_fetch import _normalize_fetch_url
 
         url = "https://pbs.twimg.com/media/HKSUfpEa0AALL8x?format=jpg&name=900x900"
 
@@ -103,7 +103,7 @@ class AutoTagResultTests(unittest.TestCase):
         )
 
     def test_sankaku_media_uses_app_referer_and_rejects_placeholder(self):
-        from app.routers.uploads import _is_sankaku_hotlink_placeholder, _media_referer
+        from app.routers.uploads_fetch import _is_sankaku_hotlink_placeholder, _media_referer
 
         chan = "https://chan.sankakucomplex.com/en/posts/e8M5Yy3XpMz"
         self.assertEqual(_media_referer("s.sankakucomplex.com", chan), "https://sankaku.app/")
@@ -114,7 +114,7 @@ class AutoTagResultTests(unittest.TestCase):
         self.assertFalse(_is_sankaku_hotlink_placeholder("https://s.sankakucomplex.com/o/62/4e/abc.jpg?e=1&m=x"))
 
     def test_danbooru_media_is_fetched_with_an_honest_user_agent(self):
-        from app.routers.uploads import BROWSER_USER_AGENT, _media_user_agent
+        from app.routers.uploads_fetch import BROWSER_USER_AGENT, _media_user_agent
 
         self.assertTrue(_media_user_agent("cdn.donmai.us").startswith("NekoBooru/"))
         self.assertTrue(_media_user_agent("danbooru.donmai.us").startswith("NekoBooru/"))

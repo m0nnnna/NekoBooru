@@ -1,22 +1,15 @@
-from pathlib import Path
-from typing import Optional, Callable, Literal
-import asyncio
-import shutil
-import threading
-import time
-import uuid
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
-from sqlalchemy import select, delete, insert
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..database import get_db, async_session
+from ..database import get_db
 from ..config import settings
 from ..dependencies import get_current_user
-from ..models import Post, Tag, TagCategory, TagAlias, TagImplication, Favorite, User
+from ..models import Post, Tag, TagCategory, Favorite, User
 from ..models.post import PostTag, tag_detail_dict
 from ..services.auth import visible_owner_ids
 from ..utils.hashing import calculate_sha256
@@ -24,8 +17,6 @@ from ..services.media import (
     get_media_info,
     create_thumbnail,
     move_to_storage,
-    convert_video_to_gif,
-    optimize_media_to_temp,
 )
 from ..services.search import search_posts
 from ..services.tagging import normalize_tag
@@ -33,36 +24,6 @@ from ..services.tagging import process_tags_for_post as apply_tags_for_post
 from ..services.tagging import replace_tags_for_post
 from .uploads import get_upload_path, remove_upload_token
 from . import posts_ai, posts_media, posts_optimize
-from .posts_ai import (
-    SaveAiAnalysisRequest,
-    UpdateAiAnalysisRequest,
-    _require_own_post,
-    apply_auto_tags,
-    delete_saved_post_ai_analysis,
-    get_post_ai_analysis,
-    preview_auto_tags,
-    save_post_ai_analysis,
-    update_saved_post_ai_analysis,
-)
-from .posts_media import _require_media_access, serve_post_media, serve_thumbnail, toggle_favorite
-from .posts_optimize import (
-    _OPTIMIZE_PREVIEW_TTL_SECONDS,
-    BulkOptimizeMediaRequest,
-    _bulk_optimize_posts_impl,
-    _claim_optimize_preview,
-    _cleanup_optimize_previews,
-    _optimize_jobs,
-    _optimize_jobs_lock,
-    _optimize_previews,
-    _optimize_previews_lock,
-    _run_optimize_job_thread,
-    _set_optimize_job,
-    _store_optimize_preview,
-    bulk_optimize_posts,
-    get_optimize_job,
-    serve_optimize_preview,
-    start_optimize_job,
-)
 
 router = APIRouter(prefix="/api", tags=["posts"])
 

@@ -1,4 +1,3 @@
-import re
 import time
 import uuid
 import asyncio
@@ -6,9 +5,7 @@ import logging
 import zipfile
 import aiofiles
 import httpx
-import html as html_module
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -19,42 +16,6 @@ from ..models import User
 from ..services.media import check_ffmpeg_available
 from ..services.pixiv_ugoira import convert_ugoira_zip_to_mp4, normalize_frames, validate_pixiv_ugoira_url
 from . import uploads_fediverse, uploads_fetch
-from .uploads_fediverse import (
-    FediverseRequest,
-    MISSKEY_FORKS,
-    PLEROMA_FORKS,
-    _detect_fediverse_platform,
-    _fetch_misskey_attachments,
-    _fetch_pleroma_attachments,
-    _upload_from_fediverse_impl,
-    upload_from_fediverse,
-)
-from .uploads_fetch import (
-    BROWSER_USER_AGENT,
-    COOKIES_FILENAME,
-    DANBOORU_MEDIA_USER_AGENT,
-    HONEST_MEDIA_USER_AGENT,
-    MIME_TO_EXT,
-    UrlFetchRequest,
-    _PROGRESS_ID,
-    _PROGRESS_TTL_SECONDS,
-    _SANKAKU_FRONTEND_HOSTS,
-    _active_downloads,
-    _download_key,
-    _fetch_progress,
-    _is_danbooru_host,
-    _is_e621_host,
-    _is_sankaku_hotlink_placeholder,
-    _is_sankaku_media_host,
-    _media_referer,
-    _media_user_agent,
-    _normalize_fetch_url,
-    _start_fetch_progress,
-    from_url_progress,
-    upload_from_url,
-    upload_from_ytdlp,
-    ytdlp_error_detail,
-)
 
 logger = logging.getLogger(__name__)
 

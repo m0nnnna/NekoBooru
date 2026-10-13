@@ -2,15 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import importlib.util
 import json
 import math
 import mimetypes
-import os
-import re
 import shutil
-import subprocess
 import threading
 import time
 from datetime import datetime, timedelta
@@ -18,31 +14,22 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import aiofiles
-import httpx
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 from ..config import settings
 from ..database import async_session
 from ..models import UploadArtifact, UploadJob
-from .media import check_ffmpeg_available, get_video_info
-from . import upload_job_runners
+from .media import check_ffmpeg_available
 from .upload_job_runners import (
-    _download_section,
-    _ffmpeg_progress_bridge,
     _register_artifact,
-    _remove_artifacts,
     _run_direct,
     _run_fediverse,
-    _run_ffmpeg,
     _run_render,
     _run_sample,
-    _safe_title,
-    _verify_video,
     request_render,
     request_sample,
     sha256_file,
-    x_video_filter,
 )
 
 

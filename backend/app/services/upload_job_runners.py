@@ -1,9 +1,9 @@
 """The upload-job stage runners: direct and fediverse fetches, yt-dlp section downloads,
 ffmpeg sample/render passes, artifact bookkeeping and output verification.
 
-Imported by upload_jobs, which re-exports every name here. Everything this module
-needs from upload_jobs is looked up as ``jobs.<name>`` at call time, so a patch on
-``app.services.upload_jobs.<name>`` still reaches these runners.
+Imported by upload_jobs, which re-exports the runners routers/upload_jobs.py calls.
+Everything this module needs from upload_jobs is looked up as ``jobs.<name>`` at call
+time, so a patch on ``app.services.upload_jobs.<name>`` still reaches these runners.
 """
 from __future__ import annotations
 
@@ -83,10 +83,12 @@ async def _run_fediverse(job_id: str, cancel: threading.Event) -> None:
             return
         await jobs.update_job(job_id, status="downloading", operation="fediverse", ready_for=None, stages=jobs._stages("fediverse"), overall_progress=0, message="Resolving Fediverse post", error=None, cancel_requested=False)
         await jobs.set_progress(job_id, "fediverse", "resolve", 5, "Resolving Fediverse post")
-        from ..routers import uploads
+        from ..routers import uploads_fediverse
 
         async with jobs._network_slots:
-            result = await uploads._upload_from_fediverse_impl(uploads.FediverseRequest(url=job.source_url or ""))
+            result = await uploads_fediverse._upload_from_fediverse_impl(
+                uploads_fediverse.FediverseRequest(url=job.source_url or "")
+            )
         if cancel.is_set():
             raise jobs.JobCancelled()
         imported = result.get("uploads") or []

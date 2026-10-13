@@ -1,7 +1,7 @@
 """Uploads fetched from a URL: direct downloads (/from-url, with progress) and yt-dlp,
 plus the per-host user-agent, referer and URL normalisation rules.
 
-Included into routers.uploads.router, which re-exports every name here. Names it
+Included into routers.uploads.router. Names it
 needs from routers.uploads (the upload-token store, its logger) are looked up as
 ``uploads.<name>`` at call time.
 """

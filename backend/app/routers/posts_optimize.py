@@ -1,6 +1,6 @@
 """Bulk media optimisation for posts: the optimize job runner, preview store and endpoints.
 
-Included into routers.posts.router, which re-exports every name here. Names it needs
+Included into routers.posts.router. Names it needs
 from routers.posts are looked up as ``posts_router.<name>`` at call time.
 """
 

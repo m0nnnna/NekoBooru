@@ -547,7 +547,7 @@ class BooruSearchTests(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_e621_hosts_get_the_honest_user_agent(self):
-        from app.routers import uploads
+        from app.routers import uploads_fetch as uploads
 
         for host in ("static1.e621.net", "static1.e926.net", "e621.net", "E926.NET", "cdn.donmai.us"):
             self.assertEqual(uploads._media_user_agent(host), uploads.HONEST_MEDIA_USER_AGENT, host)
