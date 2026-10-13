@@ -37,7 +37,7 @@ describe('sankakuAdapter.search', () => {
     const [url, init] = fetch.mock.calls[0]
     const parsed = new URL(url)
     expect(parsed.origin + parsed.pathname).toBe('https://sankakuapi.com/posts/keyset')
-    expect(parsed.searchParams.get('tags')).toBe('azur_lane -rating:q -rating:e')
+    expect(parsed.searchParams.get('tags')).toBe('azur_lane rating:s')
     expect(parsed.searchParams.get('limit')).toBe('20')
     expect(parsed.searchParams.has('next')).toBe(false)
     expect(init).toMatchObject({ headers: { Accept: 'application/json' }, credentials: 'omit', referrerPolicy: 'no-referrer' })

@@ -50,10 +50,11 @@ describe('translateQuery: rating checkboxes', () => {
     // [ticked, danbooru, e621, sankaku, gelbooru, safebooru]
     [ALL, [], [], [], [], []],
     [{ safe: true, sketchy: true, unsafe: false }, ['rating:g,s,q'], ['-rating:e'], ['-rating:e'], ['-rating:explicit'], ['-rating:explicit']],
-    [{ safe: true, sketchy: false, unsafe: false }, ['rating:g'], ['-rating:q', '-rating:e'], ['-rating:q', '-rating:e'],
+    // Sankaku's four-term budget: one positive term beats two negations.
+    [{ safe: true, sketchy: false, unsafe: false }, ['rating:g'], ['-rating:q', '-rating:e'], ['rating:s'],
       ['-rating:sensitive', '-rating:questionable', '-rating:explicit'], ['-rating:questionable', '-rating:explicit']],
     [{ safe: false, sketchy: true, unsafe: true }, ['rating:s,q,e'], ['-rating:s'], ['-rating:s'], ['-rating:general'], ['-rating:general']],
-    [{ safe: false, sketchy: false, unsafe: true }, ['rating:e'], ['-rating:s', '-rating:q'], ['-rating:s', '-rating:q'],
+    [{ safe: false, sketchy: false, unsafe: true }, ['rating:e'], ['-rating:s', '-rating:q'], ['rating:e'],
       ['-rating:general', '-rating:sensitive', '-rating:questionable'], ['-rating:general', '-rating:questionable']],
   ]
 
@@ -268,7 +269,7 @@ describe('translateQuery: Sankaku four-term budget', () => {
   it('sends up to four terms untouched', () => {
     expect(SANKAKU_TERM_LIMIT).toBe(4)
     expect(run('a b c d')).toMatchObject({ tags: 'a b c d', terms: ['a', 'b', 'c', 'd'], ignored: [], note: null })
-    expect(run('a b', { safety: safeOnly })).toMatchObject({ terms: ['a', 'b', '-rating:q', '-rating:e'], note: null })
+    expect(run('a b c', { safety: safeOnly })).toMatchObject({ terms: ['a', 'b', 'c', 'rating:s'], note: null })
   })
 
   it('cuts the rest in priority order with a note', () => {
@@ -280,7 +281,7 @@ describe('translateQuery: Sankaku four-term budget', () => {
     })
     expect(run('width:>100 -dog a b c', { safety: safeOnly })).toMatchObject({
       terms: ['a', 'b', 'c', '-dog'],
-      ignored: ['-rating:q', '-rating:e', 'width:>100'],
+      ignored: ['rating:s', 'width:>100'],
     })
   })
 

@@ -141,6 +141,12 @@ function ratingTerms(site, allowed) {
     const letters = SAFETY_ORDER.filter((safety) => allowed.has(safety)).flatMap((safety) => values[safety])
     return letters.length ? [`rating:${letters.join(',')}`] : []
   }
+  if (site === 'sankaku') {
+    // Every term counts against the anonymous budget: one rating:x for a
+    // single allowed value says what two -rating:y would.
+    const kept = SAFETY_ORDER.filter((safety) => allowed.has(safety)).flatMap((safety) => values[safety])
+    if (kept.length === 1) return [`rating:${kept[0]}`]
+  }
   return SAFETY_ORDER.filter((safety) => !allowed.has(safety)).flatMap((safety) => values[safety].map((value) => `-rating:${value}`))
 }
 
