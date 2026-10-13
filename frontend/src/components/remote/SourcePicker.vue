@@ -242,13 +242,17 @@ onBeforeUnmount(() => {
   color: var(--accent);
 }
 
+/* The label goes with the header's user name (App.vue); the button's title
+   still names the ticked sources. */
+@media (max-width: 1500px) {
+  .source-label {
+    display: none;
+  }
+}
+
 @media (max-width: 768px) {
   .source-button {
     padding: 0 0.6rem;
-  }
-
-  .source-label {
-    display: none;
   }
 
   .source-menu {

@@ -20,7 +20,7 @@
         <SearchBar />
         <SourcePicker v-if="route.name === 'home'" />
         <span v-if="authStore.user" class="current-user">{{ authStore.user.username }}</span>
-        <button v-if="authStore.isAuthenticated" class="btn btn-secondary btn-sm" @click="handleLogout">Log out</button>
+        <button v-if="authStore.isAuthenticated" class="btn btn-secondary btn-sm header-logout" @click="handleLogout">Log out</button>
         <button class="theme-toggle desktop-theme-toggle" @click="toggleDarkMode" :title="isDarkMode ? 'Light mode' : 'Dark mode'">
           {{ isDarkMode ? '&#9788;' : '&#9789;' }}
         </button>
@@ -35,6 +35,7 @@
     <!-- Mobile Menu Overlay -->
     <div class="mobile-menu-overlay" :class="{ open: mobileMenuOpen }" @click="closeMobileMenu">
       <nav class="mobile-menu" @click.stop>
+        <p v-if="authStore.user" class="mobile-menu-user">Signed in as <strong>{{ authStore.user.username }}</strong></p>
         <router-link to="/" @click="closeMobileMenu">Posts</router-link>
         <router-link to="/tags" @click="closeMobileMenu">Tags</router-link>
         <router-link to="/pools" @click="closeMobileMenu">Pools</router-link>
@@ -329,6 +330,22 @@ button {
   color: var(--text-secondary);
   font-size: 0.9rem;
   white-space: nowrap;
+}
+
+.header-logout {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.mobile-menu-user {
+  padding: 0.5rem 1rem 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.mobile-menu-user strong {
+  color: var(--text-secondary);
 }
 
 .theme-toggle {
@@ -636,8 +653,17 @@ h3 { font-size: 1.1rem; }
   animation-delay: 0.3s;
 }
 
-/* Responsive Styles */
-@media (max-width: 768px) {
+/* Responsive Styles. The full header (an admin's nav, search, booru picker,
+   user name, Log out, theme toggle) needs ~1460px: first the user name (and
+   the picker's label) go, then the nav and account buttons move into the
+   menu, so the header never makes the page scroll sideways. */
+@media (max-width: 1500px) {
+  .current-user {
+    display: none;
+  }
+}
+
+@media (max-width: 1280px) {
   .hamburger-btn {
     display: flex;
   }
@@ -646,12 +672,23 @@ h3 { font-size: 1.1rem; }
     display: block;
   }
 
-  .desktop-nav {
+  .desktop-nav,
+  .header-logout,
+  .desktop-theme-toggle {
     display: none;
   }
 
-  .desktop-theme-toggle {
-    display: none;
+  .mobile-menu {
+    margin-left: auto;
+    max-width: 320px;
+    border-left: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 768px) {
+  .mobile-menu {
+    max-width: none;
+    border-left: none;
   }
 
   .app-header {
