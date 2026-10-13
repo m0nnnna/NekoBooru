@@ -1080,7 +1080,7 @@
           <p class="help-text">
             {{ autoTagStatus.gelbooruCredentialsConfigured ? 'Configured. ' : '' }}
             Copy both values from Gelbooru’s Account Options → API Access Credentials.
-            Stored locally and attached only to Gelbooru tag-suggestion requests; the API key is never returned to this page.
+            Stored locally and attached only to Gelbooru requests (tag suggestions and booru search); the API key is never returned to this page.
           </p>
           <div
             v-if="gelbooruCredentialsMessage.show"

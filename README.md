@@ -39,6 +39,18 @@ Organize your personal media collection with tags, pools, favorites, and more.
 - Sorting by date, ID, or file size
 - Pagination
 
+### Booru Search (optional)
+Search other boorus from the home search bar and import what you pick.
+
+- **Off by default.** An admin turns it on under Settings → Search ("Enable booru search"). Until then nothing about it shows up in the UI and its API answers 403.
+- **Sources:** a checkbox dropdown next to the search bar. NekoBooru is ticked by default; add Danbooru, Gelbooru, Safebooru, e621 / e926 or Sankaku to aggregate their results with your library's. Results are grouped by source, or interleaved with a toggle, and each section shows "page X of Y" (`~` marks an estimate for e621 and Sankaku).
+- **Page size:** the per-page dropdown's "Default" uses each booru's own page size (Danbooru 20, e621 75, Sankaku 20, Gelbooru/Safebooru 42); a number applies to every ticked source, capped at each site's maximum.
+- **What talks to whom:** Danbooru, e621 and Sankaku are queried straight from your browser. Gelbooru and Safebooru don't allow that, so the server relays their searches (`/api/booru-search/*`). Thumbnails load first; full-size media loads only when you open a post or import it.
+- **Gelbooru needs an API key:** save your Gelbooru user ID and API key in Settings (or set `GELBOORU_USER_ID` / `GELBOORU_API_KEY`); without them the Gelbooru source is disabled.
+- **Query limits:** anonymous Danbooru allows two terms and Sankaku four. Extra terms are dropped in order and listed in the section header, and the safety filter is always re-applied on your side.
+- **Importing:** hold to select posts across your library and the boorus. The batch panel's Import card downloads the selected remote posts at original resolution with their tags, categories, rating and source, optionally auto-tags them or adds them to a pool, and swaps them into your selection as library posts. Posts already in your library are recognized and only get their tags merged.
+- **Rate limits:** downloads are paced (1.5 s apart) and back off on 429/503, honoring `Retry-After`; searches share a per-site request budget.
+
 ### Interface
 - Grid-based gallery view
 - Lightbox media viewer
