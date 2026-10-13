@@ -76,6 +76,21 @@ If `--ff-only` is refused, main moved: go back to the worktree, rebase again, re
 
 Python: `from __future__ import annotations`, dataclasses, `pathlib`, type hints, no docstring ceremony on small helpers. Vue: Composition API with `<script setup>`, Pinia stores. Avoid adding new dependencies.
 
+### 6. 800 lines per file, split by functionality
+
+No source file may exceed 800 lines. New modules aim for 200-800 lines, grouped by real functionality (a small composable or helper is fine when it is genuinely self-contained; don't shatter code into fragments to hit a number). A change that would push a file past 800 splits it first. The files already over the ceiling are rows in [docs/queues/repo-hygiene.md](docs/queues/repo-hygiene.md); the template for splitting a view is the HomeView split (`25571e4`): components under `frontend/src/components/<area>/`, composables under `frontend/src/composables/`, behaviour-preserving, with a mount test.
+
+---
+
+## Work tracking: the TODO queues
+
+Follow-up work lives in queues, not in reports or chat. [docs/TODO.md](docs/TODO.md) points to one queue per surface under [docs/queues/](docs/queues/) and to active program plans; it holds no rows itself.
+
+- **Row format**: `- [ ] **what is wrong and the target shape** · area · evidence (file + symbol, commit) · UNCLAIMED`. File it under the surface the work serves.
+- **Claim before you start**: append `**TAKEN <date> <who>**` to the row and commit that alone. The landing commit deletes the row.
+- **File as you go**: when work turns up a weakness (weak architecture, duplicated logic, missing states or tests, anything short of enterprise grade) or a follow-up outside your scope, fix the immediate defect narrowly and file a row for the rest in the same commit. If you are fixing it in this change, the commit is the record.
+- **Subagents in a worktree don't edit the queues** (parallel appends conflict): they put each row verbatim in their report, naming the queue, and the orchestrator files it.
+
 ---
 
 ## Commands
@@ -103,7 +118,7 @@ cd frontend && npm run test
 cd frontend && npm run build
 ```
 
-Known baseline: `test_extension_upload_defaults_can_be_saved` in [tests/test_auto_tags.py](tests/test_auto_tags.py) fails on a clean tree. Don't attribute it to your change; everything else should pass.
+Known baseline: `test_extension_upload_defaults_can_be_saved` and `test_disabled_preview_preserves_tags_without_provenance` in [tests/test_auto_tags.py](tests/test_auto_tags.py) fail on a clean tree (a repo-hygiene row tracks fixing them). Don't attribute them to your change; everything else should pass.
 
 Env vars: `NEKO_PORT`, `NEKO_HOST`, `NEKO_DEBUG`, `NEKO_CORS_ORIGINS`, plus the path overrides `NEKO_APP_DIR`, `NEKO_CONFIG_DIR`, `NEKO_CONFIG_FILE`, `NEKO_DATA_DIR`, `NEKO_LOGS_DIR`, `NEKO_MODELS_DIR`, `NEKO_RUNTIMES_DIR`, `NEKO_CACHE_DIR`, and `NEKO_TAGGER_WORKER_TOKEN`.
 
@@ -179,7 +194,7 @@ Backend router ([backend/app/routers/settings.py](backend/app/routers/settings.p
 
 Frontend (all four views keep their own copy of the model-key lists — keep them in sync):
 9. [SettingsView.vue](frontend/src/views/SettingsView.vue) — `aiDefaultModels`, the model-key array near the top of the AI section, `modelSettingKey()`, `modelPipelineLabel()`, `modelPipelineDescription()`, and the profile-default builders.
-10. [HomeView.vue](frontend/src/views/HomeView.vue) — `aiModelDefaultKeys`, the model toggle list, and the `anime` / `realistic` profile defaults.
+10. [useBatchAiTagging.js](frontend/src/composables/useBatchAiTagging.js) (the home view's batch AI tagging, split out of HomeView) — `aiModelDefaultKeys`, the model toggle list, and the `anime` / `realistic` profile defaults.
 11. [PostView.vue](frontend/src/views/PostView.vue) — the model list, `modelSettingKey` map, profile defaults, and the runtime-requirement helper.
 12. [UploadView.vue](frontend/src/views/UploadView.vue) — the model-key loop and profile defaults.
 13. [browser-extension/upload.js](browser-extension/upload.js) — profile defaults, the model-key array, the id→flag map, and the runtime-requirement helper.
@@ -198,3 +213,4 @@ Docs: mention the model in [README.md](README.md)'s auto-tagging section.
 - `data/`, `config/`, `logs/`, `models/` are gitignored runtime state — never commit them, and never assume their contents exist.
 - The tests import `app.*` by inserting `backend/` on `sys.path`, so they must be run from `tests/`.
 - Windows is the primary dev platform here, but everything must keep working on Linux/macOS and inside the PyInstaller build ([nekobooru.spec](nekobooru.spec)).
+- The owner's own instance runs on port 8772. A dev server or backend you start for testing must use another port and a throwaway data dir (point every `NEKO_*` path at a temp folder). `frontend/.env.development` sets `VITE_BACKEND` to 8772 and outranks `.env.local`, so point a test frontend elsewhere with `frontend/.env.development.local` (gitignored by Vite's `*.local` convention) and delete it afterwards.
