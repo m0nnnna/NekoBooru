@@ -1,0 +1,62 @@
+{
+  "site": "safebooru",
+  "page": 1,
+  "limit": 42,
+  "total": null,
+  "posts": [
+    {
+      "id": 7224325,
+      "hash": "7e3b807fca194fc77164c282852248af",
+      "rating": "general",
+      "width": 1434,
+      "height": 2000,
+      "file_url": "https://safebooru.org/images/3923/c998daee4db136c84bc5e19920c3da1fdbd915a3.jpg",
+      "sample_url": "https://safebooru.org/samples/3923/sample_c998daee4db136c84bc5e19920c3da1fdbd915a3.jpg",
+      "preview_url": "https://safebooru.org/thumbnails/3923/thumbnail_c998daee4db136c84bc5e19920c3da1fdbd915a3.jpg",
+      "sample": true,
+      "tags": "&gt;_&lt; 0_0 6+girls ahoge angel&#039;s_24_uniform_(blue_archive) aoba_(blue_archive) apron aris_(blue_archive) black_bow black_hair black_skirt blonde_hair blue_apron blue_archive blue_halo bow bowtie buttons closed_eyes commentary_request ferris_wheel forehead grey_halo hair_bow halo highres holding holding_sword holding_weapon hoshino_(blue_archive) ideolo jack-o&#039;-lantern kei_(blue_archive) long_hair miyu_(blue_archive) multiple_girls official_alternate_costume open_mouth orange_halo outdoors peroro_(blue_archive) pink_halo polo_shirt pumpkin red_eyes red_hair shirt short_sleeves skirt smile sora_(blue_archive) striped_bow striped_bowtie striped_clothes stuffed_toy sweatdrop sword two_side_up weapon white_hair white_shirt yuzu_(armed)_(blue_archive) yuzu_(blue_archive)",
+      "source": "https://x.com/ideolo/status/2109195087641260325",
+      "change": 1791745204,
+      "score": null,
+      "status": "active",
+      "image": "c998daee4db136c84bc5e19920c3da1fdbd915a3.jpg",
+      "directory": 3923
+    },
+    {
+      "id": 7226099,
+      "hash": "60e77a6d84d12df93c611426d6a10765",
+      "rating": "general",
+      "width": 1000,
+      "height": 858,
+      "file_url": "https://safebooru.org/images/3923/fb331f097d60d2c596fc2b5ea1d0abc45065fb5f.gif",
+      "sample_url": "https://safebooru.org/images/3923/fb331f097d60d2c596fc2b5ea1d0abc45065fb5f.gif",
+      "preview_url": "https://safebooru.org/thumbnails/3923/thumbnail_fb331f097d60d2c596fc2b5ea1d0abc45065fb5f.jpg",
+      "sample": false,
+      "tags": "2boys animated animated_gif antlers big_dipper birthmark buryo dipper_gleeful dipper_pines dual_persona eating freckles goat_boy goat_horns grass gravity_falls horns jitome monster_falls_(gravity_falls) multiple_boys reverse_falls_(gravity_falls) upper_body vest",
+      "source": "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/a2927279-e794-40e9-b6f6-1b78624363f7/d9lmgqr-940752d2-29c7-44f0-926b-cef45b8b89a0.gif?filename=herbivore_boys_by_buryooooo_d9lmgqr.gif",
+      "change": 1791802816,
+      "score": null,
+      "status": "active",
+      "image": "fb331f097d60d2c596fc2b5ea1d0abc45065fb5f.gif",
+      "directory": 3923
+    },
+    {
+      "id": 19999,
+      "hash": "182bcd96afe46691d8754e4fa968249b",
+      "rating": "safe",
+      "width": 1600,
+      "height": 1200,
+      "file_url": "https://safebooru.org/images/20/699a284c6eb2a7d5e7c8a9c546d653cc07f8d155.png",
+      "sample_url": "https://safebooru.org/samples/20/sample_699a284c6eb2a7d5e7c8a9c546d653cc07f8d155.jpg",
+      "preview_url": "https://safebooru.org/thumbnails/20/thumbnail_699a284c6eb2a7d5e7c8a9c546d653cc07f8d155.jpg",
+      "sample": true,
+      "tags": "cuffs gayarou pillow sakura_musubi tagme",
+      "source": "",
+      "change": 1275598092,
+      "score": 0,
+      "status": "active",
+      "image": "699a284c6eb2a7d5e7c8a9c546d653cc07f8d155.png",
+      "directory": 20
+    }
+  ]
+}
