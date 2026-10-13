@@ -159,8 +159,6 @@ const hint = 'Hold a post to enter edit mode. Shift-click selects a visible rang
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  /* Set explicitly: inherited body text colour comes from the light palette. */
-  color: var(--text-primary);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 0.75rem;

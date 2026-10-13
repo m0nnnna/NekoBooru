@@ -1,5 +1,5 @@
 <template>
-  <div id="app" :class="{ 'dark-mode': isDarkMode }">
+  <div id="app">
     <header class="app-header" v-if="!route.meta.public">
       <div class="header-left">
         <router-link to="/" class="logo">
@@ -83,6 +83,12 @@ onMounted(() => {
   // Default to dark mode if not set
   isDarkMode.value = saved === null ? true : saved === 'true'
 })
+
+// The theme class lives on <html>: body's text colour and anything teleported
+// to <body> resolve the palette from there, not from #app.
+watch(isDarkMode, (dark) => {
+  document.documentElement.classList.toggle('dark-mode', dark)
+}, { immediate: true })
 
 // Close mobile menu on route change
 watch(() => route.path, () => {
