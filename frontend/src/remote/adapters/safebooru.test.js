@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import fixture from '../fixtures/safebooru.json'
+import { ApiError } from '../../api/request.js'
 import { RemoteSearchError } from '../types.js'
 import {
   SAFEBOORU_MAX_PAGE,
@@ -17,7 +18,8 @@ function relayApi(response = fixture) {
 }
 
 function failingApi(status, detail, message = 'Request failed') {
-  const error = Object.assign(new Error(message), { status, detail })
+  const retryAfter = detail && typeof detail === 'object' ? detail.retryAfter : null
+  const error = new ApiError(message, { kind: 'http', status, detail, retryAfterMs: retryAfter ? retryAfter * 1000 : null })
   return { searchSafebooru: vi.fn(async () => { throw error }) }
 }
 
@@ -229,7 +231,7 @@ describe('error mapping', () => {
   })
 
   it('maps an unreachable backend to network', async () => {
-    const api = { searchSafebooru: vi.fn(async () => { throw new Error('Backend server is not running.') }) }
+    const api = { searchSafebooru: vi.fn(async () => { throw new ApiError('Backend server is not running.', { kind: 'network' }) }) }
     expect(await searchError(api)).toMatchObject({ kind: 'network', status: null })
   })
 

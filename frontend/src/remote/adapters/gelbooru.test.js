@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import fixture from '../fixtures/gelbooru.json'
+import { ApiError } from '../../api/request.js'
 import { RemoteSearchError } from '../types.js'
 import { gelbooruAdapter, normalizeGelbooruPost } from './gelbooru.js'
 
@@ -11,9 +12,8 @@ function fakeApi(response = fixture.page) {
 }
 
 function failingApi(status, detail, message = 'Request failed') {
-  const error = new Error(message)
-  error.status = status
-  error.detail = detail
+  const retryAfter = detail && typeof detail === 'object' ? detail.retryAfter : null
+  const error = new ApiError(message, { kind: 'http', status, detail, retryAfterMs: retryAfter ? retryAfter * 1000 : null })
   return { searchGelbooru: vi.fn(async () => { throw error }) }
 }
 
@@ -231,7 +231,7 @@ describe('relay errors', () => {
     expect(await caught(failingApi(400, 'page must be between 1 and 500'))).toMatchObject({ kind: 'query', status: 400 })
     expect(await caught(failingApi(502, { code: 'upstream_error', message: 'Gelbooru returned HTTP 500' }))).toMatchObject({ kind: 'upstream', status: 502 })
     expect(await caught(failingApi(403, 'Admin only'))).toMatchObject({ kind: 'upstream', status: 403 })
-    const offline = await caught({ searchGelbooru: vi.fn(async () => { throw new Error('Backend server is not running.') }) })
+    const offline = await caught({ searchGelbooru: vi.fn(async () => { throw new ApiError('Backend server is not running.', { kind: 'network' }) }) })
     expect(offline).toMatchObject({ kind: 'network', status: null })
   })
 

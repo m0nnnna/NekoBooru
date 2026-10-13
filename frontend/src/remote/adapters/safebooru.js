@@ -8,7 +8,6 @@
 // here, and the import queue resolves them through Danbooru at import time
 // (P7, remote/danbooruCategories.js).
 import { normalizeTagName } from '../../utils/booruSearchTag.js'
-import { retryAfterSeconds } from '../budget.js'
 import { translateQuery } from '../queryTranslation.js'
 import { RemoteSearchError, booruDisplayNames, effectiveLimit, makeKey, mediaTypeFromExt, siteById } from '../types.js'
 
@@ -143,22 +142,22 @@ export function normalizeSafebooruPost(row) {
   }
 }
 
-// api/client.js request() errors carry `status` and `detail` (the relay's
-// { code, message, retryAfter } or a plain string). No status means the
-// backend could not be reached at all.
+// The api client's ApiError (api/request.js): `kind` says whether the backend
+// answered ('http', with `status` and the relay's `detail`) or could not be
+// reached ('network'); `retryAfterMs` comes from Retry-After or detail.retryAfter.
 export function safebooruError(error) {
   if (error?.name === 'AbortError' || error instanceof RemoteSearchError) return error
-  const status = Number.isInteger(error?.status) ? error.status : null
+  const status = error?.kind === 'http' && Number.isInteger(error.status) ? error.status : null
   const detail = error?.detail
   const code = detail && typeof detail === 'object' ? detail.code : null
   const message = (detail && typeof detail === 'object' ? detail.message : null) || error?.message || ''
   let kind = 'upstream'
   let retryAfterMs = null
-  if (status === null || error?.name === 'TypeError') kind = 'network'
+  if (error?.kind === 'network') kind = 'network'
+  else if (status === null) kind = 'upstream'
   else if (status === 429 || status === 503 || code === 'upstream_throttled') {
     kind = 'throttled'
-    const seconds = retryAfterSeconds(detail && typeof detail === 'object' ? detail.retryAfter : null)
-    retryAfterMs = seconds === null ? null : seconds * 1000
+    retryAfterMs = error.retryAfterMs > 0 ? error.retryAfterMs : null
   } else if (status === 403 && code === 'booru_search_disabled') kind = 'disabled'
   else if (status === 400) kind = 'query' // the relay's own parameter check (e.g. tags over 500 chars)
   return new RemoteSearchError({ site: SITE, status, message, retryAfterMs, kind })

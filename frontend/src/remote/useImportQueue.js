@@ -73,7 +73,7 @@ function errorMessage(error) {
 
 // A site (or its CDN, via the backend) asking to slow down. The backend's
 // from-url error carries the upstream status in its text, which is what the
-// extension matches; a relay answers 429 itself (client.js puts it in
+// extension matches; a relay answers 429 itself (an ApiError with that
 // `status`); adapters' RemoteSearchError says so in `kind`.
 function isThrottled(error) {
   return /HTTP (429|503)\b/.test(errorMessage(error)) || error?.kind === 'throttled'
@@ -81,10 +81,10 @@ function isThrottled(error) {
 }
 
 // The scheduled back-off, or longer when the error says how long to wait:
-// the relays' detail.retryAfter (seconds) or RemoteSearchError.retryAfterMs.
+// `retryAfterMs` on both the api client's ApiError (Retry-After or the
+// relay's detail.retryAfter) and RemoteSearchError.
 function throttleWaitMs(error, scheduledMs) {
-  const hints = [Number(error?.detail?.retryAfter) * 1000, Number(error?.retryAfterMs)]
-  const hinted = Math.max(0, ...hints.filter((value) => Number.isFinite(value)))
+  const hinted = Number.isFinite(Number(error?.retryAfterMs)) ? Math.max(0, Number(error.retryAfterMs)) : 0
   return Math.max(scheduledMs, Math.min(hinted, MAX_THROTTLE_WAIT_MS))
 }
 

@@ -141,22 +141,23 @@ function pageFrom(cursor) {
   return Number.isFinite(page) && page >= 1 ? Math.min(page, MAX_PAGE) : 1
 }
 
-// The api client's error (status + detail from the relay) -> RemoteSearchError.
+// The api client's ApiError (api/request.js: kind, status, the relay's
+// detail, retryAfterMs) -> RemoteSearchError.
 function relayError(error) {
   if (error?.name === 'AbortError' || error instanceof RemoteSearchError) return error
-  const status = Number.isInteger(error?.status) ? error.status : null
+  const status = error?.kind === 'http' && Number.isInteger(error.status) ? error.status : null
   const detail = error?.detail
   const code = detail && typeof detail === 'object' ? detail.code : null
   const message = error?.message || ''
   let kind = 'upstream'
   let retryAfterMs = null
-  if (status === null) kind = 'network'
+  if (error?.kind === 'network') kind = 'network'
+  else if (status === null) kind = 'upstream'
   else if (status === 403 && code === 'booru_search_disabled') kind = 'disabled'
   else if (status === 400 && code === 'gelbooru_credentials_missing') kind = 'credentials'
   else if (status === 429 || status === 503 || code === 'upstream_throttled') {
     kind = 'throttled'
-    const seconds = Number(detail && typeof detail === 'object' ? detail.retryAfter : NaN)
-    retryAfterMs = seconds > 0 ? Math.round(seconds * 1000) : null
+    retryAfterMs = error.retryAfterMs > 0 ? error.retryAfterMs : null
   } else if (status === 400 && !code) kind = 'query'
   return new RemoteSearchError({ site: SITE, status, message, retryAfterMs, kind })
 }

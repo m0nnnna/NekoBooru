@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { ApiError } from '../api/request.js'
 import { RemoteSearchError } from './types.js'
 import { downloadProgressText, useImportQueue } from './useImportQueue'
 
@@ -27,10 +28,8 @@ function remotePost(site, id, extra = {}) {
 }
 
 function httpError(status, message, detail = message) {
-  const error = new Error(message)
-  error.status = status
-  error.detail = detail
-  return error
+  const retryAfter = detail && typeof detail === 'object' ? detail.retryAfter : null
+  return new ApiError(message, { kind: 'http', status, detail, retryAfterMs: retryAfter ? retryAfter * 1000 : null })
 }
 
 function deferred() {

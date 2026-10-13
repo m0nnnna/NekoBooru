@@ -5,12 +5,61 @@ import { authApi } from './auth.js'
 import { autoTagsApi } from './autoTags.js'
 import { booruSearchApi } from './booruSearch.js'
 import { postsApi } from './posts.js'
+import { ApiError } from './request.js'
 import { settingsApi } from './settings.js'
 import { tagsApi } from './tags.js'
 import { uploadsApi } from './uploads.js'
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('API request errors', () => {
+  async function failure(fetchImpl, call = () => api.getPosts()) {
+    vi.stubGlobal('fetch', vi.fn(fetchImpl))
+    try {
+      await call()
+    } catch (error) {
+      return error
+    }
+    throw new Error('the request did not fail')
+  }
+
+  function errorResponse(status, body, headers = {}) {
+    return {
+      ok: false,
+      status,
+      headers: new Headers(headers),
+      json: vi.fn().mockResolvedValue(body),
+    }
+  }
+
+  it('types an HTTP error and reads Retry-After from the response header', async () => {
+    const detail = { code: 'upstream_throttled', message: 'slow down' }
+    const error = await failure(async () => errorResponse(429, { detail }, { 'Retry-After': '12' }))
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ kind: 'http', status: 429, detail, retryAfterMs: 12000, message: 'slow down' })
+  })
+
+  it("falls back to the relay detail's retryAfter seconds", async () => {
+    const error = await failure(async () => errorResponse(503, { detail: { code: 'upstream_throttled', retryAfter: 30 } }))
+    expect(error).toMatchObject({ kind: 'http', status: 503, retryAfterMs: 30000 })
+    const plain = await failure(async () => errorResponse(500, { detail: 'boom' }))
+    expect(plain).toMatchObject({ kind: 'http', status: 500, retryAfterMs: null, message: 'boom' })
+  })
+
+  it('types any fetch TypeError as a network failure, whatever the browser calls it', async () => {
+    const error = await failure(async () => { throw new TypeError('Load failed') })
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ kind: 'network', status: null, retryAfterMs: null })
+    expect(error.message).toContain('Backend server is not running')
+  })
+
+  it('types an abort and keeps the AbortError name callers check', async () => {
+    const error = await failure(async () => { throw new DOMException('The operation was aborted.', 'AbortError') })
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ kind: 'aborted', name: 'AbortError', status: null })
+  })
 })
 
 function successfulResponse(payload = {}) {
