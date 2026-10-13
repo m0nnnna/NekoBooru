@@ -32,7 +32,7 @@
         @toggle="$emit('toggle', $event)"
         @hold-select="$emit('hold-select', $event)"
         @hover-post="$emit('hover-post', $event)"
-        @open="booru.openViewer"
+        @open="booru.openPost"
       />
     </template>
 
@@ -82,7 +82,7 @@
           @toggle="$emit('toggle', $event)"
           @hold-select="$emit('hold-select', $event)"
           @hover-post="$emit('hover-post', $event)"
-          @open="booru.openViewer"
+          @open="booru.openPost"
         />
       </div>
       <p v-if="!booru.feed.length && !(booru.libraryShown && library.posts.length)" class="feed-empty">

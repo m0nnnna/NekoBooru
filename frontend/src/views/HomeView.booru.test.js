@@ -75,6 +75,7 @@ vi.mock('../remote/adapters/index.js', () => ({
 import HomeView from './HomeView.vue'
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/auth'
+import { useBooruPostContextStore } from '../stores/booruPostContext'
 
 const POSTS = [1, 2, 3].map((id) => ({
   id,
@@ -101,6 +102,7 @@ async function mountHome({ canBrowseBoorus = false, sources = null, layout = nul
     routes: [
       { path: '/', name: 'home', component: HomeView },
       { path: '/post/:id', name: 'post', component: { template: '<div />' } },
+      { path: '/booru/:site/:id', name: 'booru-post', component: { template: '<div />' } },
     ],
   })
   hoisted.router = router
@@ -258,36 +260,15 @@ describe('HomeView with booru search switched on', () => {
     expect(batchTitle(wrapper)).toBe('2 selected · 0 library · 2 remote')
   })
 
-  it('opens booru posts in the viewer without a referrer and steps through the section', async () => {
-    const { wrapper } = await mountHome({ canBrowseBoorus: true, sources: ['nekobooru', 'danbooru', 'sankaku'] })
-    const sankakuCards = () => wrapper.findAll('.remote-section')[1].findAll('.remote-card')
-    await sankakuCards()[0].trigger('click')
+  it('opens booru posts on the booru post page with their section for Prev / Next', async () => {
+    const { wrapper, router } = await mountHome({ canBrowseBoorus: true, sources: ['nekobooru', 'danbooru', 'sankaku'] })
+    await wrapper.findAll('.remote-section')[1].findAll('.remote-card')[0].trigger('click')
     await flushPromises()
-    const viewer = () => document.body.querySelector('.remote-viewer')
-    expect(viewer()).not.toBeNull()
-    const img = () => viewer().querySelector('.media-viewer img')
-    expect(img().getAttribute('src')).toBe('https://cdn.sankaku.example/original/AbC.png')
-    expect(img().getAttribute('referrerpolicy')).toBe('no-referrer')
-    expect(viewer().textContent).toContain('miyu (blue archive)')
-    expect(viewer().querySelector('.viewer-nav.prev')).toBeNull()
-
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
-    await flushPromises()
-    expect(img().getAttribute('src')).toBe('https://cdn.sankaku.example/original/XyZ.png')
-    expect(viewer().querySelector('.viewer-nav.prev')).not.toBeNull()
-    expect(viewer().querySelector('.viewer-nav.next')).toBeNull()
-
-    // Danbooru's CDN wants a Referer: the viewer leaves the default policy.
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-    await flushPromises()
-    await wrapper.findAll('.remote-section')[0].findAll('.remote-card')[0].trigger('click')
-    await flushPromises()
-    expect(img().getAttribute('src')).toBe('https://cdn.danbooru.example/original/7.png')
-    expect(img().hasAttribute('referrerpolicy')).toBe(false)
-
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-    await flushPromises()
-    expect(viewer()).toBeNull()
+    expect(router.currentRoute.value.fullPath).toBe('/booru/sankaku/AbC')
+    const context = useBooruPostContextStore()
+    expect(context.posts.map((post) => post.key)).toEqual(['sankaku:AbC', 'sankaku:XyZ'])
+    expect(context.neighbours('sankaku:AbC')).toMatchObject({ prev: null, next: { key: 'sankaku:XyZ' } })
+    expect(document.body.querySelector('.remote-viewer')).toBeNull()
   })
 
   it('interleaves the boorus after the library page and hides posts it already has', async () => {

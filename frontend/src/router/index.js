@@ -25,6 +25,13 @@ const routes = [
     component: () => import('../views/PostView.vue'),
   },
   {
+    // A booru search result on the post page; only for users who may browse boorus.
+    path: '/booru/:site/:id',
+    name: 'booru-post',
+    component: () => import('../views/BooruPostView.vue'),
+    meta: { requiresBooru: true },
+  },
+  {
     path: '/tags',
     name: 'tags',
     component: () => import('../views/TagsView.vue'),
@@ -79,6 +86,10 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresAdmin && !authStore.isAdmin) {
+    return { name: 'home' }
+  }
+
+  if (to.meta.requiresBooru && !authStore.canBrowseBoorus) {
     return { name: 'home' }
   }
 

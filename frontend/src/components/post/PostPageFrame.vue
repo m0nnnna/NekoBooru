@@ -11,6 +11,7 @@
           :alt="alt"
           :type="type"
           :animate-load="zoomAnimation"
+          :no-referrer="noReferrer"
           @close="$emit('close')"
         >
           <template #controls>
@@ -99,6 +100,8 @@ defineProps({
   zoomAnimation: { type: Boolean, default: true },
   hasPrev: { type: Boolean, default: false },
   hasNext: { type: Boolean, default: false },
+  // Media from a booru whose CDN refuses this app's origin as a Referer.
+  noReferrer: { type: Boolean, default: false },
 })
 
 defineEmits(['close', 'prev', 'next', 'toggle-zoom-animation', 'toggle-wide-frame', 'toggle-sidebar-hidden'])

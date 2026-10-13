@@ -203,21 +203,6 @@ describe('HomeView booru import', () => {
     expect(batchTitle(wrapper)).toBe('2 selected · 2 library · 0 remote')
   })
 
-  it('imports the post open in the viewer and reports it in a toast', async () => {
-    const wrapper = await mountHome()
-    await remoteCards(wrapper)[2].trigger('click')
-    await flushPromises()
-    const importButton = [...document.body.querySelectorAll('.remote-viewer button')].find((b) => b.textContent.trim() === 'Import')
-    expect(importButton).toBeTruthy()
-    importButton.click()
-    await drainQueue()
-
-    expect(api.fetchFromUrl.mock.calls[0][0].url).toBe('https://cdn.danbooru.example/original/3.png')
-    expect(wrapper.get('.action-toast').text()).toBe('Imported · #42')
-    // The viewer now links to the library post instead of offering Import.
-    expect(document.body.querySelector('.remote-viewer a[href="/post/42"]')).not.toBeNull()
-  })
-
   it('keeps an imported post that is not on the page current across batch tag edits', async () => {
     // The library is unticked, so post #42 lives only in the imported-posts
     // map; the per-post fallback must build each edit on the previous one.

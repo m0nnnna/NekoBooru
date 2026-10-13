@@ -1,7 +1,8 @@
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/auth'
+import { useBooruPostContextStore } from '../stores/booruPostContext'
 import { usePostsStore } from '../stores/posts'
 import { useRemoteSourcesStore } from '../stores/remoteSources'
 import { useRemoteResults } from '../remote/useRemoteResults.js'
@@ -28,6 +29,8 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
   const store = useRemoteSourcesStore()
   const postsStore = usePostsStore()
   const route = useRoute()
+  const router = useRouter()
+  const postContext = useBooruPostContextStore()
 
   const enabled = computed(() => auth.canBrowseBoorus)
   const remoteActive = computed(() => enabled.value && store.remoteSites.length > 0)
@@ -183,6 +186,17 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
     if (next) viewerKey.value = next.key
   }
 
+  // --- The booru post page (route booru-post) ---
+  // A booru post opens on the post page, which gets the posts of the section
+  // (or the interleaved feed) it was opened from for its Prev / Next.
+  function openPost(key) {
+    const post = results.postByKey(key)
+    if (!post) return
+    const list = layout.value === 'interleaved' ? feed.value : results.sections[post.site]?.posts || []
+    postContext.open(list.some((entry) => entry.key === key) ? list : [post], inLibraryPostId)
+    router.push({ name: 'booru-post', params: { site: post.site, id: post.id } })
+  }
+
   // --- Posts imported from a booru (4.4) ---
   // An imported post is usually not on the current library page; the batch
   // tools resolve selected library posts through libraryPostById().
@@ -248,6 +262,7 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
     viewerPost,
     viewerHasPrev: computed(() => viewerIndex.value > 0),
     viewerHasNext: computed(() => viewerIndex.value >= 0 && viewerIndex.value < viewerList.value.length - 1),
+    openPost,
     openViewer,
     closeViewer,
     navigateViewer,

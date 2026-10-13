@@ -12,11 +12,13 @@
 
     <div class="post-info-meta">
       <span title="Dimensions">{{ post.width }} × {{ post.height }}</span>
-      <span class="post-info-dot" aria-hidden="true">·</span>
-      <span title="File size">{{ formatFileSize(post.fileSize) }}</span>
+      <template v-if="post.fileSize != null">
+        <span class="post-info-dot" aria-hidden="true">·</span>
+        <span title="File size">{{ formatFileSize(post.fileSize) }}</span>
+      </template>
     </div>
 
-    <div v-if="tweetUrl || pixivUrl || booruSourceLink" class="post-info-sources">
+    <div v-if="tweetUrl || pixivUrl || booruSourceLink || links.length" class="post-info-sources">
       <a
         v-if="tweetUrl"
         class="post-info-chip"
@@ -43,6 +45,16 @@
       >
         {{ booruSourceLink.label }} <span aria-hidden="true">↗</span>
       </a>
+      <a
+        v-for="link in links"
+        :key="link.url"
+        class="post-info-chip"
+        :href="link.url"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {{ link.label }} <span aria-hidden="true">↗</span>
+      </a>
     </div>
 
     <div class="post-info-rating">
@@ -51,18 +63,21 @@
         <button
           class="safety-btn safe"
           :class="{ active: post.safety === 'safe' }"
+          :disabled="readonlyRating"
           @click="setSafety('safe')"
           title="Safe"
         ></button>
         <button
           class="safety-btn sketchy"
           :class="{ active: post.safety === 'sketchy' }"
+          :disabled="readonlyRating"
           @click="setSafety('sketchy')"
           title="Sketchy"
         ></button>
         <button
           class="safety-btn unsafe"
           :class="{ active: post.safety === 'unsafe' }"
+          :disabled="readonlyRating"
           @click="setSafety('unsafe')"
           title="Unsafe"
         ></button>
@@ -86,6 +101,16 @@ const props = defineProps({
   post: {
     type: Object,
     required: true,
+  },
+  // More source chips after the post's own ([{ url, label }]): the booru post page's.
+  links: {
+    type: Array,
+    default: () => [],
+  },
+  // Shows the rating without letting it change (a booru post not in the library).
+  readonlyRating: {
+    type: Boolean,
+    default: false,
   },
 })
 const emit = defineEmits(['set-safety'])
@@ -219,6 +244,11 @@ function setSafety(safety) {
 
 .safety-btn:hover {
   transform: scale(1.1);
+}
+
+.safety-btn:disabled {
+  cursor: default;
+  transform: none;
 }
 
 .safety-btn.active {
