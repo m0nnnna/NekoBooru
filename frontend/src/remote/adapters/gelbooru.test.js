@@ -255,3 +255,19 @@ describe('refresh', () => {
     await expect(gelbooruAdapter.refresh(post, { api: fakeApi() })).rejects.toMatchObject({ name: 'RemoteSearchError', site: 'gelbooru', kind: 'unavailable' })
   })
 })
+
+describe('getPost', () => {
+  it('asks the relay for an id: search and returns the matching post', async () => {
+    const api = fakeApi({ ...fixture.page, posts: [imageRow] })
+    const post = await gelbooruAdapter.getPost(String(imageRow.id), { api })
+    expect(api.searchGelbooru).toHaveBeenCalledWith({ tags: `id:${imageRow.id}`, page: 1, limit: 1 }, undefined)
+    expect(post).toEqual(normalizeGelbooruPost(imageRow))
+  })
+
+  it('throws unavailable when the relay finds nothing or the id is not a number', async () => {
+    await expect(gelbooruAdapter.getPost('5', { api: fakeApi({ ...fixture.page, posts: [] }) })).rejects.toMatchObject({ site: 'gelbooru', kind: 'unavailable' })
+    const api = fakeApi()
+    await expect(gelbooruAdapter.getPost('5 rating:general', { api })).rejects.toMatchObject({ kind: 'unavailable' })
+    expect(api.searchGelbooru).not.toHaveBeenCalled()
+  })
+})

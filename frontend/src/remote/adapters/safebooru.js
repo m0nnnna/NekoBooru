@@ -193,6 +193,22 @@ export const safebooruAdapter = Object.freeze({
     }
   },
 
+  /** One post by id (the booru post page opened from its URL): an id: search through the relay. */
+  async getPost(postId, { signal, api } = {}) {
+    const id = String(postId ?? '')
+    if (!/^\d+$/.test(id)) throw new RemoteSearchError({ site: SITE, kind: 'unavailable', message: `Not a Safebooru post id: ${id}` })
+    let response
+    try {
+      response = await api.searchSafebooru({ tags: `id:${id}`, page: 1, limit: 1 }, signal)
+    } catch (error) {
+      throw safebooruError(error)
+    }
+    const rows = Array.isArray(response?.posts) ? response.posts : []
+    const post = rows.map(normalizeSafebooruPost).find((entry) => entry?.id === id)
+    if (!post) throw new RemoteSearchError({ site: SITE, kind: 'unavailable', message: `Safebooru has no post ${id}` })
+    return post
+  },
+
   // Safebooru URLs are stable, so the searched post is already fresh.
   async refresh(post) {
     if (post?.fileUrl) return post

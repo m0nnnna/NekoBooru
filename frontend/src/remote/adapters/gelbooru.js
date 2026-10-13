@@ -192,6 +192,21 @@ export const gelbooruAdapter = Object.freeze({
     }
   },
 
+  /** One post by id (the booru post page opened from its URL): an id: search through the relay. */
+  async getPost(postId, { signal, api } = {}) {
+    const id = String(postId ?? '')
+    if (!/^\d+$/.test(id)) throw new RemoteSearchError({ site: SITE, kind: 'unavailable', message: `Not a Gelbooru post id: ${id}` })
+    let payload
+    try {
+      payload = await api.searchGelbooru({ tags: `id:${id}`, page: 1, limit: 1 }, signal)
+    } catch (error) {
+      throw relayError(error)
+    }
+    const post = rowsOf(payload?.posts).map(normalizeGelbooruPost).find((entry) => entry?.id === id)
+    if (!post) throw new RemoteSearchError({ site: SITE, kind: 'unavailable', message: `Gelbooru has no post ${id}` })
+    return post
+  },
+
   // Gelbooru file URLs do not expire, so the post found by search is current.
   async refresh(post) {
     if (post?.fileUrl) return post

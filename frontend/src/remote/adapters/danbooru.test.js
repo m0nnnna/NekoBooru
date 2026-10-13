@@ -324,3 +324,20 @@ describe('danbooruAdapter.count', () => {
     }
   })
 })
+
+describe('danbooruAdapter.getPost', () => {
+  it('fetches one post by id, keeping a post without a file', async () => {
+    const fetch = fetchReturning(jsonResponse(pngRow))
+    expect(await danbooruAdapter.getPost('12370916', { fetch })).toEqual(normalizeDanbooruPost(pngRow))
+    expect(requestedUrl(fetch).href).toBe('https://danbooru.donmai.us/posts/12370916.json')
+
+    const banned = await danbooruAdapter.getPost(String(bannedRow.id), { fetch: fetchReturning(jsonResponse(bannedRow)) })
+    expect(banned).toMatchObject({ fileUrl: null, unavailable: 'banned' })
+  })
+
+  it('rejects a non-numeric id without a request', async () => {
+    const fetch = vi.fn()
+    await expect(danbooruAdapter.getPost('../users', { fetch })).rejects.toMatchObject({ kind: 'unavailable' })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})

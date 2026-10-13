@@ -211,16 +211,23 @@ async function count(query = '', options = {}, { signal, fetch, timeoutMs = DANB
   }
 }
 
-/** A fresh copy of one post right before import; throws kind 'unavailable' without an original. */
-async function refresh(post, { signal, fetch } = {}) {
-  const id = String(post?.id ?? '')
+/** One post by id (the booru post page opened from its URL), with or without an original. */
+async function getPost(postId, { signal, fetch } = {}) {
+  const id = String(postId ?? '')
   if (!/^\d+$/.test(id)) {
     throw new RemoteSearchError({ site: SITE, message: `Not a Danbooru post id: ${id}`, kind: 'unavailable' })
   }
-  const fresh = normalizeDanbooruPost(await getJson(`${BASE}/posts/${id}.json`, { signal, fetch }))
-  if (!fresh || fresh.id !== id) {
+  const post = normalizeDanbooruPost(await getJson(`${BASE}/posts/${id}.json`, { signal, fetch }))
+  if (!post || post.id !== id) {
     throw new RemoteSearchError({ site: SITE, message: `Danbooru did not return post #${id}`, kind: 'upstream' })
   }
+  return post
+}
+
+/** A fresh copy of one post right before import; throws kind 'unavailable' without an original. */
+async function refresh(post, { signal, fetch } = {}) {
+  const id = String(post?.id ?? '')
+  const fresh = await getPost(id, { signal, fetch })
   if (!fresh.fileUrl) {
     const why = fresh.unavailable === 'hidden' ? ' (it may need a Danbooru Gold account)' : ''
     throw new RemoteSearchError({ site: SITE, message: `Danbooru post #${id} has no downloadable file: ${fresh.unavailable}${why}`, kind: 'unavailable' })
@@ -244,6 +251,7 @@ export const danbooruAdapter = Object.freeze({
   pageCursor: (page) => ({ page }),
   translate,
   search,
+  getPost,
   refresh,
   count,
   countIsEstimate: false,

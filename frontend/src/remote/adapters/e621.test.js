@@ -351,3 +351,20 @@ describe('e621Adapter name mapping', () => {
     expect(result.note).toBeNull()
   })
 })
+
+describe('e621Adapter.getPost', () => {
+  it('fetches one post by id, keeping a deleted one', async () => {
+    const fetch = stubFetch(jsonResponse({ post: videoRow }))
+    expect(await e621Adapter.getPost('6336267', { fetch })).toEqual(normalizeE621Post(videoRow))
+    expect(requestedUrl(fetch).pathname).toBe('/posts/6336267.json')
+
+    const deleted = await e621Adapter.getPost('6775146', { fetch: stubFetch(jsonResponse({ post: deletedRow })) })
+    expect(deleted.fileUrl).toBeNull()
+  })
+
+  it('throws unavailable for a 404 and for an id that is not a number', async () => {
+    const missing = await e621Adapter.getPost('1', { fetch: stubFetch(jsonResponse({ success: false }, { status: 404 })) }).catch((caught) => caught)
+    expect(missing).toMatchObject({ kind: 'unavailable', status: 404 })
+    await expect(e621Adapter.getPost('x/1', { fetch: stubFetch(jsonResponse({})) })).rejects.toMatchObject({ kind: 'unavailable' })
+  })
+})

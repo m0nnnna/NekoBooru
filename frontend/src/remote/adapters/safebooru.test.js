@@ -270,3 +270,17 @@ describe('safebooruAdapter total', () => {
     expect(result).toMatchObject({ total: null, totalIsEstimate: false })
   })
 })
+
+describe('safebooruAdapter.getPost', () => {
+  it('asks the relay for an id: search and returns the matching post', async () => {
+    const row = fixture.posts[0]
+    const api = relayApi({ ...fixture, posts: [row] })
+    const post = await safebooruAdapter.getPost(String(row.id), { api })
+    expect(api.searchSafebooru).toHaveBeenCalledWith({ tags: `id:${row.id}`, page: 1, limit: 1 }, undefined)
+    expect(post).toEqual(normalizeSafebooruPost(row))
+  })
+
+  it('throws unavailable when the relay finds nothing', async () => {
+    await expect(safebooruAdapter.getPost('5', { api: relayApi({ ...fixture, posts: [] }) })).rejects.toMatchObject({ site: 'safebooru', kind: 'unavailable' })
+  })
+})

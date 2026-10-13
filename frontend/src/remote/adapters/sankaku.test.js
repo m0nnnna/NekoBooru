@@ -333,3 +333,21 @@ describe('sankakuAdapter thumbnail expiry', () => {
     expect(await sankakuAdapter.refreshThumb(post, { fetch: stubFetch(new Response('', { status: 404 })) })).toBeNull()
   })
 })
+
+describe('sankakuAdapter.getPost', () => {
+  it('fetches one post by id uncached, keeping a members-only one', async () => {
+    const fetch = stubFetch(jsonResponse(fixture.post))
+    const post = await sankakuAdapter.getPost('YEa7oYL93am', { fetch })
+    expect(fetch.mock.calls[0][0]).toBe('https://sankakuapi.com/posts/YEa7oYL93am')
+    expect(fetch.mock.calls[0][1]).toMatchObject({ cache: 'no-store' })
+    expect(post.key).toBe('sankaku:YEa7oYL93am')
+
+    const hidden = { ...clone(fixture.post), file_url: null, redirect_to_signup: true }
+    expect((await sankakuAdapter.getPost('YEa7oYL93am', { fetch: stubFetch(jsonResponse(hidden)) })).fileUrl).toBeNull()
+  })
+
+  it('throws unavailable for a post the API will not show', async () => {
+    const missing = await sankakuAdapter.getPost('YEa7oYL93am', { fetch: stubFetch(jsonResponse({ success: false }, { status: 404 })) }).catch((e) => e)
+    expect(missing).toMatchObject({ kind: 'unavailable', status: 404 })
+  })
+})

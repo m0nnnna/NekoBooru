@@ -252,19 +252,26 @@ export const e621Adapter = Object.freeze({
   },
   countIsEstimate: true,
 
-  /** A fresh copy of `post` right before import; throws kind 'unavailable' when it has no file. */
-  async refresh(post, { signal, fetch } = {}) {
+  /** One post by id (the booru post page opened from its URL), with or without a file. */
+  async getPost(postId, { signal, fetch } = {}) {
+    const id = String(postId ?? '')
+    if (!/^\d+$/.test(id)) throw new RemoteSearchError({ site: SITE, message: `Not an e621 post id: ${id}`, kind: 'unavailable' })
     let body
     try {
-      body = await getJson(e621PostUrl(post.id), { signal, fetch })
+      body = await getJson(e621PostUrl(id), { signal, fetch })
     } catch (error) {
       if (error instanceof RemoteSearchError && error.status === 404) {
-        throw new RemoteSearchError({ site: SITE, status: 404, message: `e621 post ${post.id} no longer exists`, kind: 'unavailable' })
+        throw new RemoteSearchError({ site: SITE, status: 404, message: `e621 post ${id} no longer exists`, kind: 'unavailable' })
       }
       throw error
     }
-    if (!body?.post) throw new RemoteSearchError({ site: SITE, message: `e621 returned no post ${post.id}`, kind: 'unavailable' })
-    const fresh = normalizeE621Post(body.post)
+    if (!body?.post) throw new RemoteSearchError({ site: SITE, message: `e621 returned no post ${id}`, kind: 'unavailable' })
+    return normalizeE621Post(body.post)
+  },
+
+  /** A fresh copy of `post` right before import; throws kind 'unavailable' when it has no file. */
+  async refresh(post, { signal, fetch } = {}) {
+    const fresh = await e621Adapter.getPost(post.id, { signal, fetch })
     if (!fresh.fileUrl) {
       const reason = fresh.unavailable === 'deleted' ? 'was deleted' : 'is hidden from anonymous visitors'
       throw new RemoteSearchError({ site: SITE, message: `e621 post ${post.id} ${reason}`, kind: 'unavailable' })

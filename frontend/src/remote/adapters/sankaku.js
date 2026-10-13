@@ -280,9 +280,12 @@ async function search({ query = '', options = {}, cursor = null, limit = null, s
 }
 
 // Signed URLs expire within hours: fetch the post again right before import.
-async function refresh(post, { signal, fetch: fetchImpl = defaultFetch } = {}) {
-  const id = text(post?.id)
-  const unavailable = (status, message = HIDDEN_MESSAGE) => new RemoteSearchError({ site: SITE.id, status, kind: 'unavailable', message })
+const unavailable = (status, message = HIDDEN_MESSAGE) => new RemoteSearchError({ site: SITE.id, status, kind: 'unavailable', message })
+
+// One post by id, uncached (its signed URLs are fresh), with or without an
+// original: the booru post page opened from its URL, and refresh() below.
+async function getPost(postId, { signal, fetch: fetchImpl = defaultFetch } = {}) {
+  const id = text(postId)
   if (!/^[A-Za-z0-9_-]+$/.test(id)) throw unavailable(null, 'Not a Sankaku post id')
   let body
   try {
@@ -292,10 +295,15 @@ async function refresh(post, { signal, fetch: fetchImpl = defaultFetch } = {}) {
     if (error instanceof RemoteSearchError && [400, 401, 403, 404, 410].includes(error.status)) throw unavailable(error.status)
     throw error
   }
-  const fresh = normalizeSankakuPost(body)
-  if (!fresh || fresh.id !== id) {
+  const post = normalizeSankakuPost(body)
+  if (!post || post.id !== id) {
     throw new RemoteSearchError({ site: SITE.id, kind: 'upstream', message: 'Sankaku did not return this post' })
   }
+  return post
+}
+
+async function refresh(post, { signal, fetch: fetchImpl = defaultFetch } = {}) {
+  const fresh = await getPost(post?.id, { signal, fetch: fetchImpl })
   if (!fresh.fileUrl) throw unavailable(null, fresh.unavailable === 'deleted' ? 'Sankaku has deleted this post' : HIDDEN_MESSAGE)
   return fresh
 }
@@ -307,6 +315,7 @@ export const sankakuAdapter = Object.freeze({
   pageSize: SITE.defaultLimit,
   translate,
   search,
+  getPost,
   refresh,
   thumbExpired,
   refreshThumb,
