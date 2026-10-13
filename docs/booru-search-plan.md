@@ -1403,7 +1403,16 @@ anonymous callers over time (shown as unavailable, never as errors); Cloudflare
 may challenge browser-direct requests from some networks (surfaced as
 `upstream` errors in the section header with Retry).
 
-## 7. Open questions for the owner (plan proceeds with the defaults)
+## 7. Owner answers (all defaults accepted)
+
+The owner accepted every default below. Item 1 is additionally scheduled as
+**P7 - Safebooru categories via Danbooru**, a follow-up package after P6:
+resolve Safebooru tag categories through Danbooru's `/tags.json` as described
+in item 1, used at import time only (like Gelbooru's), with tests. Item 5:
+"pool" is NekoBooru's existing Pools feature (ordered post collections); the
+Import card's optional pool field is chosen per import run.
+
+### Original questions and defaults
 
 1. **Safebooru tag categories** - default: general-only, as the draft said.
    Alternative worth a follow-up package: resolve categories through
