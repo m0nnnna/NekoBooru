@@ -119,84 +119,12 @@ const {
 const { savingAutoTags, saveAutoTagSettings } = props.autoTag
 </script>
 <style scoped>
-.info-item label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-/* Stats Section */
-.stats-loading,
-.stats-error {
-  padding: 1rem;
-  text-align: center;
-  color: var(--text-secondary);
-}
-
-.stats-error {
-  color: var(--coral);
-}
-
-.auto-status,
-.job-panel {
-  padding: 1rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  margin-bottom: 1rem;
-  color: var(--text-primary);
-}
-
 .config-panel {
   padding: 1rem;
   margin-top: 1rem;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-}
-
-.config-panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 0.9rem;
-}
-
-.config-panel-head h3 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 0.95rem;
-}
-
-.config-panel-head p {
-  margin: 0;
-  max-width: 560px;
-  color: var(--text-secondary);
-  font-size: 0.82rem;
-  text-align: right;
-}
-
-.toggle-card strong,
-.model-toggle-row strong {
-  display: block;
-  margin-bottom: 0.2rem;
-  font-size: 0.9rem;
-}
-
-.field-row {
-  display: grid;
-  gap: 0.35rem;
-  color: var(--text-secondary);
-  font-size: 0.82rem;
-}
-
-.field-row input,
-.field-row select,
-.field-row textarea {
-  width: 100%;
 }
 
 .bulk-toolbar {
@@ -314,20 +242,6 @@ const { savingAutoTags, saveAutoTagSettings } = props.autoTag
 
 .estimate-strip strong {
   color: var(--text-primary);
-}
-
-.progress-bar {
-  height: 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 0.5rem;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.3s ease;
 }
 
 @media (max-width: 768px) {

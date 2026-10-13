@@ -77,79 +77,6 @@ const props = defineProps({
 const { runtimeStatus, runtimeAiSummary, runtimeToolSummary, loadRuntimeStatus } = props.runtime
 </script>
 <style scoped>
-.section-description {
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  margin-bottom: 1.5rem;
-}
-
-.form-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1.5rem;
-}
-
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1rem;
-}
-
-.info-item {
-  padding: 0.75rem;
-  background: var(--bg-secondary);
-  border-radius: 0.5rem;
-}
-
-.info-item label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.info-item code {
-  display: block;
-  font-family: 'Courier New', monospace;
-  font-size: 0.8rem;
-  color: var(--text-primary);
-  word-break: break-all;
-  background: var(--bg-primary);
-  padding: 0.5rem;
-  border-radius: 0.25rem;
-}
-
-.runtime-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.75rem;
-}
-
-.runtime-summary-grid > div {
-  display: grid;
-  gap: 0.25rem;
-  padding: 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--bg-secondary);
-}
-
-.runtime-summary-grid span {
-  color: var(--text-secondary);
-  font-size: 0.76rem;
-  text-transform: uppercase;
-}
-
-.runtime-summary-grid strong {
-  color: var(--text-primary);
-}
-
-.runtime-summary-grid small {
-  color: var(--text-secondary);
-  line-height: 1.35;
-}
-
 .runtime-details {
   margin-top: 1rem;
 }
@@ -159,29 +86,5 @@ const { runtimeStatus, runtimeAiSummary, runtimeToolSummary, loadRuntimeStatus }
   color: var(--text-primary);
   font-weight: 600;
   margin-bottom: 0.75rem;
-}
-
-.toggle-card strong,
-.model-toggle-row strong {
-  display: block;
-  margin-bottom: 0.2rem;
-  font-size: 0.9rem;
-}
-
-.toggle-card small,
-.model-toggle-row small {
-  display: block;
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-
-.model-ok {
-  color: var(--success);
-  font-weight: 600;
-}
-
-.model-missing {
-  color: var(--text-secondary);
 }
 </style>

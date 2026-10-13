@@ -160,54 +160,11 @@ const {
 const { currentSettings } = props.server
 </script>
 <style scoped>
-.section-description {
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  margin-bottom: 1.5rem;
-}
-
-.form-group {
-  margin-bottom: 1.5rem;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.help-text {
-  margin-top: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
 .help-text code {
   background: var(--bg-secondary);
   padding: 0.2rem 0.4rem;
   border-radius: 0.25rem;
   font-size: 0.8rem;
-}
-
-.migration-status.error,
-.cookies-status.error {
-  background: var(--coral-soft);
-  border-color: var(--coral);
-  color: var(--text-primary);
-}
-
-.cookies-status {
-  margin: 1rem 0;
-  padding: 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid;
-}
-
-.cookies-status.success {
-  background: var(--success-soft);
-  border-color: var(--success);
-  color: var(--text-primary);
 }
 
 .cookies-upload-area {
@@ -285,95 +242,6 @@ const { currentSettings } = props.server
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.form-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1.5rem;
-}
-
-.info-item label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.info-item code {
-  display: block;
-  font-family: 'Courier New', monospace;
-  font-size: 0.8rem;
-  color: var(--text-primary);
-  word-break: break-all;
-  background: var(--bg-primary);
-  padding: 0.5rem;
-  border-radius: 0.25rem;
-}
-
-.config-panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 0.9rem;
-}
-
-.config-panel-head h3 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 0.95rem;
-}
-
-.config-panel-head p {
-  margin: 0;
-  max-width: 560px;
-  color: var(--text-secondary);
-  font-size: 0.82rem;
-  text-align: right;
-}
-
-.toggle-card input,
-.model-toggle-row input {
-  margin-top: 0.15rem;
-}
-
-.toggle-card strong,
-.model-toggle-row strong {
-  display: block;
-  margin-bottom: 0.2rem;
-  font-size: 0.9rem;
-}
-
-.toggle-card small,
-.model-toggle-row small {
-  display: block;
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-
-.field-row {
-  display: grid;
-  gap: 0.35rem;
-  color: var(--text-secondary);
-  font-size: 0.82rem;
-}
-
-.field-row input,
-.field-row select,
-.field-row textarea {
-  width: 100%;
-}
-
-.model-ok {
-  color: var(--success);
-  font-weight: 600;
-}
-
-.model-missing {
-  color: var(--text-secondary);
 }
 
 @media (max-width: 768px) {

@@ -91,96 +91,15 @@ const {
 } = props.account
 </script>
 <style scoped>
-.section-description {
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  margin-bottom: 1.5rem;
-}
-
-.form-group {
-  margin-bottom: 1.5rem;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.path-input-group {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.path-input {
-  flex: 1;
-  font-family: 'Courier New', monospace;
-  font-size: 0.85rem;
-}
-
-.help-text {
-  margin-top: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
-.migration-prompt {
-  margin: 1.5rem 0;
-}
-
 .alert {
   padding: 1rem;
   border-radius: 0.5rem;
   border: 1px solid;
 }
 
-.alert-warning {
-  background: var(--warning);
-  border-color: var(--border);
-  color: var(--text-primary);
-}
-
-.form-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1.5rem;
-}
-
-.info-item label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.status-note {
-  margin: 0.75rem 0 0;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.toggle-card input,
-.model-toggle-row input {
-  margin-top: 0.15rem;
-}
-
-.toggle-card strong,
-.model-toggle-row strong {
-  display: block;
-  margin-bottom: 0.2rem;
-  font-size: 0.9rem;
-}
-
 .btn-small {
   padding: 0.4rem 0.65rem;
   font-size: 0.8rem;
-}
-
-.model-ok {
-  color: var(--success);
-  font-weight: 600;
 }
 
 .share-checklist {

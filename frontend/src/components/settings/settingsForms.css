@@ -1,0 +1,457 @@
+/* Form rules shared by the settings section components. SettingsView loads this once,
+   unscoped; :where() keeps each rule at the specificity of its bare selector, so a
+   section's own scoped rules still win. */
+
+:where(.settings-view) .section-description {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+:where(.settings-view) .form-group {
+  margin-bottom: 1.5rem;
+}
+
+:where(.settings-view) .form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+:where(.settings-view) .path-input-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+:where(.settings-view) .path-input {
+  flex: 1;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+}
+
+:where(.settings-view) .help-text {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+:where(.settings-view) .migration-prompt {
+  margin: 1.5rem 0;
+}
+
+:where(.settings-view) .alert-warning {
+  background: var(--warning);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+:where(.settings-view) .form-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+:where(.settings-view) .info-item label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+:where(.settings-view) .status-note {
+  margin: 0.75rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+:where(.settings-view) .toggle-card input,
+:where(.settings-view) .model-toggle-row input {
+  margin-top: 0.15rem;
+}
+
+:where(.settings-view) .toggle-card strong,
+:where(.settings-view) .model-toggle-row strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.9rem;
+}
+
+:where(.settings-view) .model-ok {
+  color: var(--success);
+  font-weight: 600;
+}
+
+:where(.settings-view) .migration-status.error,
+:where(.settings-view) .cookies-status.error {
+  background: var(--coral-soft);
+  border-color: var(--coral);
+  color: var(--text-primary);
+}
+
+:where(.settings-view) .cookies-status {
+  margin: 1rem 0;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid;
+}
+
+:where(.settings-view) .cookies-status.success {
+  background: var(--success-soft);
+  border-color: var(--success);
+  color: var(--text-primary);
+}
+
+:where(.settings-view) .toggle-card,
+:where(.settings-view) .model-toggle-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+:where(.settings-view) .toggle-card small,
+:where(.settings-view) .model-toggle-row small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+:where(.settings-view) .info-item code {
+  display: block;
+  font-family: 'Courier New', monospace;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  word-break: break-all;
+  background: var(--bg-primary);
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+}
+
+:where(.settings-view) .config-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+:where(.settings-view) .config-panel-head h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+:where(.settings-view) .config-panel-head p {
+  margin: 0;
+  max-width: 560px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+:where(.settings-view) .toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+:where(.settings-view) .numeric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+:where(.settings-view) .field-row {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+:where(.settings-view) .label-with-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+:where(.settings-view) .info-icon {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: help;
+  font-size: 0.72rem;
+  line-height: 16px;
+}
+
+:where(.settings-view) .info-icon:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+:where(.settings-view) .info-icon::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 20;
+  display: block;
+  width: max-content;
+  max-width: min(360px, 70vw);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: #111827;
+  color: #f8fafc;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+  content: attr(data-tooltip);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: pre-line;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+:where(.settings-view) .info-icon::before {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  z-index: 21;
+  width: 10px;
+  height: 10px;
+  background: #111827;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px) rotate(45deg);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+:where(.settings-view) .info-icon:hover::after,
+:where(.settings-view) .info-icon:focus-visible::after,
+:where(.settings-view) .info-icon:hover::before,
+:where(.settings-view) .info-icon:focus-visible::before {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+:where(.settings-view) .info-icon:hover::before,
+:where(.settings-view) .info-icon:focus-visible::before {
+  transform: translate(-50%, 0) rotate(45deg);
+}
+
+:where(.settings-view) .field-row input,
+:where(.settings-view) .field-row select,
+:where(.settings-view) .field-row textarea {
+  width: 100%;
+}
+
+:where(.settings-view) .model-missing {
+  color: var(--text-secondary);
+}
+
+:where(.settings-view) .auto-status,
+:where(.settings-view) .job-panel {
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+
+:where(.settings-view) .download-summary {
+  margin-top: 1rem;
+  padding: 0.85rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+:where(.settings-view) .download-summary-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--text-primary);
+  margin-bottom: 0.6rem;
+}
+
+:where(.settings-view) .download-summary p {
+  margin: 0.4rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+:where(.settings-view) .progress-bar {
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+:where(.settings-view) .progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+:where(.settings-view) .runtime-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+:where(.settings-view) .runtime-summary-grid > div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+}
+
+:where(.settings-view) .runtime-summary-grid span {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+:where(.settings-view) .runtime-summary-grid strong {
+  color: var(--text-primary);
+}
+
+:where(.settings-view) .runtime-summary-grid small {
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+:where(.settings-view) .stats-loading,
+:where(.settings-view) .stats-error {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+:where(.settings-view) .stats-error {
+  color: var(--coral);
+}
+
+:where(.settings-view) .model-head,
+:where(.settings-view) .model-meta,
+:where(.settings-view) .model-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+:where(.settings-view) .model-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+:where(.settings-view) .model-facts span {
+  padding: 0.55rem 0.65rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+}
+
+:where(.settings-view) .model-facts.compact span,
+:where(.settings-view) .compact-model-row .model-facts span {
+  padding: 0.45rem 0.55rem;
+}
+
+:where(.settings-view) .model-facts strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+:where(.settings-view) .pipeline-toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: flex-start;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  color: var(--text-primary);
+}
+
+:where(.settings-view) .pipeline-toggle input {
+  margin-top: 0.15rem;
+}
+
+:where(.settings-view) .pipeline-toggle strong {
+  display: block;
+  margin-bottom: 0.15rem;
+  font-size: 0.86rem;
+}
+
+:where(.settings-view) .pipeline-toggle small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+:where(.settings-view) .compact-status {
+  margin: 0.2rem 0 0;
+  padding: 0.55rem 0.7rem;
+}
+
+:where(.settings-view) .model-progress {
+  margin-top: 0.75rem;
+}
+
+:where(.settings-view) .model-progress p {
+  margin: 0.35rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+:where(.settings-view) .model-actions {
+  margin-top: 0.75rem;
+}
+
+:where(.settings-view) .info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+:where(.settings-view) .info-item {
+  padding: 0.75rem;
+  background: var(--bg-secondary);
+  border-radius: 0.5rem;
+}

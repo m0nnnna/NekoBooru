@@ -125,3 +125,23 @@ describe('SettingsView', () => {
     expect(wrapper.get('.path-input').element.value).toBe('/srv/neko')
   })
 })
+
+const SETTINGS_SECTION_SOURCES = import.meta.glob('../components/settings/*.vue', { query: '?raw', import: 'default', eager: true })
+const SETTINGS_VIEW_SOURCE = import.meta.glob('./SettingsView.vue', { query: '?raw', import: 'default', eager: true })['./SettingsView.vue']
+
+describe('settings form styles', () => {
+  it('keeps the shared form rules in one sheet SettingsView loads', () => {
+    expect(SETTINGS_VIEW_SOURCE).toMatch(/<style src="\.\.\/components\/settings\/settingsForms\.css"><\/style>/)
+    const shared = ['.toggle-card', '.form-actions', '.cookies-status', '.config-panel-head', '.field-row', '.info-icon', '.info-item label']
+    const copies = []
+    for (const [path, source] of Object.entries(SETTINGS_SECTION_SOURCES)) {
+      const css = source.split('<style')[1] || ''
+      for (const selector of shared) {
+        // Top-level rules only: a section may still adjust a shared rule inside @media.
+        const rule = new RegExp(`\\n${selector.replace('.', '\\.')}\\s*[,{]`)
+        if (rule.test(css)) copies.push(`${path} ${selector}`)
+      }
+    }
+    expect(copies).toEqual([])
+  })
+})

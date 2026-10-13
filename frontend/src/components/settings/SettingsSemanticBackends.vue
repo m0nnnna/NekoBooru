@@ -205,75 +205,11 @@ const {
 } = props.models
 </script>
 <style scoped>
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
 .help-text code {
   background: var(--bg-secondary);
   padding: 0.2rem 0.4rem;
   border-radius: 0.25rem;
   font-size: 0.8rem;
-}
-
-.migration-status.error,
-.cookies-status.error {
-  background: var(--coral-soft);
-  border-color: var(--coral);
-  color: var(--text-primary);
-}
-
-.cookies-status {
-  margin: 1rem 0;
-  padding: 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid;
-}
-
-.cookies-status.success {
-  background: var(--success-soft);
-  border-color: var(--success);
-  color: var(--text-primary);
-}
-
-.info-item label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.info-item code {
-  display: block;
-  font-family: 'Courier New', monospace;
-  font-size: 0.8rem;
-  color: var(--text-primary);
-  word-break: break-all;
-  background: var(--bg-primary);
-  padding: 0.5rem;
-  border-radius: 0.25rem;
-}
-
-/* Stats Section */
-.stats-loading,
-.stats-error {
-  padding: 1rem;
-  text-align: center;
-  color: var(--text-secondary);
-}
-
-.stats-error {
-  color: var(--coral);
-}
-
-.download-summary p {
-  margin: 0.4rem 0 0;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
 }
 
 .semantic-manager {
@@ -438,106 +374,9 @@ const {
   margin-bottom: 0.75rem;
 }
 
-.config-panel-head p {
-  margin: 0;
-  max-width: 560px;
-  color: var(--text-secondary);
-  font-size: 0.82rem;
-  text-align: right;
-}
-
-.toggle-card input,
-.model-toggle-row input {
-  margin-top: 0.15rem;
-}
-
-.toggle-card strong,
-.model-toggle-row strong {
-  display: block;
-  margin-bottom: 0.2rem;
-  font-size: 0.9rem;
-}
-
-.toggle-card small,
-.model-toggle-row small {
-  display: block;
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-
-.model-head,
-.model-meta,
-.model-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.model-facts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 0.5rem;
-  width: 100%;
-  margin-top: 0.25rem;
-}
-
-.model-facts span {
-  padding: 0.55rem 0.65rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 0.45rem;
-}
-
 .model-facts.compact {
   grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
   gap: 0.4rem;
-}
-
-.model-facts.compact span,
-.compact-model-row .model-facts span {
-  padding: 0.45rem 0.55rem;
-}
-
-.model-facts strong {
-  display: block;
-  margin-bottom: 0.2rem;
-  color: var(--text-secondary);
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.pipeline-toggle {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 0.75rem;
-  align-items: flex-start;
-  width: 100%;
-  margin-top: 0.35rem;
-  padding: 0.75rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 0.45rem;
-  color: var(--text-primary);
-}
-
-.pipeline-toggle input {
-  margin-top: 0.15rem;
-}
-
-.pipeline-toggle strong {
-  display: block;
-  margin-bottom: 0.15rem;
-  font-size: 0.86rem;
-}
-
-.pipeline-toggle small {
-  display: block;
-  color: var(--text-secondary);
-  font-size: 0.76rem;
-  line-height: 1.35;
 }
 
 .semantic-prompt-panel {
@@ -584,11 +423,6 @@ const {
   width: 100%;
 }
 
-.compact-status {
-  margin: 0.2rem 0 0;
-  padding: 0.55rem 0.7rem;
-}
-
 .semantic-prompt-panel textarea {
   width: 100%;
   min-height: 320px;
@@ -609,31 +443,8 @@ const {
   font-size: 0.8rem;
 }
 
-.model-ok {
-  color: var(--success);
-  font-weight: 600;
-}
-
-.model-missing {
-  color: var(--text-secondary);
-}
-
-.model-progress {
-  margin-top: 0.75rem;
-}
-
 .compact-progress {
   margin-top: 0.25rem;
-}
-
-.model-progress p {
-  margin: 0.35rem 0 0;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.model-actions {
-  margin-top: 0.75rem;
 }
 
 .compact-actions {
@@ -643,20 +454,6 @@ const {
 
 .compact-actions .btn {
   padding: 0.45rem 0.7rem;
-}
-
-.progress-bar {
-  height: 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 0.5rem;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.3s ease;
 }
 
 @media (max-width: 768px) {

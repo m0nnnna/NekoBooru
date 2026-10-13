@@ -333,6 +333,8 @@ async function loadAutoTags() {
 }
 </script>
 
+<style src="../components/settings/settingsForms.css"></style>
+
 <style scoped>
 .settings-view {
   max-width: 900px;
@@ -365,88 +367,6 @@ async function loadAutoTags() {
   margin-right: 0.25rem;
 }
 
-.section-description {
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  margin-bottom: 1.5rem;
-}
-
-.form-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1.5rem;
-}
-
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1rem;
-}
-
-.info-item {
-  padding: 0.75rem;
-  background: var(--bg-secondary);
-  border-radius: 0.5rem;
-}
-
-.info-item label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.info-item code {
-  display: block;
-  font-family: 'Courier New', monospace;
-  font-size: 0.8rem;
-  color: var(--text-primary);
-  word-break: break-all;
-  background: var(--bg-primary);
-  padding: 0.5rem;
-  border-radius: 0.25rem;
-}
-
-.status-note {
-  margin: 0.75rem 0 0;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.toggle-card,
-.model-toggle-row {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 0.75rem;
-  align-items: flex-start;
-  padding: 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.toggle-card input,
-.model-toggle-row input {
-  margin-top: 0.15rem;
-}
-
-.toggle-card strong,
-.model-toggle-row strong {
-  display: block;
-  margin-bottom: 0.2rem;
-  font-size: 0.9rem;
-}
-
-.toggle-card small,
-.model-toggle-row small {
-  display: block;
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-
 .ai-master-toggle {
   max-width: 520px;
   margin-bottom: 1rem;
@@ -459,14 +379,5 @@ async function loadAutoTags() {
 .btn-small {
   padding: 0.4rem 0.65rem;
   font-size: 0.8rem;
-}
-
-.model-ok {
-  color: var(--success);
-  font-weight: 600;
-}
-
-.model-missing {
-  color: var(--text-secondary);
 }
 </style>

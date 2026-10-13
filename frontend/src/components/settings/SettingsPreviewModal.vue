@@ -44,21 +44,6 @@ const props = defineProps({
 const { autoTagJob, showPreviewModal, previewSuggestions, previewLoading } = props.bulk
 </script>
 <style scoped>
-/* Stats Section */
-.stats-loading,
-.stats-error {
-  padding: 1rem;
-  text-align: center;
-  color: var(--text-secondary);
-}
-
-.toggle-card strong,
-.model-toggle-row strong {
-  display: block;
-  margin-bottom: 0.2rem;
-  font-size: 0.9rem;
-}
-
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -148,15 +133,6 @@ const { autoTagJob, showPreviewModal, previewSuggestions, previewLoading } = pro
 
 .preview-row p {
   margin: 0;
-  color: var(--text-secondary);
-}
-
-.model-ok {
-  color: var(--success);
-  font-weight: 600;
-}
-
-.model-missing {
   color: var(--text-secondary);
 }
 

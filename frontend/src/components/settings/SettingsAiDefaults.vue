@@ -71,46 +71,6 @@ const {
 } = props.aiModels
 </script>
 <style scoped>
-.section-description {
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  margin-bottom: 1.5rem;
-}
-
-.migration-status.error,
-.cookies-status.error {
-  background: var(--coral-soft);
-  border-color: var(--coral);
-  color: var(--text-primary);
-}
-
-.cookies-status {
-  margin: 1rem 0;
-  padding: 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid;
-}
-
-.cookies-status.success {
-  background: var(--success-soft);
-  border-color: var(--success);
-  color: var(--text-primary);
-}
-
-.form-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1.5rem;
-}
-
-.info-item label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
 .extension-defaults-panel {
   margin-top: 1rem;
   padding: 1rem;
@@ -155,38 +115,5 @@ const {
 
 .extension-model-toggle {
   background: var(--bg-primary);
-}
-
-.toggle-card,
-.model-toggle-row {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 0.75rem;
-  align-items: flex-start;
-  padding: 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.toggle-card input,
-.model-toggle-row input {
-  margin-top: 0.15rem;
-}
-
-.toggle-card strong,
-.model-toggle-row strong {
-  display: block;
-  margin-bottom: 0.2rem;
-  font-size: 0.9rem;
-}
-
-.toggle-card small,
-.model-toggle-row small {
-  display: block;
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  line-height: 1.35;
 }
 </style>
