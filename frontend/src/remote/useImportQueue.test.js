@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  downloadProgressText,
-  stricterSafety,
-  useImportQueue,
-} from './useImportQueue'
+import { RemoteSearchError } from './types.js'
+import { downloadProgressText, useImportQueue } from './useImportQueue'
 
 function remotePost(site, id, extra = {}) {
   return {
@@ -226,6 +223,54 @@ describe('useImportQueue', () => {
     await vi.advanceTimersByTimeAsync(1500)
     await run
     expect(queue.items[1]).toMatchObject({ status: 'failed', message: 'Failed to fetch URL: HTTP 404', attempt: 0 })
+  })
+
+  it('treats a 429/503 status as throttling and honours retryAfter / retryAfterMs', async () => {
+    let calls = 0
+    const throttled = [
+      httpError(429, 'slow down', { code: 'upstream_throttled', message: 'slow down', retryAfter: 45 }),
+      httpError(503, 'Service unavailable'),
+    ]
+    const api = fakeApi({
+      fetchFromUrl: vi.fn(async () => {
+        calls += 1
+        if (calls <= throttled.length) throw throttled[calls - 1]
+        return { token: 'ok' }
+      }),
+    })
+    const adapters = {
+      sankaku: {
+        refresh: vi.fn()
+          .mockRejectedValueOnce(new RemoteSearchError({ site: 'sankaku', status: 429, kind: 'throttled', retryAfterMs: 120000 }))
+          .mockImplementation(async (post) => post),
+      },
+    }
+    const queue = useImportQueue({ api, adapters, inLibrary: notInLibrary() })
+    queue.enqueue([remotePost('gelbooru', 1), remotePost('sankaku', 'aB')])
+    const run = queue.start()
+    await settle()
+
+    // detail.retryAfter (45 s) beats the scheduled 10 s.
+    expect(queue.items[0]).toMatchObject({ status: 'retrying', attempt: 1 })
+    expect(queue.items[0].message).toBe('Gelbooru asked to slow down · retrying in 45 s…')
+    await vi.advanceTimersByTimeAsync(44999)
+    expect(api.fetchFromUrl).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    // A bare 503 status (no hint) waits the scheduled 30 s.
+    expect(queue.items[0]).toMatchObject({ status: 'retrying', attempt: 2 })
+    expect(queue.items[0].message).toContain('30 s')
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(queue.items[0].status).toBe('done')
+
+    // RemoteSearchError.retryAfterMs from a refresh: 120 s instead of 10 s.
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(queue.items[1]).toMatchObject({ status: 'retrying', attempt: 1 })
+    expect(queue.items[1].message).toContain('120 s')
+    await vi.advanceTimersByTimeAsync(119999)
+    expect(adapters.sankaku.refresh).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await run
+    expect(queue.items[1].status).toBe('done')
   })
 
   it('waits 5 s once when the same file is already downloading, then fails', async () => {
@@ -680,13 +725,6 @@ describe('useImportQueue', () => {
 })
 
 describe('import helpers', () => {
-  it('stricterSafety picks the stricter rating', () => {
-    expect(stricterSafety('safe', 'unsafe')).toBe('unsafe')
-    expect(stricterSafety('sketchy', 'safe')).toBe('sketchy')
-    expect(stricterSafety(undefined, 'safe')).toBe('safe')
-    expect(stricterSafety(undefined, undefined)).toBe('safe')
-  })
-
   it('downloadProgressText matches the extension format', () => {
     expect(downloadProgressText({ received: 0, total: 0 }, 0)).toBe('Downloading original… 0.0 MB · 0s')
     expect(downloadProgressText({ received: 12897485, total: 37748736 }, 70000))

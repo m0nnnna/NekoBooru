@@ -1,5 +1,6 @@
 import { computed, reactive, ref } from 'vue'
 import { booruSearchTag, normalizeTagName } from '../utils/booruSearchTag'
+import { CATEGORIES, SAFETY_ORDER, booruDisplayNames, idTagFor, stricterSafety } from './types.js'
 
 // Imports selected remote posts into the library one at a time, the way the
 // browser extension's search-page import does (browser-extension/site-import.js
@@ -15,9 +16,9 @@ export const BUSY_RETRY_MS = 5000
 export const PROGRESS_POLL_MS = 1000
 const LOOKUP_CHUNK = 500
 const FINISHED = new Set(['done', 'skipped', 'failed', 'cancelled'])
-// Private twins of SAFETY_ORDER / CATEGORIES in remote/types.js.
-const SAFETY_ORDER = ['safe', 'sketchy', 'unsafe']
-const CATEGORIES = new Set(['general', 'artist', 'copyright', 'character', 'meta'])
+// A server-suggested wait (Retry-After) is honoured up to this long, the
+// same cap as the search budget's cooldown (remote/budget.js).
+const MAX_THROTTLE_WAIT_MS = 900000
 // Sites whose character/copyright spellings are converted to Danbooru's.
 const RENAMED_SITES = new Set(['sankaku', 'e621'])
 const SITE_LABELS = {
@@ -35,17 +36,6 @@ const UNAVAILABLE_REASONS = {
 
 class ImportCancelled extends Error {}
 
-// Same rule as the extension's stricterSafety (and remote/types.js).
-export function stricterSafety(first, second) {
-  return SAFETY_ORDER[Math.max(SAFETY_ORDER.indexOf(first), SAFETY_ORDER.indexOf(second), 0)]
-}
-
-// The <site>_<id> tag every booru import carries, flattened like every stored
-// tag (Sankaku ids are mixed case; the library stores them lower-cased).
-export function idTagFor(post) {
-  return normalizeTagName(`${post.site}_${post.id}`)
-}
-
 // "Downloading original… 12.3 / 36.0 MB (34%) · 180 KB/s · 70s", the
 // extension's downloadProgressText (browser-extension/site-import-core.js).
 export function downloadProgressText(progress, elapsedMs) {
@@ -59,13 +49,6 @@ export function downloadProgressText(progress, elapsedMs) {
   if (seconds > 0 && received > 0) parts.push(`${Math.round(received / 1024 / seconds)} KB/s`)
   parts.push(`${seconds}s`)
   return `Downloading original… ${parts.join(' · ')}`
-}
-
-// Same test as booruDisplayNames in site-import-core.js: a spelling with
-// punctuation keeps its look only as the display name.
-function displayNameFor(rawTag) {
-  const tag = String(rawTag || '')
-  return /[^\p{L}\p{N}_:.-]/u.test(tag) && /[\p{L}\p{N}]/u.test(tag) ? tag.replace(/_/g, ' ') : ''
 }
 
 // The booru's own spelling of a flattened tag (miyu_blue_archive ->
@@ -85,9 +68,19 @@ function errorMessage(error) {
 
 // A site (or its CDN, via the backend) asking to slow down. The backend's
 // from-url error carries the upstream status in its text, which is what the
-// extension matches; adapters' RemoteSearchError says so in `kind`.
+// extension matches; a relay answers 429 itself (client.js puts it in
+// `status`); adapters' RemoteSearchError says so in `kind`.
 function isThrottled(error) {
   return /HTTP (429|503)\b/.test(errorMessage(error)) || error?.kind === 'throttled'
+    || error?.status === 429 || error?.status === 503
+}
+
+// The scheduled back-off, or longer when the error says how long to wait:
+// the relays' detail.retryAfter (seconds) or RemoteSearchError.retryAfterMs.
+function throttleWaitMs(error, scheduledMs) {
+  const hints = [Number(error?.detail?.retryAfter) * 1000, Number(error?.retryAfterMs)]
+  const hinted = Math.max(0, ...hints.filter((value) => Number.isFinite(value)))
+  return Math.max(scheduledMs, Math.min(hinted, MAX_THROTTLE_WAIT_MS))
 }
 
 function isDuplicatePost(error) {
@@ -133,8 +126,7 @@ export function prepareImport(post, run, options) {
         delete tagCategories[tag]
       }
       delete tagDisplayNames[tag]
-      const display = displayNameFor(rename.to)
-      if (display) tagDisplayNames[rename.flatTo] = display
+      Object.assign(tagDisplayNames, booruDisplayNames([rename.to]))
       aliases.push({ alias: rename.from, target: rename.to })
     }
     tags = unique(tags.map((tag) => run.renames.get(tag)?.flatTo || tag))
@@ -382,8 +374,9 @@ export function useImportQueue({ api, adapters = {}, inLibrary = null, onImporte
           stop()
         }
       } catch (error) {
-        const delay = RETRY_DELAYS_MS[attempt]
-        if (isThrottled(error) && delay !== undefined) {
+        const scheduled = RETRY_DELAYS_MS[attempt]
+        if (isThrottled(error) && scheduled !== undefined) {
+          const delay = throttleWaitMs(error, scheduled)
           attempt += 1
           item.attempt = attempt
           setStatus(item, 'retrying', `${label} asked to slow down · retrying in ${Math.round(delay / 1000)} s…`)
