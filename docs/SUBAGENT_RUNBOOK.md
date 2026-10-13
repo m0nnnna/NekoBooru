@@ -95,7 +95,13 @@ in the report verbatim as a queue row, naming its queue file.
 - A browser check, when a lane does one, uses a throwaway backend on another
   port with every `NEKO_*` path in a temp dir, and stops every server it
   started before handing back. A dev server left running from a worktree
-  holds the folder open and blocks its removal.
+  holds the folder open and blocks its removal. Lanes have reported
+  "servers stopped" while one still ran, four times in one day, so the
+  report names each port and PID the lane started, and the orchestrator
+  checks before removing the worktree: `netstat -ano | grep LISTENING` for
+  those ports, and on Windows `wmic process where "CommandLine like
+  '%<worktree name>%'" get ProcessId,CommandLine`. Never stop the owner's
+  8772 process.
 
 ## 6. The report: ≤30 lines, written for the landing
 
