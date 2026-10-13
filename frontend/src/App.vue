@@ -18,6 +18,7 @@
       </div>
       <div class="header-right">
         <SearchBar />
+        <SourcePicker v-if="route.name === 'home'" />
         <span v-if="authStore.user" class="current-user">{{ authStore.user.username }}</span>
         <button v-if="authStore.isAuthenticated" class="btn btn-secondary btn-sm" @click="handleLogout">Log out</button>
         <button class="theme-toggle desktop-theme-toggle" @click="toggleDarkMode" :title="isDarkMode ? 'Light mode' : 'Dark mode'">
@@ -62,6 +63,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SearchBar from './components/SearchBar.vue'
+import SourcePicker from './components/remote/SourcePicker.vue'
 import BackendStatus from './components/BackendStatus.vue'
 import { useAuthStore } from './stores/auth'
 

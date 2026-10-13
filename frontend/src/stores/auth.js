@@ -11,6 +11,9 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => user.value !== null)
   const isAdmin = computed(() => Boolean(user.value?.isAdmin))
+  // Booru search capability from /api/auth/me; the only thing the UI reads
+  // to decide whether the source picker and remote results exist at all.
+  const canBrowseBoorus = computed(() => user.value?.canBrowseBoorus === true)
 
   async function fetchStatus() {
     const status = await api.getAuthStatus()
@@ -64,6 +67,7 @@ export const useAuthStore = defineStore('auth', () => {
     resolved,
     isAuthenticated,
     isAdmin,
+    canBrowseBoorus,
     fetchStatus,
     fetchMe,
     init,

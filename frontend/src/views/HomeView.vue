@@ -2,7 +2,7 @@
   <div class="home-view">
     <div class="toolbar">
       <div class="result-count">
-        <span :class="{ 'loading-fade': loading }">{{ total }} posts found</span>
+        <span :class="{ 'loading-fade': loading }">{{ booru.resultCountLabel }}</span>
       </div>
       <div class="toolbar-controls">
         <button
@@ -37,9 +37,9 @@
           </label>
         </div>
         <div class="sort-controls">
-          <select v-model.number="perPage" @change="onPerPageChange" aria-label="Posts per page">
-            <option v-for="option in perPageOptions" :key="option" :value="option">
-              {{ option }} per page
+          <select v-model.number="perPageModel" @change="onPerPageChange" aria-label="Posts per page">
+            <option v-for="option in perPageChoices" :key="option" :value="option">
+              {{ option === PER_PAGE_DEFAULT ? 'Default' : option }} per page
             </option>
           </select>
           <select v-model="sortBy" @change="fetchPosts">
@@ -55,33 +55,51 @@
       </div>
     </div>
 
-    <Pagination
-      v-model="page"
-      :pages="pages"
-      @update:modelValue="onPageChange"
-    />
-
-    <PostGrid
-      :posts="posts"
-      :loading="loading"
+    <BooruResults
+      v-if="booru.remoteActive"
+      :booru="booru"
+      :library="{ posts, loading, page, pages, total }"
       :select-mode="selectMode"
-      :selected-ids="selectedIds"
-      @toggle="toggleSelect"
-      @hold-select="enterSelectModeFromHold"
-      @hover-post="hover"
+      :selected-keys="selectedKeySet"
+      :selected-library-ids="selectedLibraryIds"
+      @page-change="onPageChange"
+      @toggle="selection.toggle"
+      @hold-select="selection.holdSelect"
+      @hover-post="selection.hover"
+      @library-toggle="onLibraryToggle"
+      @library-hold="onLibraryHold"
+      @library-hover="onLibraryHover"
     />
+    <template v-else>
+      <Pagination
+        v-model="page"
+        :pages="pages"
+        @update:modelValue="onPageChange"
+      />
 
-    <Pagination
-      v-model="page"
-      :pages="pages"
-      @update:modelValue="onPageChange"
-    />
+      <PostGrid
+        :posts="posts"
+        :loading="loading"
+        :select-mode="selectMode"
+        :selected-ids="selectedLibraryIds"
+        @toggle="onLibraryToggle"
+        @hold-select="onLibraryHold"
+        @hover-post="onLibraryHover"
+      />
+
+      <Pagination
+        v-model="page"
+        :pages="pages"
+        @update:modelValue="onPageChange"
+      />
+    </template>
 
     <BatchPanel
       v-if="selectMode"
       :dock="batchDock"
       :panel-style="batchPanelStyle"
-      :selected-count="selectedIds.length"
+      :selected-count="counts.total"
+      :breakdown="booru.remoteActive || counts.remote ? counts : null"
       :busy="busy"
       :auto-job="batchAutoJob"
       :operation="batchOperation"
@@ -93,21 +111,21 @@
       @done="toggleSelectMode"
       @cancel-job="cancelBatchAutoTag"
     >
-      <AiTagCard :ai="ai" :selected-count="selectedIds.length" :busy="busy" />
+      <AiTagCard :ai="ai" :selected-count="selectedLibraryIds.length" :busy="busy" />
       <PostInspectorCard
-        :post="inspectedItem"
+        :post="inspectedLibraryPost"
         :semantic-analysis="inspectedSemanticAnalysis"
         :semantic-loading="inspectedSemanticLoading"
       />
-      <BulkTagCard :edits="edits" :selected-count="selectedIds.length" :busy="busy" />
+      <BulkTagCard :edits="edits" :selected-count="selectedLibraryIds.length" :busy="busy" />
       <MediaOptimizeCard
         :optimizer="optimizer"
-        :selected-count="selectedIds.length"
+        :selected-count="selectedLibraryIds.length"
         :busy="busy"
         :compact="batchDock === 'right'"
       />
       <OrganizeCard
-        :selected-count="selectedIds.length"
+        :selected-count="selectedLibraryIds.length"
         :busy="busy"
         @add-to-pool="edits.openPoolModal"
         @delete="edits.deleteSelected"
@@ -118,16 +136,17 @@
       {{ actionMessage }}
     </div>
 
-    <AddToPoolModal :edits="edits" :selected-count="selectedIds.length" :busy="busy" />
+    <AddToPoolModal :edits="edits" :selected-count="selectedLibraryIds.length" :busy="busy" />
 
     <MediaOptimizeDialogs :optimizer="optimizer" :busy="busy" />
   </div>
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { computed, onMounted, toRef } from 'vue'
 import PostGrid from '../components/PostGrid.vue'
 import Pagination from '../components/Pagination.vue'
+import BooruResults from '../components/remote/BooruResults.vue'
 import BatchPanel from '../components/batch/BatchPanel.vue'
 import AiTagCard from '../components/batch/AiTagCard.vue'
 import PostInspectorCard from '../components/batch/PostInspectorCard.vue'
@@ -136,22 +155,27 @@ import MediaOptimizeCard from '../components/batch/MediaOptimizeCard.vue'
 import OrganizeCard from '../components/batch/OrganizeCard.vue'
 import AddToPoolModal from '../components/batch/AddToPoolModal.vue'
 import MediaOptimizeDialogs from '../components/batch/MediaOptimizeDialogs.vue'
-import { usePostBrowser } from '../composables/usePostBrowser'
-import { useSelection } from '../composables/useSelection'
+import { PER_PAGE_DEFAULT, usePostBrowser } from '../composables/usePostBrowser'
+import { useMixedSelection } from '../composables/useMixedSelection'
+import { useHomeBooruSearch } from '../composables/useHomeBooruSearch'
 import { useBatchDock } from '../composables/useBatchDock'
 import { useBatchOperations } from '../composables/useBatchOperations'
 import { useBatchAiTagging } from '../composables/useBatchAiTagging'
 import { useBatchPostEdits } from '../composables/useBatchPostEdits'
 import { useBatchMediaOptimize } from '../composables/useBatchMediaOptimize'
 import { usePostSemanticAnalysis } from '../composables/usePostSemanticAnalysis'
+import { useAuthStore } from '../stores/auth'
 
-const browser = usePostBrowser()
+const authStore = useAuthStore()
+// Booru search (docs/booru-search-plan.md section 4) only exists for users
+// with canBrowseBoorus; without it this view renders exactly as it always has.
+const browser = usePostBrowser({ offerDefaultPerPage: computed(() => authStore.canBrowseBoorus) })
 const {
   sortBy,
   sortOrder,
   page,
-  perPage,
-  perPageOptions,
+  perPageModel,
+  perPageChoices,
   safetyFilter,
   posts,
   total,
@@ -163,16 +187,30 @@ const {
   onPageChange,
 } = browser
 
+const booru = useHomeBooruSearch({ browser })
+
 // --- Multi-select editing mode ---
-const selection = useSelection(posts)
+// String keys across library and booru cards ('nekobooru:42', 'danbooru:7').
+// The batch tools get `librarySelection`: library ids and posts only.
+//
+// Seam for the Import card (P4b): mount it in BatchPanel's #remote slot, fed
+// `selection.selectedRemotePosts` (keys: `selection.selectedRemoteKeys`,
+// count: `counts.remote`). After an import, `selection.replaceKey(key,
+// libraryKey(postId))` and `booru.results.markImported(key, postId)`. The
+// viewer's Import button appears with BooruResults' `importable` prop and
+// arrives as its `import` event.
+const selection = useMixedSelection(toRef(booru, 'entries'), { postByKey: booru.postByKey })
 const {
   selectMode,
-  selectedIds,
-  inspectedItem,
+  selectedKeySet,
+  selectedLibraryIds,
+  counts,
+  inspectedLibraryPost,
+  librarySelection,
   toggleSelectMode,
-  toggleSelect,
-  enterSelectModeFromHold,
-  hover,
+  onLibraryToggle,
+  onLibraryHold,
+  onLibraryHover,
   selectAllVisible,
   clearSelection,
 } = selection
@@ -180,7 +218,7 @@ const {
 const { batchDock, batchPanelStyle, setBatchDock, startBatchResize } = useBatchDock()
 
 const operations = useBatchOperations({
-  selectedCount: () => selectedIds.value.length,
+  selectedCount: () => selectedLibraryIds.value.length,
   selectMode,
   fetchPosts,
 })
@@ -193,13 +231,14 @@ const {
   cancelBatchAutoTag,
 } = operations
 
-const ai = useBatchAiTagging({ selection, operations })
-const edits = useBatchPostEdits({ selection, operations, browser })
-const optimizer = useBatchMediaOptimize({ selection, operations, browser })
-const { inspectedSemanticAnalysis, inspectedSemanticLoading } = usePostSemanticAnalysis(inspectedItem)
+const ai = useBatchAiTagging({ selection: librarySelection, operations })
+const edits = useBatchPostEdits({ selection: librarySelection, operations, browser })
+const optimizer = useBatchMediaOptimize({ selection: librarySelection, operations, browser })
+const { inspectedSemanticAnalysis, inspectedSemanticLoading } = usePostSemanticAnalysis(inspectedLibraryPost)
 
 onMounted(() => {
   browser.applyInitialRoute()
+  booru.start()
   ai.loadBatchAiSettings()
   fetchPosts()
 })

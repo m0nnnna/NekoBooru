@@ -1,4 +1,4 @@
-import { ref, watch, nextTick } from 'vue'
+import { computed, ref, unref, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePostsStore } from '../stores/posts'
 
@@ -6,7 +6,14 @@ import { usePostsStore } from '../stores/posts'
 // kept in sync with the route and localStorage.
 
 export const PER_PAGE_OPTIONS = [24, 42, 60, 100, 200, 500]
+// "Default" in the per-page dropdown (offered while booru search is on): the
+// library shows DEFAULT_PER_PAGE and every booru its own page size. It is
+// also what an unset or unknown choice means, so the library still gets 42.
+export const PER_PAGE_DEFAULT = 'default'
 const DEFAULT_PER_PAGE = 42
+// Route query keys that are not the library search's business: the booru
+// source picker rewrites them, and that must not refetch the library page.
+const FOREIGN_QUERY_KEYS = new Set(['sources', 'layout'])
 const SAFETY_FILTER_KEY = 'safetyFilter'
 const PER_PAGE_KEY = 'postsPerPage'
 
@@ -31,18 +38,35 @@ function loadSafetyFilter() {
 
 function normalizePerPage(value) {
   const parsed = Number.parseInt(value, 10)
-  return PER_PAGE_OPTIONS.includes(parsed) ? parsed : DEFAULT_PER_PAGE
+  return PER_PAGE_OPTIONS.includes(parsed) ? parsed : PER_PAGE_DEFAULT
 }
 
 function loadPerPage() {
   try {
-    return normalizePerPage(localStorage.getItem(PER_PAGE_KEY) || DEFAULT_PER_PAGE)
+    return normalizePerPage(localStorage.getItem(PER_PAGE_KEY))
   } catch {
-    return DEFAULT_PER_PAGE
+    return PER_PAGE_DEFAULT
   }
 }
 
-export function usePostBrowser() {
+function libraryPerPage(value) {
+  return value === PER_PAGE_DEFAULT ? DEFAULT_PER_PAGE : value
+}
+
+function onlyForeignKeysChanged(next = {}, previous = {}) {
+  const keys = new Set([...Object.keys(next), ...Object.keys(previous)])
+  let foreign = false
+  for (const key of keys) {
+    if (String(next[key] ?? '') === String(previous[key] ?? '')) continue
+    if (!FOREIGN_QUERY_KEYS.has(key)) return false
+    foreign = true
+  }
+  return foreign
+}
+
+// `offerDefaultPerPage` (ref or boolean): whether the dropdown lists
+// "Default". Without it the dropdown reads exactly as it always has.
+export function usePostBrowser({ offerDefaultPerPage = false } = {}) {
   const route = useRoute()
   const router = useRouter()
   const postsStore = usePostsStore()
@@ -52,6 +76,17 @@ export function usePostBrowser() {
   const page = ref(1)
   const perPage = ref(loadPerPage())
   const safetyFilter = ref(loadSafetyFilter())
+
+  // What the library request asks for, and what the boorus are asked for
+  // (null = each booru's own page size).
+  const libraryLimit = computed(() => libraryPerPage(perPage.value))
+  const remoteLimit = computed(() => (perPage.value === PER_PAGE_DEFAULT ? null : perPage.value))
+  const perPageChoices = computed(() => (unref(offerDefaultPerPage) ? [PER_PAGE_DEFAULT, ...PER_PAGE_OPTIONS] : PER_PAGE_OPTIONS))
+  // The dropdown's model: "Default" shows as 42 while it is not offered.
+  const perPageModel = computed({
+    get: () => (perPageChoices.value.includes(perPage.value) ? perPage.value : libraryLimit.value),
+    set: (value) => { perPage.value = value },
+  })
 
   const posts = ref([])
   const total = ref(0)
@@ -88,7 +123,7 @@ export function usePostBrowser() {
       postsStore.setBrowseContext({ query, sort: sortBy.value, order: sortOrder.value })
 
       const result = await fetch(
-        `/api/posts?q=${encodeURIComponent(query)}&page=${page.value}&limit=${perPage.value}&sort=${sortBy.value}&order=${sortOrder.value}`,
+        `/api/posts?q=${encodeURIComponent(query)}&page=${page.value}&limit=${libraryLimit.value}&sort=${sortBy.value}&order=${sortOrder.value}`,
         { signal: controller.signal }
       ).then(r => r.json())
       if (controller !== postsAbort) return
@@ -136,7 +171,7 @@ export function usePostBrowser() {
     const query = {
       ...route.query,
       page: undefined,
-      limit: perPage.value === DEFAULT_PER_PAGE ? undefined : perPage.value,
+      limit: libraryLimit.value === DEFAULT_PER_PAGE ? undefined : perPage.value,
     }
     const routeWillChange =
       String(route.query.page || '') !== String(query.page || '') ||
@@ -154,7 +189,7 @@ export function usePostBrowser() {
       query: {
         ...route.query,
         page: newPage > 1 ? newPage : undefined,
-        limit: perPage.value === DEFAULT_PER_PAGE ? undefined : perPage.value,
+        limit: libraryLimit.value === DEFAULT_PER_PAGE ? undefined : perPage.value,
       }
     })
   }
@@ -178,7 +213,8 @@ export function usePostBrowser() {
 
   watch(
     () => route.query,
-    (newQuery) => {
+    (newQuery, oldQuery) => {
+      if (onlyForeignKeysChanged(newQuery, oldQuery)) return
       if (newQuery.q !== postsStore.query) {
         postsStore.setQuery(newQuery.q || '')
       }
@@ -200,6 +236,10 @@ export function usePostBrowser() {
     page,
     perPage,
     perPageOptions: PER_PAGE_OPTIONS,
+    perPageChoices,
+    perPageModel,
+    libraryLimit,
+    remoteLimit,
     safetyFilter,
     posts,
     total,

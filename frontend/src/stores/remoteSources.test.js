@@ -70,6 +70,18 @@ describe('useRemoteSourcesStore', () => {
     expect(store.setLayout('mosaic')).toBe(false)
   })
 
+  it('leaves the query of any route but home alone', async () => {
+    const store = freshStore()
+    fakeRouter.currentRoute.value = { name: 'settings', query: { tab: 'ai' } }
+    expect(store.toggle('danbooru')).toBe(true)
+    store.setLayout('interleaved')
+    await Promise.resolve()
+    expect(fakeRouter.replace).not.toHaveBeenCalled()
+    expect(fakeRouter.currentRoute.value.query).toEqual({ tab: 'ai' })
+    // The choice is still kept for when the home view next reads it.
+    expect(JSON.parse(localStorage.getItem(SOURCES_STORAGE_KEY))).toEqual(['nekobooru', 'danbooru'])
+  })
+
   it('restores from localStorage when the URL says nothing', () => {
     localStorage.setItem(SOURCES_STORAGE_KEY, JSON.stringify(['e621', 'nope', 'nekobooru']))
     localStorage.setItem(LAYOUT_STORAGE_KEY, 'interleaved')

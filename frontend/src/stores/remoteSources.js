@@ -13,6 +13,7 @@ export const SOURCES_STORAGE_KEY = 'nekobooru.remoteSources'
 export const LAYOUT_STORAGE_KEY = 'nekobooru.remoteLayout'
 export const LAYOUTS = ['grouped', 'interleaved']
 const DEFAULT_SOURCES = [LIBRARY_SOURCE]
+const HOME_ROUTE = 'home'
 
 // Known ids in SOURCE_IDS order, duplicates and unknowns dropped.
 function normalizeSources(list) {
@@ -66,9 +67,11 @@ export const useRemoteSourcesStore = defineStore('remoteSources', () => {
   }
 
   // Bring the current route's query in line with the store, replacing (not
-  // pushing) the history entry. Other query keys are kept as they are.
+  // pushing) the history entry. Other query keys are kept as they are. Only
+  // the home route carries ?sources/?layout; any other route is left alone.
   function syncRoute() {
     const route = router.currentRoute.value
+    if (route.name !== HOME_ROUTE) return Promise.resolve()
     const query = { ...route.query }
     const wanted = toRouteQuery()
     let changed = false

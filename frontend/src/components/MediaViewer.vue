@@ -16,6 +16,7 @@
         v-if="isImage"
         :src="src"
         :alt="alt"
+        :referrerpolicy="referrerPolicy"
         @load="onLoad"
         @error="onError"
         draggable="false"
@@ -24,6 +25,7 @@
       <video
         v-else-if="isVideo"
         :src="src"
+        :referrerpolicy="referrerPolicy"
         controls
         autoplay
         loop
@@ -55,7 +57,7 @@
       <button @click="resetZoom" title="Reset">1:1</button>
       <button @click="fitToScreen" title="Fit to screen">Fit</button>
       <button @click="downloadMedia" title="Download">&#8681;</button>
-      <button v-if="isVideo" @click="downloadAsGif" :disabled="convertingGif" title="Download as GIF">
+      <button v-if="isVideo && !noReferrer" @click="downloadAsGif" :disabled="convertingGif" title="Download as GIF">
         {{ convertingGif ? '…' : 'GIF' }}
       </button>
       <!-- Extra page-level buttons, e.g. the post page's layout toggles. -->
@@ -85,6 +87,13 @@ const props = defineProps({
   animateLoad: {
     type: Boolean,
     default: true,
+  },
+  // Media from another site (booru search): load and download it without a
+  // Referer, which some CDNs refuse when it names this app's origin. The
+  // server-side GIF conversion only exists for local media, so it is hidden.
+  noReferrer: {
+    type: Boolean,
+    default: false,
   },
 })
 
@@ -124,6 +133,7 @@ const touchState = ref({
   isTouchDragging: false,
 })
 
+const referrerPolicy = computed(() => (props.noReferrer ? 'no-referrer' : undefined))
 const isImage = computed(() => props.type === 'image' || props.type === 'gif')
 const isVideo = computed(() => props.type === 'video')
 
@@ -315,7 +325,7 @@ async function downloadMedia() {
   // long-press save in this viewer (touch-callout/user-select are disabled for
   // pan/zoom), so this button gives a reliable way to save the file.
   try {
-    const response = await fetch(props.src)
+    const response = await fetch(props.src, props.noReferrer ? { referrerPolicy: 'no-referrer' } : undefined)
     if (!response.ok) throw new Error('fetch failed')
     const blob = await response.blob()
     const url = URL.createObjectURL(blob)
@@ -328,7 +338,7 @@ async function downloadMedia() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   } catch {
     // Fallback: open the media directly so the user can save it manually
-    window.open(props.src, '_blank')
+    window.open(props.src, '_blank', props.noReferrer ? 'noopener,noreferrer' : undefined)
   }
 }
 

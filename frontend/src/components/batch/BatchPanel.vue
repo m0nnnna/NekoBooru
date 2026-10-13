@@ -16,7 +16,7 @@
       <div class="batch-heading">
         <h2 class="batch-title">
           <span class="batch-count">{{ selectedCount }}</span>
-          <span>selected</span>
+          <span>{{ selectedLabel }}</span>
         </h2>
         <span class="batch-hint" :title="hint">{{ hint }}</span>
       </div>
@@ -72,8 +72,8 @@
           <button
             type="button"
             class="tb-btn tb-danger"
-            :disabled="!selectedCount || busy"
-            :title="selectedCount ? `Delete the ${selectedCount} selected post(s)` : 'Select posts to delete'"
+            :disabled="!deletable || busy"
+            :title="deletable ? `Delete the ${deletable} selected post(s)` : 'Select posts to delete'"
             @click="$emit('delete')"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -93,6 +93,7 @@
 
       <!-- Batch cards (AI tagging, inspector, tag edits, ...) slot in here. -->
       <div class="batch-grid">
+        <slot name="remote" />
         <slot />
       </div>
     </div>
@@ -100,11 +101,13 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import BatchStatus from './BatchStatus.vue'
 
 // The hold-to-select edit panel: dockable/resizable shell, selection toolbar,
-// and the status of the running batch action. Cards are passed as the slot.
-defineProps({
+// and the status of the running batch action. Cards are passed as the slot;
+// cards for selected booru posts (the Import card) go first, in #remote.
+const props = defineProps({
   dock: {
     type: String,
     default: 'bottom',
@@ -129,9 +132,20 @@ defineProps({
     type: Object,
     default: null,
   },
+  // With booru posts selected: { library, remote } for the header's
+  // "N selected · X library · Y remote". Delete only ever sees library posts.
+  breakdown: {
+    type: Object,
+    default: null,
+  },
 })
 
 defineEmits(['resize-start', 'set-dock', 'select-page', 'clear', 'delete', 'done', 'cancel-job'])
+
+const deletable = computed(() => (props.breakdown ? props.breakdown.library : props.selectedCount))
+const selectedLabel = computed(() => (props.breakdown
+  ? `selected · ${props.breakdown.library} library · ${props.breakdown.remote} remote`
+  : 'selected'))
 
 const hint = 'Hold a post to enter edit mode. Shift-click selects a visible range.'
 </script>
