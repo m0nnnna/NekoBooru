@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import fixture from '../fixtures/sankaku.json'
 import { RemoteSearchError } from '../types.js'
-import { HIDDEN_MESSAGE, normalizeSankakuPost, sankakuAdapter, sankakuSafety, tagPostCount } from './sankaku.js'
+import { HIDDEN_MESSAGE, normalizeSankakuPost, sankakuAdapter, sankakuSafety, tagPostCount, thumbExpiresAt } from './sankaku.js'
 
 const clone = (value) => JSON.parse(JSON.stringify(value))
 const ALL = { safety: { safe: true, sketchy: true, unsafe: true }, sort: 'date', order: 'desc' }
@@ -283,5 +283,53 @@ describe('sankakuAdapter total estimate', () => {
       const result = await sankakuAdapter.search({ query, options: ALL, fetch: stubFetch(jsonResponse(withCounts())) })
       expect(result).toMatchObject({ total: null, totalIsEstimate: false })
     }
+  })
+})
+
+describe('sankakuAdapter name mapping', () => {
+  it("searches a qualified library tag under Sankaku's longer name and says so", async () => {
+    const fetch = stubFetch(jsonResponse(fixture.keyset))
+    const resolveName = vi.fn(async (name) => (name === 'honoka_(doa)' ? 'honoka_(dead_or_alive)' : name))
+    const result = await sankakuAdapter.search({ query: 'honoka_(doa) beach', options: ALL, fetch, resolveName })
+    expect(new URL(fetch.mock.calls[0][0]).searchParams.get('tags')).toBe('honoka_(dead_or_alive) beach')
+    expect(result.note).toBe('Searched Sankaku as honoka_(doa) → honoka_(dead_or_alive)')
+  })
+
+  it('looks up only qualified tags, through Danbooru expansions and a one-post Sankaku probe', async () => {
+    const urls = []
+    const fetch = vi.fn(async (input) => {
+      const url = new URL(input)
+      urls.push(url)
+      if (url.hostname === 'danbooru.donmai.us') return jsonResponse([{ antecedent_name: 'doa', consequent_name: 'dead_or_alive' }])
+      if (url.pathname === '/posts') return jsonResponse(url.searchParams.get('tags') === 'kasumi_(dead_or_alive)' ? [{ id: 'x' }] : [])
+      return jsonResponse(fixture.keyset)
+    })
+    const result = await sankakuAdapter.search({ query: 'kasumi_(doa) beach', options: ALL, fetch })
+    const search = urls.find((url) => url.pathname === '/posts/keyset')
+    expect(search.searchParams.get('tags')).toBe('kasumi_(dead_or_alive) beach')
+    expect(result.note).toContain('kasumi_(doa) → kasumi_(dead_or_alive)')
+    expect(urls.filter((url) => url.pathname === '/posts').map((url) => url.searchParams.get('tags'))).toEqual(['kasumi_(dead_or_alive)'])
+  })
+})
+
+describe('sankakuAdapter thumbnail expiry', () => {
+  const thumb = fixture.keyset.data[0].preview_url
+
+  it("reads the signed preview URL's expiry", () => {
+    expect(thumbExpiresAt(thumb)).toBe(1791872997 * 1000)
+    expect(thumbExpiresAt('https://v.sankakucomplex.com/data/preview/a.jpg')).toBeNull()
+    expect(sankakuAdapter.thumbExpired({ thumbUrl: thumb }, 1791872997 * 1000 - 1)).toBe(false)
+    expect(sankakuAdapter.thumbExpired({ thumbUrl: thumb }, 1791872997 * 1000)).toBe(true)
+  })
+
+  it('fetches a fresh signed thumbnail for a post', async () => {
+    const row = clone(fixture.keyset.data[0])
+    row.preview_url = 'https://v.sankakucomplex.com/data/preview/new.avif?expires=1800000000'
+    const fetch = stubFetch(jsonResponse(row))
+    const post = normalizeSankakuPost(fixture.keyset.data[0])
+    expect(await sankakuAdapter.refreshThumb(post, { fetch })).toBe(row.preview_url)
+    expect(new URL(fetch.mock.calls[0][0]).pathname).toBe(`/posts/${post.id}`)
+    expect(fetch.mock.calls[0][1].cache).toBe('no-store')
+    expect(await sankakuAdapter.refreshThumb(post, { fetch: stubFetch(new Response('', { status: 404 })) })).toBeNull()
   })
 })

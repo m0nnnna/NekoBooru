@@ -1,5 +1,6 @@
 import { normalizeTagName } from '../../utils/booruSearchTag.js'
 import { retryAfterSeconds } from '../budget.js'
+import { cachedNameResolver, danbooruExpansions, joinNotes, mapPlainTerms, qualifierOf, qualifierVariants } from '../e621Names.js'
 import { singlePlainTag, translateQuery } from '../queryTranslation.js'
 import { RemoteSearchError, booruDisplayNames, effectiveLimit, makeKey, mediaTypeFromExt, siteById } from '../types.js'
 
@@ -190,6 +191,54 @@ export function tagPostCount(rows, tag) {
   return null
 }
 
+// Sankaku's name for a qualified library tag it spells in full
+// (honoka_(dead_or_alive) for honoka_(doa)): the browser port of the backend's
+// sankaku_name_for. Danbooru's longer forms of the qualifier are probed in
+// turn with a one-post search; the first with posts wins. Unqualified tags
+// cost nothing. Throws on failure, which the cache turns into "unchanged".
+export async function lookupSankakuName(spelling, { fetch: fetchImpl = defaultFetch, signal } = {}) {
+  const qualifier = qualifierOf(spelling)
+  if (!qualifier) return spelling
+  const expansions = await danbooruExpansions(qualifier, { fetch: fetchImpl, signal })
+  for (const candidate of qualifierVariants(spelling, expansions)) {
+    const params = new URLSearchParams({ tags: candidate, limit: '1' })
+    const body = await getJson(fetchImpl, `${SANKAKU_API}/posts?${params}`, signal)
+    if (Array.isArray(body) && body.length) return candidate
+  }
+  return spelling
+}
+
+export const resolveSankakuName = cachedNameResolver('nekobooru.sankakuNames', lookupSankakuName)
+
+// Signed preview URLs carry their expiry (expires=<unix seconds>, ~8 h out).
+export function thumbExpiresAt(url) {
+  try {
+    const seconds = Number(new URL(url).searchParams.get('expires'))
+    return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : null
+  } catch {
+    return null
+  }
+}
+
+function thumbExpired(post, now = Date.now()) {
+  const expires = thumbExpiresAt(post?.thumbUrl)
+  return expires !== null && now >= expires
+}
+
+// A fresh signed thumbnail for a post whose preview_url expired; null when
+// Sankaku will not give one (any error, members-only, no preview).
+async function refreshThumb(post, { signal, fetch: fetchImpl = defaultFetch } = {}) {
+  const id = text(post?.id)
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) return null
+  try {
+    const body = await getJson(fetchImpl, `${SANKAKU_API}/posts/${encodeURIComponent(id)}`, signal, { cache: 'no-store' })
+    return normalizeSankakuPost(body)?.thumbUrl || null
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    return null
+  }
+}
+
 function translate(query, options) {
   return translateQuery(SITE.id, query, options)
 }
@@ -199,9 +248,18 @@ function translate(query, options) {
  * capped at 100); `fetch` is injectable for tests. `api` is unused: Sankaku is
  * browser-direct.
  */
-async function search({ query = '', options = {}, cursor = null, limit = null, signal, fetch: fetchImpl = defaultFetch } = {}) {
+async function search({ query = '', options = {}, cursor = null, limit = null, signal, fetch: fetchImpl = defaultFetch, resolveName = resolveSankakuName } = {}) {
   const translated = translate(query, options)
-  const params = new URLSearchParams({ tags: translated.tags, limit: String(effectiveLimit(SITE.id, limit)) })
+  let terms = translated.terms
+  let mappingNote = null
+  let tag = singlePlainTag(query)
+  if (resolveName) {
+    const mapping = await mapPlainTerms(query, terms, resolveName, 'Sankaku', { fetch: fetchImpl, signal })
+    terms = mapping.terms
+    mappingNote = mapping.note
+    if (tag) tag = mapping.mapped.find(([from]) => from.toLowerCase() === tag)?.[1] || tag
+  }
+  const params = new URLSearchParams({ tags: terms.join(' '), limit: String(effectiveLimit(SITE.id, limit)) })
   const next = text(cursor?.next)
   if (next) params.set('next', next)
   const body = await getJson(fetchImpl, `${SANKAKU_API}/posts/keyset?${params}`, signal)
@@ -210,7 +268,6 @@ async function search({ query = '', options = {}, cursor = null, limit = null, s
   const nextKey = text(body.meta?.next)
   // Sankaku reports no search total; for a one-tag query the tag's own
   // post_count is a fair estimate (it ignores the rating filter).
-  const tag = singlePlainTag(query)
   const total = tag ? tagPostCount(rows, tag) : null
   return {
     posts,
@@ -218,7 +275,7 @@ async function search({ query = '', options = {}, cursor = null, limit = null, s
     total,
     totalIsEstimate: total !== null,
     ignoredTerms: translated.ignored,
-    note: translated.note,
+    note: joinNotes(translated.note, mappingNote),
   }
 }
 
@@ -251,6 +308,8 @@ export const sankakuAdapter = Object.freeze({
   translate,
   search,
   refresh,
+  thumbExpired,
+  refreshThumb,
 })
 
 export default sankakuAdapter
