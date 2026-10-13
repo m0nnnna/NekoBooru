@@ -26,6 +26,8 @@ vi.mock('../api/client', () => {
     getShares: vi.fn(async () => ({ sharedByMe: [] })),
     getMe: vi.fn(async () => ({ sharedWithMe: [] })),
     getApiTokens: vi.fn(async () => [{ id: 1, label: 'Browser Extension', createdAt: '2026-01-02T00:00:00Z' }]),
+    getAutoTagJobSuggestions: vi.fn(async () => [{ id: 1, postId: 5, status: 'suggested', suggestedTags: ['cat'], suggestedSafety: 'safe' }]),
+    updateDataDir: vi.fn(async () => ({ needs_migration: true, old_path: '/srv/neko', new_path: '/mnt/neko' })),
   }
   return { api, default: api }
 })
@@ -98,5 +100,28 @@ describe('SettingsView', () => {
       saveSemanticAnalysis: false,
     })
     expect(wrapper.text()).toContain('Extension defaults saved.')
+  })
+
+  it('opens the preview suggestions dialog once', async () => {
+    const { api } = await import('../api/client')
+    api.getCurrentAutoTagJob.mockResolvedValueOnce({ id: 4, status: 'completed', dryRun: true, processed: 1, total: 1 })
+    const wrapper = await mountSettings()
+    await wrapper.findAll('button').find((b) => b.text() === 'View Preview').trigger('click')
+    await flushPromises()
+    expect(api.getAutoTagJobSuggestions).toHaveBeenCalledWith(4, { page: 1, limit: 100 })
+    expect(wrapper.findAll('.preview-modal')).toHaveLength(1)
+    expect(wrapper.get('.preview-modal').text()).toContain('Post #5')
+  })
+
+  it('hides the migration prompt on Cancel', async () => {
+    const wrapper = await mountSettings()
+    await wrapper.get('.path-input').setValue('/mnt/neko')
+    await wrapper.findAll('button').find((b) => b.text() === 'Save Settings').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.migration-prompt').text()).toContain('/mnt/neko')
+
+    await wrapper.findAll('.migration-actions button').find((b) => b.text() === 'Cancel').trigger('click')
+    expect(wrapper.find('.migration-prompt').exists()).toBe(false)
+    expect(wrapper.get('.path-input').element.value).toBe('/srv/neko')
   })
 })

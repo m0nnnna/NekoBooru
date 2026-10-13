@@ -195,9 +195,6 @@
       <SettingsAccountSharing :account="account" />
     </CollapsibleSection>
 
-    <!-- Rendered twice, exactly as before the split. -->
-    <SettingsPreviewModal :bulk="bulk" />
-
     <SettingsPreviewModal :bulk="bulk" />
   </div>
 </template>

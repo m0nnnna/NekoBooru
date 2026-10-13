@@ -90,8 +90,8 @@ export function useSettingsServer() {
     }
 
     saving.value = true
-    migrationPrompt.show = false
-    migrationStatus.show = false
+    migrationPrompt.value.show = false
+    migrationStatus.value.show = false
 
     try {
       const result = await api.updateDataDir(dataDir.value.trim(), false)
@@ -117,7 +117,7 @@ export function useSettingsServer() {
 
   async function performMigration() {
     saving.value = true
-    migrationPrompt.show = false
+    migrationPrompt.value.show = false
 
     try {
       const result = await api.updateDataDir(dataDir.value.trim(), true)
@@ -151,14 +151,14 @@ export function useSettingsServer() {
   }
 
   function cancelMigration() {
-    migrationPrompt.show = false
+    migrationPrompt.value.show = false
     dataDir.value = currentSettings.value.data_dir || ''
   }
 
   function resetForm() {
     dataDir.value = currentSettings.value.data_dir || ''
-    migrationPrompt.show = false
-    migrationStatus.show = false
+    migrationPrompt.value.show = false
+    migrationStatus.value.show = false
   }
 
   function browseDirectory() {
