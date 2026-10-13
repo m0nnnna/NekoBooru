@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..database import get_db
-from ..dependencies import get_current_user
+from ..dependencies import get_current_admin, get_current_user
 from ..models import Post, User
 from ..services.auth import visible_owner_ids
 from ..services.settings import SettingsManager, migrate_data_directory
@@ -68,6 +68,10 @@ class ExtensionSettingsRequest(BaseModel):
 
 class AiModelDefaultsRequest(BaseModel):
     modelDefaults: dict = Field(default_factory=dict)
+
+
+class BooruSearchSettingsRequest(BaseModel):
+    enabled: bool
 
 
 class MigrationResponse(BaseModel):
@@ -253,6 +257,22 @@ async def update_ai_model_defaults(
     model_defaults = _ai_model_defaults_payload(request.modelDefaults)
     SettingsManager(settings.config_file).set_ai_model_defaults(model_defaults)
     return {"modelDefaults": model_defaults}
+
+
+@router.get("/booru-search")
+async def get_booru_search_settings(current_user: User = Depends(get_current_admin)):
+    """Instance-wide admin switch for aggregated booru search."""
+    stored = SettingsManager(settings.config_file).get_booru_search_settings()
+    return {"enabled": stored.get("enabled") is True}
+
+
+@router.put("/booru-search")
+async def update_booru_search_settings(
+    request: BooruSearchSettingsRequest, current_user: User = Depends(get_current_admin)
+):
+    manager = SettingsManager(settings.config_file)
+    manager.set_booru_search_settings({"enabled": bool(request.enabled)})
+    return {"enabled": manager.get_booru_search_settings().get("enabled") is True}
 
 
 @router.put("/data-dir")

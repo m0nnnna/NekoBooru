@@ -101,6 +101,17 @@ class SettingsManager:
         settings["extension"] = extension
         self.save_settings(settings)
 
+    def get_booru_search_settings(self) -> dict:
+        """Get the instance-wide booru search switch ({"enabled": bool}; empty when unset)."""
+        settings = self.load_settings()
+        return dict(settings.get("booruSearch") or {})
+
+    def set_booru_search_settings(self, values: dict) -> None:
+        """Persist the booru search switch without disturbing other settings."""
+        settings = self.load_settings()
+        settings["booruSearch"] = values
+        self.save_settings(settings)
+
     def get_ai_model_defaults(self) -> dict:
         """Get persisted default model choices shared by app and extension AI previews."""
         settings = self.load_settings()

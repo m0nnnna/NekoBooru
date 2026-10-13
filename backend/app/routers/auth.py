@@ -29,6 +29,7 @@ from ..services.auth import (
     revoke_session,
     verify_password,
 )
+from ..services.booru_access import booru_search_allowed
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -202,6 +203,7 @@ async def me(current_user: User = Depends(get_current_user), db: AsyncSession = 
     )
     data = current_user.to_dict()
     data["sharedWithMe"] = [row[0] for row in shared_with_me.all()]
+    data["canBrowseBoorus"] = booru_search_allowed(current_user)
     return data
 
 
