@@ -241,6 +241,28 @@ describe('HomeView booru import', () => {
     delete api.bulkUpdatePosts
   })
 
+  it('shows the import progress in the batch status strip', async () => {
+    let release
+    api.fetchFromUrl.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    const wrapper = await mountHome()
+    await selectRemote(wrapper, [0, 1])
+    await startButton(wrapper).trigger('click')
+    await drainQueue()
+
+    const status = () => wrapper.get('.batch-status')
+    expect(status().text()).toContain('Importing from boorus')
+    expect(status().text()).toContain('0 of 2 imported')
+    expect(status().classes()).toContain('running')
+
+    release({ token: 'tok:1' })
+    await drainQueue()
+    await sleep(1600)
+    await drainQueue()
+    expect(status().text()).toContain('2 of 2 imported')
+    expect(status().text()).toContain('100%')
+    expect(status().classes()).toContain('success')
+  })
+
   it('cancels the queue when the home view unmounts', async () => {
     let release
     api.fetchFromUrl.mockImplementation(() => new Promise((resolve) => { release = resolve }))

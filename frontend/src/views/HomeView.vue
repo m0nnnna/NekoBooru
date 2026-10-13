@@ -249,7 +249,7 @@ const optimizer = useBatchMediaOptimize({ selection: librarySelection, operation
 const { inspectedSemanticAnalysis, inspectedSemanticLoading } = usePostSemanticAnalysis(inspectedLibraryPost)
 
 // Booru imports (Import card and the viewer's Import button), section 4.4.
-const importer = useHomeImport({ booru, selection, showMessage: operations.showMessage })
+const importer = useHomeImport({ booru, selection, showMessage: operations.showMessage, operations })
 
 onMounted(() => {
   browser.applyInitialRoute()

@@ -1,7 +1,8 @@
-import { onUnmounted } from 'vue'
+import { onUnmounted, watch } from 'vue'
 import { api as defaultApi } from '../api/client'
 import { ADAPTERS } from '../remote/adapters/index.js'
 import { useImportQueue } from '../remote/useImportQueue.js'
+import { isAutoJobRunning } from './useBatchOperations'
 import { libraryKey } from '../remote/types.js'
 
 // The home view's booru import (section 4.4 of docs/booru-search-plan.md):
@@ -18,7 +19,7 @@ import { libraryKey } from '../remote/types.js'
  * object for ImportCard, whose enqueue swaps posts already in the library
  * instead of queueing them.
  */
-export function useHomeImport({ booru, selection, showMessage = () => {}, api = defaultApi, adapters = ADAPTERS }) {
+export function useHomeImport({ booru, selection, showMessage = () => {}, operations = null, api = defaultApi, adapters = ADAPTERS }) {
   let disposed = false
 
   const queue = useImportQueue({
@@ -27,6 +28,8 @@ export function useHomeImport({ booru, selection, showMessage = () => {}, api = 
     inLibrary: booru.results.lookup,
     onImported,
   })
+
+  trackInBatchStatus(queue, operations)
 
   // queue -> home view: swap the key in place, badge the booru card, and make
   // the library post reachable for the batch tools.
@@ -97,4 +100,41 @@ export function useHomeImport({ booru, selection, showMessage = () => {}, api = 
   })
 
   return { queue, importQueue, importFromViewer, onImported, enqueueSelected }
+}
+
+export const IMPORT_STATUS_TITLE = 'Importing from boorus'
+
+function importSummary({ done = 0, total = 0, failed = 0, skipped = 0 } = {}) {
+  let text = `${done} of ${total} imported`
+  if (skipped) text += `, ${skipped} already in the library`
+  if (failed) text += `, ${failed} failed`
+  return text
+}
+
+// The batch panel's status strip follows a queue run (plan section 4.4): it
+// begins when the queue starts, moves as items settle, and completes when the
+// queue stops. It only writes while the import still owns the strip, so a
+// batch edit started meanwhile keeps its own status.
+function trackInBatchStatus(queue, operations) {
+  if (!operations) return
+  const owns = () => operations.batchOperation?.value?.title === IMPORT_STATUS_TITLE
+  // Never take the strip from an AI job being polled or another running action.
+  const busyElsewhere = () => isAutoJobRunning(operations.batchAutoJob?.value)
+    || (operations.batchOperation?.value?.status === 'running' && !owns())
+  watch(
+    [() => queue.running.value, () => queue.progress.value],
+    ([running, progress], [wasRunning]) => {
+      const settled = progress.done + progress.failed + progress.skipped
+      if (running && !wasRunning) {
+        if (busyElsewhere()) return
+        operations.beginBatchOperation(IMPORT_STATUS_TITLE, importSummary(progress), progress.total)
+      } else if (running && owns()) {
+        const percent = progress.total ? Math.round((settled / progress.total) * 100) : 0
+        operations.updateBatchOperation(importSummary(progress), Math.min(99, percent))
+      } else if (!running && wasRunning && owns()) {
+        if (progress.failed && !progress.done && !progress.skipped) operations.failBatchOperation(importSummary(progress))
+        else operations.completeBatchOperation(importSummary(progress), progress.total)
+      }
+    },
+  )
 }
