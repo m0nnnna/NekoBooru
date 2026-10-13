@@ -30,7 +30,7 @@ describe('e621Adapter.search', () => {
   it('requests posts.json with tags, page, the default limit and _client', async () => {
     const fetch = stubFetch(jsonResponse(fixture))
     const signal = new AbortController().signal
-    await e621Adapter.search({ query: 'landscape -human', options: ALL_RATINGS, cursor: null, signal, fetch })
+    await e621Adapter.search({ resolveName: null, query: 'landscape -human', options: ALL_RATINGS, cursor: null, signal, fetch })
 
     const url = requestedUrl(fetch)
     expect(`${url.origin}${url.pathname}`).toBe('https://e621.net/posts.json')
@@ -46,7 +46,7 @@ describe('e621Adapter.search', () => {
   it('translates ratings and sort into e621 terms and reports ignored ones', async () => {
     const fetch = stubFetch(jsonResponse(fixture))
     const options = { safety: { safe: true, sketchy: false, unsafe: false }, sort: 'size', order: 'desc' }
-    const result = await e621Adapter.search({ query: 'fox pool:3', options, fetch })
+    const result = await e621Adapter.search({ resolveName: null, query: 'fox pool:3', options, fetch })
 
     expect(requestedUrl(fetch).searchParams.get('tags')).toBe('fox -rating:q -rating:e order:filesize')
     expect(result.ignoredTerms).toEqual(['pool:3'])
@@ -55,7 +55,7 @@ describe('e621Adapter.search', () => {
   })
 
   it('normalizes an image post', async () => {
-    const { posts, total } = await e621Adapter.search({ query: '', options: ALL_RATINGS, fetch: stubFetch(jsonResponse(fixture)) })
+    const { posts, total } = await e621Adapter.search({ resolveName: null, query: '', options: ALL_RATINGS, fetch: stubFetch(jsonResponse(fixture)) })
     expect(total).toBeNull()
     expect(posts).toHaveLength(3)
     expect(posts[0]).toMatchObject({
@@ -85,7 +85,7 @@ describe('e621Adapter.search', () => {
   })
 
   it('maps every e621 tag group onto NekoBooru categories', async () => {
-    const { posts } = await e621Adapter.search({ query: '', options: ALL_RATINGS, fetch: stubFetch(jsonResponse(fixture)) })
+    const { posts } = await e621Adapter.search({ resolveName: null, query: '', options: ALL_RATINGS, fetch: stubFetch(jsonResponse(fixture)) })
     const [image] = posts
     expect(image.tagCategories).toMatchObject({
       feretta: 'artist',
@@ -132,7 +132,7 @@ describe('e621Adapter.search', () => {
   })
 
   it('normalizes a webm post as video with its sample', async () => {
-    const { posts } = await e621Adapter.search({ query: '', options: ALL_RATINGS, fetch: stubFetch(jsonResponse(fixture)) })
+    const { posts } = await e621Adapter.search({ resolveName: null, query: '', options: ALL_RATINGS, fetch: stubFetch(jsonResponse(fixture)) })
     expect(posts[1]).toMatchObject({
       key: 'e621:6336267',
       fileExt: 'webm',
@@ -147,7 +147,7 @@ describe('e621Adapter.search', () => {
   })
 
   it('marks posts with null URLs unavailable', async () => {
-    const { posts } = await e621Adapter.search({ query: '', options: ALL_RATINGS, fetch: stubFetch(jsonResponse(fixture)) })
+    const { posts } = await e621Adapter.search({ resolveName: null, query: '', options: ALL_RATINGS, fetch: stubFetch(jsonResponse(fixture)) })
     expect(posts[2]).toMatchObject({
       key: 'e621:6775146',
       thumbUrl: null,
@@ -181,24 +181,24 @@ describe('e621Adapter.search', () => {
     const fullPage = { posts: Array.from({ length: 3 }, (_, index) => ({ ...clone(imageRow), id: 100 + index })) }
     const fetch = stubFetch(jsonResponse(fullPage), jsonResponse(fixture), jsonResponse({ posts: [] }))
 
-    const first = await e621Adapter.search({ query: 'fox', options: ALL_RATINGS, cursor: null, limit: 3, fetch })
+    const first = await e621Adapter.search({ resolveName: null, query: 'fox', options: ALL_RATINGS, cursor: null, limit: 3, fetch })
     expect(first.nextCursor).toEqual({ page: 2 })
     expect(requestedUrl(fetch, 0).searchParams.get('limit')).toBe('3')
 
-    const second = await e621Adapter.search({ query: 'fox', options: ALL_RATINGS, cursor: first.nextCursor, limit: 5, fetch })
+    const second = await e621Adapter.search({ resolveName: null, query: 'fox', options: ALL_RATINGS, cursor: first.nextCursor, limit: 5, fetch })
     expect(requestedUrl(fetch, 1).searchParams.get('page')).toBe('2')
     expect(second.nextCursor).toBeNull() // 3 posts < limit 5
 
-    const empty = await e621Adapter.search({ query: 'fox', options: ALL_RATINGS, cursor: { page: 3 }, fetch })
+    const empty = await e621Adapter.search({ resolveName: null, query: 'fox', options: ALL_RATINGS, cursor: { page: 3 }, fetch })
     expect(empty).toMatchObject({ posts: [], nextCursor: null })
   })
 
   it('caps the limit at 320 and stops at page 750', async () => {
     const fetch = stubFetch(jsonResponse(fixture), jsonResponse(fixture))
-    await e621Adapter.search({ query: '', options: ALL_RATINGS, limit: 1000, fetch })
+    await e621Adapter.search({ resolveName: null, query: '', options: ALL_RATINGS, limit: 1000, fetch })
     expect(requestedUrl(fetch, 0).searchParams.get('limit')).toBe('320')
 
-    const last = await e621Adapter.search({ query: '', options: ALL_RATINGS, cursor: { page: E621_PAGE_CAP }, limit: 3, fetch })
+    const last = await e621Adapter.search({ resolveName: null, query: '', options: ALL_RATINGS, cursor: { page: E621_PAGE_CAP }, limit: 3, fetch })
     expect(last.posts).toHaveLength(3)
     expect(last.nextCursor).toBeNull()
   })
@@ -207,7 +207,7 @@ describe('e621Adapter.search', () => {
 describe('e621Adapter errors', () => {
   async function searchError(fetch) {
     try {
-      await e621Adapter.search({ query: 'fox', options: ALL_RATINGS, fetch })
+      await e621Adapter.search({ resolveName: null, query: 'fox', options: ALL_RATINGS, fetch })
     } catch (error) {
       return error
     }
@@ -289,7 +289,7 @@ describe('e621Adapter.count', () => {
   it('estimates a single plain tag from tags.json post_count with _client', async () => {
     const fetch = stubFetch(jsonResponse([{ id: 1, name: 'landscape', post_count: 98765 }]))
     expect(e621Adapter.countable('Landscape')).toBe(true)
-    expect(await e621Adapter.count('Landscape', ALL_RATINGS, { fetch })).toBe(98765)
+    expect(await e621Adapter.count('Landscape', ALL_RATINGS, { resolveName: null, fetch })).toBe(98765)
     expect(e621Adapter.countIsEstimate).toBe(true)
     const url = requestedUrl(fetch)
     expect(`${url.origin}${url.pathname}`).toBe('https://e621.net/tags.json')
@@ -300,15 +300,54 @@ describe('e621Adapter.count', () => {
     const fetch = stubFetch()
     for (const q of ['', 'a b', '-a', 'land*', 'rating:s']) {
       expect(e621Adapter.countable(q)).toBe(false)
-      expect(await e621Adapter.count(q, ALL_RATINGS, { fetch })).toBeNull()
+      expect(await e621Adapter.count(q, ALL_RATINGS, { resolveName: null, fetch })).toBeNull()
     }
     expect(fetch).not.toHaveBeenCalled()
   })
 
   it('is null for an unknown tag, an HTTP error or a network failure', async () => {
-    expect(await e621Adapter.count('nope', ALL_RATINGS, { fetch: stubFetch(jsonResponse({ tags: [] })) })).toBeNull()
-    expect(await e621Adapter.count('nope', ALL_RATINGS, { fetch: stubFetch(jsonResponse([{ name: 'nope_other', post_count: 3 }])) })).toBeNull()
-    expect(await e621Adapter.count('cat', ALL_RATINGS, { fetch: stubFetch(jsonResponse({}, { status: 503 })) })).toBeNull()
-    expect(await e621Adapter.count('cat', ALL_RATINGS, { fetch: stubFetch(new TypeError('offline')) })).toBeNull()
+    expect(await e621Adapter.count('nope', ALL_RATINGS, { resolveName: null, fetch: stubFetch(jsonResponse({ tags: [] })) })).toBeNull()
+    expect(await e621Adapter.count('nope', ALL_RATINGS, { resolveName: null, fetch: stubFetch(jsonResponse([{ name: 'nope_other', post_count: 3 }])) })).toBeNull()
+    expect(await e621Adapter.count('cat', ALL_RATINGS, { resolveName: null, fetch: stubFetch(jsonResponse({}, { status: 503 })) })).toBeNull()
+    expect(await e621Adapter.count('cat', ALL_RATINGS, { resolveName: null, fetch: stubFetch(new TypeError('offline')) })).toBeNull()
+  })
+})
+
+describe('e621Adapter name mapping', () => {
+  it('searches the library spelling under e621\'s name and says so', async () => {
+    const fetch = stubFetch(jsonResponse(fixture))
+    const resolveName = vi.fn(async (name) => (name === 'hirasawa_yui' ? 'yui_hirasawa' : name))
+    const result = await e621Adapter.search({ query: 'hirasawa_yui guitar -bass', options: ALL_RATINGS, fetch, resolveName })
+
+    expect(requestedUrl(fetch).searchParams.get('tags')).toBe('yui_hirasawa guitar -bass')
+    expect(resolveName.mock.calls.map(([name]) => name)).toEqual(['hirasawa_yui', 'guitar'])
+    expect(result.note).toBe('Searched e621 as hirasawa_yui → yui_hirasawa')
+  })
+
+  it('maps by default through the cached browser resolver', async () => {
+    const urls = []
+    const fetch = vi.fn(async (input) => {
+      const url = new URL(input)
+      urls.push(url)
+      if (url.pathname === '/tags.json') return jsonResponse([{ name: 'yui_hirasawa', post_count: 4000 }])
+      if (url.pathname === '/tag_aliases.json') return jsonResponse({ tag_aliases: [] })
+      return jsonResponse(fixture)
+    })
+    const result = await e621Adapter.search({ query: 'hirasawa_yui', options: ALL_RATINGS, fetch })
+    const search = urls.find((url) => url.pathname === '/posts.json')
+    expect(search.searchParams.get('tags')).toBe('yui_hirasawa')
+    expect(result.note).toContain('hirasawa_yui → yui_hirasawa')
+    expect(await e621Adapter.count('hirasawa_yui', ALL_RATINGS, { fetch })).toBe(4000)
+  })
+
+  it('leaves the term unchanged when the lookup fails', async () => {
+    const fetch = vi.fn(async (input) => {
+      const url = new URL(input)
+      if (url.pathname === '/posts.json') return jsonResponse(fixture)
+      return jsonResponse({}, { status: 429 })
+    })
+    const result = await e621Adapter.search({ query: 'akiyama_mio', options: ALL_RATINGS, fetch })
+    expect(new URL(fetch.mock.calls.at(-1)[0]).searchParams.get('tags')).toBe('akiyama_mio')
+    expect(result.note).toBeNull()
   })
 })

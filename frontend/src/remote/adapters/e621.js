@@ -1,5 +1,6 @@
 import { normalizeTagName } from '../../utils/booruSearchTag.js'
 import { retryAfterSeconds } from '../budget.js'
+import { joinNotes, mapPlainTerms, resolveE621Name } from '../e621Names.js'
 import { singlePlainTag, translateQuery } from '../queryTranslation.js'
 import { timeoutSignal } from '../timeoutSignal.js'
 import {
@@ -194,18 +195,27 @@ export const e621Adapter = Object.freeze({
 
   /**
    * @param {{ query: string, options: object, cursor: {page:number}|null, signal?: AbortSignal,
-   *           api?: object, limit?: number|string|null, fetch?: typeof fetch }} args
-   * `fetch` defaults to the global one; tests inject a stub.
+   *           api?: object, limit?: number|string|null, fetch?: typeof fetch, resolveName?: Function|null }} args
+   * `fetch` defaults to the global one; tests inject a stub. Plain tags go
+   * through `resolveName` (default: the cached e621 name resolver; null
+   * skips it), so the library's hirasawa_yui searches yui_hirasawa.
    */
-  async search({ query = '', options = {}, cursor = null, signal, limit = null, fetch } = {}) {
+  async search({ query = '', options = {}, cursor = null, signal, limit = null, fetch, resolveName = resolveE621Name } = {}) {
     const translation = translateQuery(SITE, query, options)
+    let terms = translation.terms
+    let mappingNote = null
+    if (resolveName) {
+      const mapping = await mapPlainTerms(query, terms, resolveName, 'e621', { fetch, signal })
+      terms = mapping.terms
+      mappingNote = mapping.note
+    }
     const page = pageFrom(cursor)
     const count = effectiveLimit(SITE, limit)
-    const body = await getJson(e621SearchUrl(translation.tags, page, count), { signal, fetch })
+    const body = await getJson(e621SearchUrl(terms.join(' '), page, count), { signal, fetch })
     const rows = Array.isArray(body?.posts) ? body.posts : []
     const posts = rows.filter((row) => row && row.id !== null && row.id !== undefined).map(normalizeE621Post)
     const nextCursor = rows.length >= count && page < E621_PAGE_CAP ? { page: page + 1 } : null
-    return { posts, nextCursor, total: null, ignoredTerms: translation.ignored, note: translation.note }
+    return { posts, nextCursor, total: null, ignoredTerms: translation.ignored, note: joinNotes(translation.note, mappingNote) }
   },
 
   // Only a single plain tag has a post count to estimate from.
@@ -219,12 +229,14 @@ export const e621Adapter = Object.freeze({
    * rating filter and the anonymous blacklist. Only for a query that is one
    * plain tag; null otherwise and on any failure, abort or timeout.
    */
-  async count(query = '', options = {}, { signal, fetch, timeoutMs = E621_COUNT_TIMEOUT_MS } = {}) {
-    const tag = singlePlainTag(query)
+  async count(query = '', options = {}, { signal, fetch, timeoutMs = E621_COUNT_TIMEOUT_MS, resolveName = resolveE621Name } = {}) {
+    let tag = singlePlainTag(query)
     if (!tag) return null
     const doFetch = fetch || globalThis.fetch
     const linked = timeoutSignal(signal, timeoutMs)
     try {
+      // The tag the search really asked for (see search()).
+      if (resolveName) tag = (await resolveName(tag, { fetch, signal: linked.signal })) || tag
       const response = await doFetch(e621TagUrl(tag), { ...FETCH_INIT, signal: linked.signal })
       if (!response?.ok) return null
       const body = await response.json()
