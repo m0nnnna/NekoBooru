@@ -117,6 +117,15 @@
           <button type="button" class="link-btn" @click="clearSelection" :disabled="!selectedIds.length">
             Clear selection
           </button>
+          <button
+            type="button"
+            class="btn btn-danger"
+            :disabled="!selectedIds.length || busy"
+            :title="selectedIds.length ? `Delete the ${selectedIds.length} selected post(s)` : 'Select posts to delete'"
+            @click="deleteSelected"
+          >
+            Delete
+          </button>
           <button type="button" class="btn btn-secondary" @click="toggleSelectMode">Done</button>
         </div>
       </header>
