@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import AI_MODEL_REGISTRY from '../composables/aiModelRegistry.fixture.json'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -8,6 +9,7 @@ vi.mock('../api/client', () => {
   const api = {
     getAutoTagSettings: vi.fn(async () => ({})),
     getAiModelDefaults: vi.fn(async () => ({ modelDefaults: {} })),
+    getAutoTagRegistry: vi.fn(async () => AI_MODEL_REGISTRY),
     getPostAiAnalysis: vi.fn(async () => ({ results: [] })),
     bulkDeletePosts: vi.fn(async (ids) => ({ deleted: ids.length })),
   }

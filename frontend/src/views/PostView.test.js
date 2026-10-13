@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import AI_MODEL_REGISTRY from '../composables/aiModelRegistry.fixture.json'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -27,6 +28,7 @@ vi.mock('../api/client', () => {
     getAutoTagSettings: vi.fn(async () => ({ semanticModelId: 'qwen' })),
     getAutoTagStatus: vi.fn(async () => ({ enabled: true, models: [] })),
     getAiModelDefaults: vi.fn(async () => ({ modelDefaults: {} })),
+    getAutoTagRegistry: vi.fn(async () => AI_MODEL_REGISTRY),
     getPostAiAnalysis: vi.fn(async () => ({
       results: [{ id: 3, modelName: 'Qwen', profile: 'anime', description: 'A cat on a sofa.', semanticTags: ['cozy'] }],
     })),

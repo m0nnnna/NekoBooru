@@ -28,6 +28,7 @@ from ..services.auto_tagger import (
     download_model,
     load_options,
     current_download_job,
+    model_registry_payload,
     current_model_load_job,
     model_statuses,
     result_to_json,
@@ -111,6 +112,12 @@ async def get_auto_tag_settings(current_user: User = Depends(get_current_user)):
 @router.put("/settings")
 async def put_auto_tag_settings(body: AutoTagSettingsBody, current_user: User = Depends(get_current_user)):
     return save_options(body.settings).__dict__
+
+
+@router.get("/registry")
+async def get_auto_tag_registry(current_user: User = Depends(get_current_user)):
+    # Static model metadata: cheap, unlike /status, so every view can load it first.
+    return model_registry_payload()
 
 
 @router.get("/status")

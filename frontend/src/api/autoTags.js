@@ -18,6 +18,10 @@ export const autoTagsApi = {
     return request('/auto-tags/status')
   },
 
+  async getAutoTagRegistry() {
+    return request('/auto-tags/registry')
+  },
+
   async downloadAutoTagModel() {
     return request('/auto-tags/model/download', { method: 'POST' })
   },

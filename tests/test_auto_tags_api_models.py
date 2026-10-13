@@ -1,3 +1,4 @@
+import json
 import time
 import unittest
 from pathlib import Path
@@ -104,6 +105,44 @@ class AutoTagModelApiTests(support.AutoTagApiTestCase):
         self.assertIn("loaded", by_id["wd"])
         self.assertEqual(by_id["qwen_gguf_q4"]["backend"], "gguf")
         self.assertEqual(by_id["qwen_gguf_q8"]["quantization"], "Q8_0")
+
+    def test_model_registry_is_served_once_for_every_surface(self):
+        from app.services.auto_tagger import MODEL_REGISTRY, AutoTagOptions
+
+        response = self.client.get("/api/auto-tags/registry")
+        self.assertEqual(response.status_code, 200, response.text)
+        registry = response.json()
+        self.assertLessEqual(set(registry["flagKeys"]), set(AutoTagOptions.__dataclass_fields__))
+        by_id = {model["id"]: model for model in registry["models"]}
+        self.assertEqual(set(by_id), set(MODEL_REGISTRY))
+        for model in registry["models"]:
+            self.assertIn(model["settingKey"], registry["flagKeys"], model["id"])
+            self.assertTrue(model["runtimePackages"], model["id"])
+        self.assertEqual(by_id["camie"]["settingKey"], "characterModelEnabled")
+        self.assertEqual(by_id["qwen_gguf_q4"]["settingKey"], "qwenEnabled")
+        for profile in ("anime", "realistic"):
+            self.assertEqual(set(registry["profiles"][profile]["models"]), set(registry["flagKeys"]))
+
+        # Saving defaults keeps every registry flag, in the custom stack and in each profile.
+        stack = {key: True for key in registry["flagKeys"]}
+        saved = self.client.put(
+            "/api/settings/ai-model-defaults",
+            json={"modelDefaults": {**stack, "profileDefaults": {"anime": stack, "realistic": stack}}},
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        defaults = saved.json()["modelDefaults"]
+        self.assertEqual({key: defaults[key] for key in registry["flagKeys"]}, stack)
+        self.assertEqual(defaults["profileDefaults"]["anime"], stack)
+
+        # The copies the clients ship (the web tests' fixture, the extension's
+        # offline fallback) must be exactly what the server serves.
+        root = Path(__file__).resolve().parents[1]
+        fixture = root / "frontend" / "src" / "composables" / "aiModelRegistry.fixture.json"
+        self.assertEqual(json.loads(fixture.read_text(encoding="utf-8")), registry)
+        extension = (root / "browser-extension" / "upload-ai-models.js").read_text(encoding="utf-8")
+        start = extension.index("/* registry:start */") + len("/* registry:start */")
+        end = extension.index("/* registry:end */")
+        self.assertEqual(json.loads(extension[start:end]), registry)
 
     def test_model_download_routes_start_background_jobs(self):
         fake_job = {

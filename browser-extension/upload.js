@@ -70,7 +70,7 @@ let serverPreviewLoading = false
 let serverPreviewObjectUrl = ''
 let knownTagDisplayNames = {}
 // Booru lookup is not a model, so it is not part of a profile's model stack and
-// AI_TAG_PROFILES must not carry it: profiles are re-applied on every run, which
+// the profiles (aiTagProfile) must not carry it: profiles are re-applied on every run, which
 // would silently undo the popup's checkbox. Saved settings and extension
 // defaults seed it; once the user touches the checkbox their choice wins.
 let booruLookupEnabled = false

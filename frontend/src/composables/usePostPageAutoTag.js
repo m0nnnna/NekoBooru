@@ -4,15 +4,16 @@ import { ref, computed } from 'vue'
 import api from '../api/client'
 import { formatDurationMs } from '../utils/format'
 import {
-  DEFAULT_AUTO_TAG_MODELS,
   autoTagProfiles,
   autoTagProfileSettings,
+  defaultAutoTagModels,
   dependenciesForModel,
   isSemanticModel,
   modelSettingKey,
   normalizeAiModelDefaults,
   normalizeAiProfileDefaults,
 } from './usePostPageAiModels'
+import { loadAiModelRegistry } from './useAiModelRegistry'
 import { semanticParsedEvidence } from './usePostPageAiAnalysis'
 
 export const safetyOptions = [
@@ -28,7 +29,7 @@ export function usePostPageAutoTag({ post, mediaType, mediaViewer, editedTags, l
   const autoTagSuggestion = ref(null)
   const saveSemanticAnalysisForPreview = ref(false)
   const autoTagLoading = ref(false)
-  const autoTagStatus = ref({ enabled: true, models: DEFAULT_AUTO_TAG_MODELS })
+  const autoTagStatus = ref({ enabled: true, models: [] })
   const postAutoTagSettings = ref({
     wdEnabled: true,
     pixaiEnabled: false,
@@ -174,7 +175,7 @@ export function usePostPageAutoTag({ post, mediaType, mediaViewer, editedTags, l
     ]
   })
   const postModelRows = computed(() => {
-    const models = autoTagStatus.value?.models?.length ? autoTagStatus.value.models : DEFAULT_AUTO_TAG_MODELS
+    const models = autoTagStatus.value?.models?.length ? autoTagStatus.value.models : defaultAutoTagModels()
     const selectedSemantic = postAutoTagSettings.value.semanticModelId || savedAutoTagSettings.value.semanticModelId || autoTagStatus.value?.semanticModelId || 'qwen'
     return models.filter((model) => !isSemanticModel(model) || model.id === selectedSemantic).map((model) => ({
       ...model,
@@ -210,6 +211,7 @@ export function usePostPageAutoTag({ post, mediaType, mediaViewer, editedTags, l
         api.getAutoTagSettings(),
         api.getAutoTagStatus(),
         api.getAiModelDefaults(),
+        loadAiModelRegistry(),
       ])
       const modelDefaults = normalizeAiModelDefaults(defaultsResult?.modelDefaults)
       savedAutoTagProfileDefaults.value = normalizeAiProfileDefaults(defaultsResult?.modelDefaults?.profileDefaults, modelDefaults)

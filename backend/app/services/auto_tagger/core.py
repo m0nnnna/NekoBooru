@@ -379,3 +379,123 @@ def safety_from_rating(rating: dict[str, float], opts: AutoTagOptions) -> str | 
     if rating:
         return "safe"
     return None
+
+
+# --- The model registry the UIs read --------------------------------------
+# One owner for what the Settings, post, upload and batch views and the
+# browser extension used to hand-copy: which AutoTagOptions flag turns each
+# model on, the default-stack rows, the runtime packages each model needs,
+# and the Anime / Realistic profile stacks. Served by GET /api/auto-tags/registry.
+
+# model id -> (flag key, pipeline label, pipeline description, runtime packages)
+_MODEL_PIPELINE = {
+    "wd": ("wdEnabled", "Enable by default for booru tags",
+           "Runs on images and sampled video frames. Best baseline for visual library tags.",
+           ("onnxruntime", "numpy", "pillow")),
+    "pixai": ("pixaiEnabled", "Enable by default for PixAI anime tags",
+              "Runs fast PixAI/Danbooru anime tags on images and sampled video frames.",
+              ("onnxruntime", "numpy", "pillow")),
+    "camie": ("characterModelEnabled", "Enable by default for character/source tags",
+              "Adds anime characters, copyright/source tags, artist tags, and rating evidence.",
+              ("onnxruntime", "numpy", "pillow")),
+    "cl": ("clEnabled", "Enable by default for CL Tagger v2 tags",
+           "SigLIP2 tagger with a 108k-tag Danbooru vocabulary. Gated model: accept its licence on Hugging Face "
+           "and save a token before downloading.",
+           ("onnxruntime", "numpy", "pillow")),
+    "qwen": ("qwenEnabled", "Enable by default for semantic tags",
+             "Uses image plus OCR/transcript context for higher-level edit and scene meaning.",
+             ("transformers", "torch", "qwen_vl_utils")),
+    "qwen_gguf_q4": ("qwenEnabled", "Enable by default for semantic tags",
+                     "Uses Qwen3-VL GGUF Q4 through llama.cpp for faster low-memory semantic tags.",
+                     ("llama_cpp",)),
+    "qwen_gguf_q8": ("qwenEnabled", "Enable by default for semantic tags",
+                     "Uses Qwen3-VL GGUF Q8 through llama.cpp for higher-quality semantic tags.",
+                     ("llama_cpp",)),
+    "ocr": ("ocrEnabled", "Enable by default for text extraction",
+            "Reads visible captions, subtitles, and meme text from representative frames.",
+            ("transformers", "torch")),
+    "whisper": ("whisperEnabled", "Enable by default for audio transcripts",
+                "Extracts speech from video audio for AMVs, edits, narration, and spoken context.",
+                ("transformers", "transformers_pipeline", "torch")),
+}
+for _model_id, (_key, _label, _description, _packages) in _MODEL_PIPELINE.items():
+    MODEL_REGISTRY[_model_id].update(
+        settingKey=_key,
+        pipelineLabel=_label,
+        pipelineDescription=_description,
+        runtimePackages=list(_packages),
+    )
+del _model_id, _key, _label, _description, _packages
+
+# The default-stack rows, in display order. "label" is the short form used in
+# stack summaries; "lookup" marks a row that is not a model (no profile carries
+# it as a model, and the batch panel leaves it out).
+MODEL_FLAGS = (
+    {"key": "wdEnabled", "name": "WD Tagger", "label": "WD",
+     "description": "Broad booru-style image and sampled video-frame tags."},
+    {"key": "pixaiEnabled", "name": "PixAI Tagger v0.9", "label": "PixAI",
+     "description": "Fast PixAI/Danbooru anime and illustration tags."},
+    {"key": "characterModelEnabled", "name": "Camie Tagger v2", "label": "Camie",
+     "description": "Anime character, copyright/source, artist, and rating tags."},
+    {"key": "clEnabled", "name": "CL Tagger v2", "label": "CL",
+     "description": "SigLIP2 Danbooru tagger with a 108k-tag character/copyright/general vocabulary."},
+    {"key": "booruLookupEnabled", "name": "Booru series lookup", "label": "Booru lookup", "lookup": True,
+     "description": "Look a recognised character up on Danbooru and add its series. Makes a network call; "
+                    "results are cached."},
+    {"key": "qwenEnabled", "name": "Qwen semantic backend", "label": "Qwen",
+     "description": "Higher-level semantic analysis using the selected Qwen backend."},
+    {"key": "ocrEnabled", "name": "TrOCR Printed", "label": "OCR",
+     "description": "Visible captions, subtitles, and meme text from images or frames."},
+    {"key": "whisperEnabled", "name": "Whisper Small", "label": "audio", "videoOnly": True,
+     "description": "Speech, music, and audio transcript signals from videos."},
+)
+# Stored next to a flag and always equal to it.
+MIRRORED_MODEL_FLAGS = {"semanticPoliticalEnabled": "qwenEnabled"}
+MODEL_FLAG_KEYS = tuple(flag["key"] for flag in MODEL_FLAGS) + tuple(MIRRORED_MODEL_FLAGS)
+
+# The built-in Anime / Realistic stacks, used until the user saves their own,
+# and the thresholds each profile runs with.
+PROFILE_MODEL_DEFAULTS = {
+    "anime": {"wdEnabled": False, "pixaiEnabled": True, "characterModelEnabled": True, "clEnabled": False,
+              "booruLookupEnabled": False, "qwenEnabled": False, "ocrEnabled": True, "whisperEnabled": True},
+    "realistic": {"wdEnabled": True, "pixaiEnabled": False, "characterModelEnabled": False, "clEnabled": False,
+                  "booruLookupEnabled": False, "qwenEnabled": False, "ocrEnabled": True, "whisperEnabled": True},
+}
+PROFILE_TUNING = {
+    "anime": {"generalThreshold": 0.35, "characterThreshold": 0.45, "maxTags": 40, "videoMaxTags": 40,
+              "videoMaxFrames": 4},
+    "realistic": {"generalThreshold": 0.5, "characterThreshold": 0.6, "maxTags": 18, "videoMaxTags": 20,
+                  "videoMaxFrames": 4},
+}
+# Flags a profile turns off when Qwen runs: on Realistic, Qwen replaces WD.
+PROFILE_QWEN_REPLACES = {"anime": (), "realistic": ("wdEnabled",)}
+
+
+def model_registry_payload() -> dict:
+    defaults = AutoTagOptions()
+    flags = [{**flag, "defaultEnabled": getattr(defaults, flag["key"])} for flag in MODEL_FLAGS]
+    profiles = {}
+    for profile_id, stack in PROFILE_MODEL_DEFAULTS.items():
+        models = {**stack}
+        for mirror, source in MIRRORED_MODEL_FLAGS.items():
+            models[mirror] = models[source]
+        profiles[profile_id] = {
+            "models": models,
+            "tuning": dict(PROFILE_TUNING[profile_id]),
+            "qwenReplaces": list(PROFILE_QWEN_REPLACES[profile_id]),
+        }
+    return {
+        "flags": flags,
+        "flagKeys": list(MODEL_FLAG_KEYS),
+        "mirroredFlags": dict(MIRRORED_MODEL_FLAGS),
+        "models": [
+            {
+                key: meta.get(key)
+                for key in ("id", "name", "repoId", "purpose", "downloadSize", "vramRequirement", "role",
+                            "settingKey", "pipelineLabel", "pipelineDescription", "runtimePackages")
+                if meta.get(key) is not None
+            }
+            for meta in MODEL_REGISTRY.values()
+        ],
+        "profiles": profiles,
+    }

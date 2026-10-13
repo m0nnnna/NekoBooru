@@ -20,7 +20,7 @@ function setAiProfileButtonsDisabled(disabled) {
 async function runAiTag(event) {
   const button = event?.currentTarget || els.aiTag
   const profileId = resolveAiTagProfileId(button?.dataset?.aiProfile || 'anime')
-  const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
+  const profile = aiTagProfile(profileId) || aiTagProfile('anime')
   autoTagSuggestionProfile = profileId || 'extension'
   setAiProfileButtonsDisabled(true)
   els.submit.disabled = true
@@ -120,6 +120,7 @@ function loadAutoTagControls() {
 async function _loadAutoTagControls() {
   try {
     await ensureBackendReady()
+    await loadAiModelRegistry()
     // Fetch the cheap settings first and reveal the AI buttons immediately. The
     // status endpoint imports torch / probes CUDA and can take 30s+ (worse on a
     // network-share install), so it must NOT gate button visibility — otherwise
@@ -298,7 +299,7 @@ function selectedMissingBackendPackages() {
 function applyAiTagProfile(profileId) {
   profileId = resolveAiTagProfileId(profileId)
   setActiveAiProfile(profileId)
-  const profile = AI_TAG_PROFILES[profileId] || AI_TAG_PROFILES.anime
+  const profile = aiTagProfile(profileId) || aiTagProfile('anime')
   if (!profile.settings) {
     renderAiModelPicker()
     return
@@ -340,10 +341,10 @@ function applyAiTagProfile(profileId) {
     autoTagSettings.semanticPoliticalEnabled = true
     autoTagModelOverrides.qwenEnabled = true
     autoTagModelOverrides.semanticPoliticalEnabled = true
-    if (profileId.startsWith('realistic_')) {
-      autoTagSettings.wdEnabled = false
-      autoTagModelOverrides.wdEnabled = false
-    }
+    aiTagProfileQwenReplaces(rootProfileId).forEach((key) => {
+      autoTagSettings[key] = false
+      autoTagModelOverrides[key] = false
+    })
   }
   renderAiModelPicker()
 }

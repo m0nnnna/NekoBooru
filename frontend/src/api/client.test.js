@@ -129,7 +129,7 @@ const METHODS = [
   'deletePost', 'deletePostAiAnalysis', 'deleteTag', 'deleteTaggerWorkerToken', 'deleteUploadJob', 'deleteYtdlpCookies',
   'downloadAllAutoTagModels', 'downloadAutoTagModel', 'downloadAutoTagModelById', 'estimateAutoTagJob', 'fetchFromUrl', 'gelbooruTagCategories',
   'getAiModelDefaults', 'getAiRuntimeInstallJob', 'getAiRuntimeProfiles', 'getAliases', 'getApiTokens', 'getAuthStatus',
-  'getAutoTagJob', 'getAutoTagJobSuggestions', 'getAutoTagModelDownloadJob', 'getAutoTagModelLoadJob', 'getAutoTagModels', 'getAutoTagSettings',
+  'getAutoTagJob', 'getAutoTagJobSuggestions', 'getAutoTagModelDownloadJob', 'getAutoTagModelLoadJob', 'getAutoTagModels', 'getAutoTagRegistry', 'getAutoTagSettings',
   'getAutoTagStatus', 'getBooruSearchSettings', 'getBooruSearchStatus', 'getCategories', 'getComments', 'getCurrentAutoTagJob',
   'getDashboard', 'getDirectory', 'getDuplicateGroups', 'getExtensionSettings', 'getFromUrlProgress', 'getImplications',
   'getMe', 'getNotes', 'getOptimizeJob', 'getPool', 'getPools', 'getPost',

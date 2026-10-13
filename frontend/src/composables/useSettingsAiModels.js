@@ -1,36 +1,32 @@
-// The Settings page's AI model lists: the model-key list, the profile ids,
-// the model-id -> setting-key map, the pipeline label / description helpers,
-// the default-model cards, and the anime / realistic profile-default
-// builders. This is the Settings view's copy of the model lists (CLAUDE.md
-// "Adding a new tagger model", step 9).
+// The Settings page's AI model defaults: the default-model cards per profile,
+// saving them, and the Settings-only wording around the model registry. The
+// model list, flag keys, per-model labels and the Anime / Realistic stacks come
+// from the shared registry (useAiModelRegistry.js).
 import { computed, ref } from 'vue'
 import api from '../api/client'
+import {
+  aiModelRegistry,
+  aiProfileIds,
+  builtInProfileStack,
+  completeModelStack,
+  isSemanticModel,
+  loadAiModelRegistry,
+  modelFlags,
+  modelInfoTitle as registryModelInfoTitle,
+  modelPipelineDescription as registryModelPipelineDescription,
+  modelPipelineLabel,
+  modelSettingKey,
+  normalizeAiModelDefaults,
+} from './useAiModelRegistry'
 
-export const extensionModelDefaultKeys = [
-  'wdEnabled',
-  'pixaiEnabled',
-  'characterModelEnabled',
-  'clEnabled',
-  'booruLookupEnabled',
-  'qwenEnabled',
-  'ocrEnabled',
-  'whisperEnabled',
-]
-export const aiDefaultProfileIds = ['custom', 'anime', 'realistic']
+export { isSemanticModel, modelPipelineLabel, modelSettingKey }
 
-export function normalizeAiModelDefaults(raw = {}) {
+const SETTINGS_PIPELINE_FALLBACK = 'Use this model in the saved default auto-tagging pipeline.'
+
+// Saved stacks as stored: Custom falls back to `fallback`, the others to nothing.
+function savedProfileStacks(raw = {}, fallback = {}) {
   const defaults = raw && typeof raw === 'object' ? raw : {}
-  return extensionModelDefaultKeys.reduce((memo, key) => {
-    if (Object.prototype.hasOwnProperty.call(defaults, key)) {
-      memo[key] = defaults[key] === true
-    }
-    return memo
-  }, {})
-}
-
-export function normalizeAiProfileDefaults(raw = {}, fallback = {}) {
-  const defaults = raw && typeof raw === 'object' ? raw : {}
-  return aiDefaultProfileIds.reduce((memo, profileId) => {
+  return aiProfileIds.reduce((memo, profileId) => {
     memo[profileId] = normalizeAiModelDefaults(defaults[profileId] || (profileId === 'custom' ? fallback : {}))
     return memo
   }, {})
@@ -44,50 +40,8 @@ export function profileModelDescription(profileId, model) {
   return model.description
 }
 
-export function modelSettingKey(id) {
-  return {
-    wd: 'wdEnabled',
-    pixai: 'pixaiEnabled',
-    camie: 'characterModelEnabled',
-    cl: 'clEnabled',
-    ocr: 'ocrEnabled',
-    whisper: 'whisperEnabled',
-    qwen: 'qwenEnabled',
-    qwen_gguf_q4: 'qwenEnabled',
-    qwen_gguf_q8: 'qwenEnabled',
-  }[id] || `${id}Enabled`
-}
-
-export function modelPipelineLabel(id) {
-  return {
-    wd: 'Enable by default for booru tags',
-    pixai: 'Enable by default for PixAI anime tags',
-    camie: 'Enable by default for character/source tags',
-    cl: 'Enable by default for CL Tagger v2 tags',
-    ocr: 'Enable by default for text extraction',
-    whisper: 'Enable by default for audio transcripts',
-    qwen: 'Enable by default for semantic tags',
-    qwen_gguf_q4: 'Enable by default for semantic tags',
-    qwen_gguf_q8: 'Enable by default for semantic tags',
-  }[id] || 'Enable by default'
-}
-
 export function modelPipelineDescription(id) {
-  return {
-    wd: 'Runs on images and sampled video frames. Best baseline for visual library tags.',
-    pixai: 'Runs fast PixAI/Danbooru anime tags on images and sampled video frames.',
-    camie: 'Adds anime characters, copyright/source tags, artist tags, and rating evidence.',
-    cl: 'SigLIP2 tagger with a 108k-tag Danbooru vocabulary. Gated model: accept its licence on Hugging Face and save a token before downloading.',
-    ocr: 'Reads visible captions, subtitles, and meme text from representative frames.',
-    whisper: 'Extracts speech from video audio for AMVs, edits, narration, and spoken context.',
-    qwen: 'Uses image plus OCR/transcript context for higher-level edit and scene meaning.',
-    qwen_gguf_q4: 'Uses Qwen3-VL GGUF Q4 through llama.cpp for faster low-memory semantic tags.',
-    qwen_gguf_q8: 'Uses Qwen3-VL GGUF Q8 through llama.cpp for higher-quality semantic tags.',
-  }[id] || 'Use this model in the saved default auto-tagging pipeline.'
-}
-
-export function isSemanticModel(model) {
-  return model?.role === 'semantic' || ['qwen', 'qwen_gguf_q4', 'qwen_gguf_q8'].includes(model?.id)
+  return registryModelPipelineDescription(id, SETTINGS_PIPELINE_FALLBACK)
 }
 
 export function modelPipelineConfigurable(model) {
@@ -109,16 +63,7 @@ export function semanticBackendDescription(model) {
 }
 
 export function modelInfoTitle(model) {
-  return [
-    model.name,
-    model.purpose,
-    modelPipelineDescription(model.id),
-    `Download size: ${model.downloadSize || 'Unknown'}`,
-    `VRAM: ${model.vramRequirement || 'Unknown'}`,
-    `Runtime: ${model.runtimeAvailable ? 'ready' : 'missing'}`,
-    `Memory: ${model.loaded ? 'loaded' : 'not loaded'}`,
-    model.providers?.length ? `Provider: ${model.providers.join(', ')}` : null,
-  ].filter(Boolean).join('\n')
+  return registryModelInfoTitle(model, SETTINGS_PIPELINE_FALLBACK)
 }
 
 export function useSettingsAiModels({ autoTag, models }) {
@@ -141,9 +86,9 @@ export function useSettingsAiModels({ autoTag, models }) {
 
   async function loadAiModelDefaults() {
     try {
-      const result = await api.getAiModelDefaults()
+      const [result] = await Promise.all([api.getAiModelDefaults(), loadAiModelRegistry()])
       const modelDefaults = normalizeAiModelDefaults(result.modelDefaults)
-      const profileDefaults = normalizeAiProfileDefaults(result.modelDefaults?.profileDefaults, modelDefaults)
+      const profileDefaults = savedProfileStacks(result.modelDefaults?.profileDefaults, modelDefaults)
       aiModelDefaultsPersisted.value = Object.keys(modelDefaults).length > 0
       aiModelDefaults.value = modelDefaults
       aiModelProfileDefaults.value = profileDefaults
@@ -161,7 +106,7 @@ export function useSettingsAiModels({ autoTag, models }) {
       hydrateAiModelDefaults()
       const result = await api.updateAiModelDefaults(aiModelDefaultsPayload())
       aiModelDefaults.value = normalizeAiModelDefaults(result.modelDefaults)
-      aiModelProfileDefaults.value = normalizeAiProfileDefaults(result.modelDefaults?.profileDefaults, aiModelDefaults.value)
+      aiModelProfileDefaults.value = savedProfileStacks(result.modelDefaults?.profileDefaults, aiModelDefaults.value)
       aiModelDefaultsPersisted.value = true
       hydrateAiModelDefaults()
       aiModelDefaultsStatus.value = {
@@ -180,30 +125,33 @@ export function useSettingsAiModels({ autoTag, models }) {
     }
   }
 
+  // The live auto-tag settings as a stack: a flag never saved takes its
+  // AutoTagOptions default, and a mirrored flag (semanticPoliticalEnabled)
+  // also turns its source on.
   function autoTagDefaultsForAiModels() {
-    return {
-      wdEnabled: autoTagSettings.value.wdEnabled !== false,
-      pixaiEnabled: autoTagSettings.value.pixaiEnabled === true,
-      characterModelEnabled: autoTagSettings.value.characterModelEnabled === true,
-      clEnabled: autoTagSettings.value.clEnabled === true,
-      booruLookupEnabled: autoTagSettings.value.booruLookupEnabled === true,
-      qwenEnabled: Boolean(autoTagSettings.value.qwenEnabled || autoTagSettings.value.semanticPoliticalEnabled),
-      ocrEnabled: autoTagSettings.value.ocrEnabled === true,
-      whisperEnabled: autoTagSettings.value.whisperEnabled === true,
-    }
+    const current = autoTagSettings.value || {}
+    const mirrors = Object.entries(aiModelRegistry.value.mirroredFlags)
+    return modelFlags().reduce((memo, flag) => {
+      const value = current[flag.key]
+      memo[flag.key] = value === undefined ? flag.defaultEnabled === true : value === true
+      for (const [mirror, source] of mirrors) {
+        if (source === flag.key && current[mirror] === true) memo[flag.key] = true
+      }
+      return memo
+    }, {})
   }
 
   function hydrateAiModelDefaults() {
     const fallback = autoTagDefaultsForAiModels()
     const current = normalizeAiModelDefaults(aiModelDefaults.value)
-    const customDefaults = extensionModelDefaultKeys.reduce((memo, key) => {
-      memo[key] = aiModelDefaultsPersisted.value && Object.prototype.hasOwnProperty.call(current, key)
-        ? current[key]
-        : fallback[key]
+    const customDefaults = modelFlags().reduce((memo, flag) => {
+      memo[flag.key] = aiModelDefaultsPersisted.value && Object.prototype.hasOwnProperty.call(current, flag.key)
+        ? current[flag.key]
+        : fallback[flag.key]
       return memo
     }, {})
     aiModelDefaults.value = customDefaults
-    const currentProfiles = normalizeAiProfileDefaults(aiModelProfileDefaults.value, customDefaults)
+    const currentProfiles = savedProfileStacks(aiModelProfileDefaults.value, customDefaults)
     aiModelProfileDefaults.value = {
       custom: customDefaults,
       anime: hydrateProfileDefaults('anime', currentProfiles.anime),
@@ -213,98 +161,27 @@ export function useSettingsAiModels({ autoTag, models }) {
 
   function hydrateProfileDefaults(profileId, current) {
     if (aiModelDefaultsPersisted.value && Object.keys(current || {}).length) {
-      return extensionModelDefaultKeys.reduce((memo, key) => {
-        memo[key] = current[key] === true
-        return memo
-      }, {})
+      return completeModelStack(current)
     }
-    const isAnime = profileId === 'anime'
-    return {
-      wdEnabled: !isAnime,
-      pixaiEnabled: isAnime,
-      characterModelEnabled: isAnime,
-      clEnabled: false,
-      booruLookupEnabled: false,
-      qwenEnabled: false,
-      semanticPoliticalEnabled: false,
-      ocrEnabled: true,
-      whisperEnabled: true,
-    }
+    return completeModelStack(builtInProfileStack(profileId))
   }
 
   function aiModelDefaultsPayload() {
-    const profiles = normalizeAiProfileDefaults(aiModelProfileDefaults.value, normalizeAiModelDefaults(aiModelDefaults.value))
-    const defaults = normalizeAiModelDefaults(profiles.custom)
+    const profiles = savedProfileStacks(aiModelProfileDefaults.value, normalizeAiModelDefaults(aiModelDefaults.value))
     return {
-      wdEnabled: defaults.wdEnabled === true,
-      pixaiEnabled: defaults.pixaiEnabled === true,
-      characterModelEnabled: defaults.characterModelEnabled === true,
-      clEnabled: defaults.clEnabled === true,
-      booruLookupEnabled: defaults.booruLookupEnabled === true,
-      qwenEnabled: defaults.qwenEnabled === true,
-      semanticPoliticalEnabled: defaults.qwenEnabled === true,
-      ocrEnabled: defaults.ocrEnabled === true,
-      whisperEnabled: defaults.whisperEnabled === true,
-      profileDefaults: aiDefaultProfileIds.reduce((memo, profileId) => {
-        const stack = normalizeAiModelDefaults(profiles[profileId])
-        memo[profileId] = {
-          wdEnabled: stack.wdEnabled === true,
-          pixaiEnabled: stack.pixaiEnabled === true,
-          characterModelEnabled: stack.characterModelEnabled === true,
-          clEnabled: stack.clEnabled === true,
-          booruLookupEnabled: stack.booruLookupEnabled === true,
-          qwenEnabled: stack.qwenEnabled === true,
-          semanticPoliticalEnabled: stack.qwenEnabled === true,
-          ocrEnabled: stack.ocrEnabled === true,
-          whisperEnabled: stack.whisperEnabled === true,
-        }
+      ...completeModelStack(profiles.custom),
+      profileDefaults: aiProfileIds.reduce((memo, profileId) => {
+        memo[profileId] = completeModelStack(profiles[profileId])
         return memo
       }, {}),
     }
   }
 
-  const aiDefaultModels = computed(() => [
-    {
-      key: 'wdEnabled',
-      name: 'WD Tagger',
-      description: 'Broad booru-style image and sampled video-frame tags.',
-    },
-    {
-      key: 'pixaiEnabled',
-      name: 'PixAI Tagger v0.9',
-      description: 'Fast PixAI/Danbooru anime and illustration tags.',
-    },
-    {
-      key: 'characterModelEnabled',
-      name: 'Camie Tagger v2',
-      description: 'Anime character, copyright/source, artist, and rating tags.',
-    },
-    {
-      key: 'clEnabled',
-      name: 'CL Tagger v2',
-      description: 'SigLIP2 Danbooru tagger with a 108k-tag character/copyright/general vocabulary.',
-    },
-    {
-      key: 'booruLookupEnabled',
-      name: 'Booru series lookup',
-      description: 'Look a recognised character up on Danbooru and add its series. Makes a network call; results are cached.',
-    },
-    {
-      key: 'qwenEnabled',
-      name: selectedSemanticModel.value?.name || 'Qwen semantic backend',
-      description: 'Higher-level semantic analysis using the selected Qwen backend.',
-    },
-    {
-      key: 'ocrEnabled',
-      name: 'TrOCR Printed',
-      description: 'Visible captions, subtitles, and meme text from images or frames.',
-    },
-    {
-      key: 'whisperEnabled',
-      name: 'Whisper Small',
-      description: 'Speech, music, and audio transcript signals from videos.',
-    },
-  ])
+  const aiDefaultModels = computed(() => modelFlags().map((flag) => ({
+    key: flag.key,
+    name: flag.key === 'qwenEnabled' ? (selectedSemanticModel.value?.name || flag.name) : flag.name,
+    description: flag.description,
+  })))
 
   const aiDefaultProfiles = computed(() => [
     {
@@ -326,7 +203,7 @@ export function useSettingsAiModels({ autoTag, models }) {
 
   function aiDefaultModelSummary(profileId = 'custom') {
     const defaults = aiModelProfileDefaults.value?.[profileId] || {}
-    const count = extensionModelDefaultKeys.filter((key) => defaults[key] === true).length
+    const count = modelFlags().filter((flag) => defaults[flag.key] === true).length
     return `${count} model${count === 1 ? '' : 's'} enabled`
   }
   return {

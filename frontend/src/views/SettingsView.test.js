@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import AI_MODEL_REGISTRY from '../composables/aiModelRegistry.fixture.json'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -22,6 +23,7 @@ vi.mock('../api/client', () => {
     getAiRuntimeProfiles: vi.fn(async () => ({ profiles: [] })),
     getUpdateStatus: vi.fn(async () => ({ currentVersion: '4.1.0', settings: {} })),
     getAiModelDefaults: vi.fn(async () => ({ modelDefaults: {} })),
+    getAutoTagRegistry: vi.fn(async () => AI_MODEL_REGISTRY),
     getDirectory: vi.fn(async () => ['alice']),
     getShares: vi.fn(async () => ({ sharedByMe: [] })),
     getMe: vi.fn(async () => ({ sharedWithMe: [] })),

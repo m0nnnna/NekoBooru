@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import AI_MODEL_REGISTRY from '../composables/aiModelRegistry.fixture.json'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -9,6 +10,7 @@ vi.mock('../api/client', () => {
     getAutoTagSettings: vi.fn(async () => ({ semanticModelId: 'qwen' })),
     getAutoTagStatus: vi.fn(async () => ({ enabled: true })),
     getAiModelDefaults: vi.fn(async () => ({ modelDefaults: { pixaiEnabled: true } })),
+    getAutoTagRegistry: vi.fn(async () => AI_MODEL_REGISTRY),
     getUploadJob: vi.fn(async () => null),
     autocomplete: vi.fn(async () => []),
   }

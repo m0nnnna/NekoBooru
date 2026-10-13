@@ -1,22 +1,19 @@
-// Upload-page AI tagging: the per-upload preview profiles, the model-key
-// list, the anime / realistic profile defaults, and the settings each
-// preview run sends. This is the Upload view's copy of the model lists
-// (CLAUDE.md "Adding a new tagger model", step 12).
+// Upload-page AI tagging: the per-upload preview profiles and the settings
+// each preview run sends. The model keys and the Anime / Realistic stacks come
+// from the shared registry (useAiModelRegistry.js).
 import { ref } from 'vue'
 import api from '../api/client'
 import { isVideoUpload } from './useUploadQueue'
+import {
+  AI_PROFILE_BUTTONS,
+  loadAiModelRegistry,
+  normalizeAiModelDefaults,
+  normalizeAiProfileDefaults,
+  profileRunSettings,
+} from './useAiModelRegistry'
 
 export const aiProfiles = [
-  {
-    id: 'anime',
-    label: 'Anime / Booru',
-    tooltip: 'Best for anime, manga, illustrations, and booru-style art. Uses the Anime / Booru model stack from Settings, typically PixAI/Camie plus TrOCR; videos can add Whisper. If Qwen is enabled for Anime, it adds semantic context.',
-  },
-  {
-    id: 'realistic',
-    label: 'Realistic',
-    tooltip: 'Best for realistic photos, screenshots, videos, edits, and memes. Uses the Realistic model stack from Settings. If Qwen is enabled for Realistic, it replaces WD as the primary visual/semantic model.',
-  },
+  ...AI_PROFILE_BUTTONS,
   {
     id: 'custom',
     label: 'Custom',
@@ -24,35 +21,6 @@ export const aiProfiles = [
   },
 ]
 
-export function normalizeAiModelDefaults(raw = {}) {
-  const defaults = raw && typeof raw === 'object' ? raw : {}
-  const normalized = {}
-  for (const key of ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'clEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']) {
-    if (Object.prototype.hasOwnProperty.call(defaults, key)) {
-      normalized[key] = defaults[key] === true
-    }
-  }
-  if (Object.prototype.hasOwnProperty.call(normalized, 'qwenEnabled') && !Object.prototype.hasOwnProperty.call(normalized, 'semanticPoliticalEnabled')) {
-    normalized.semanticPoliticalEnabled = normalized.qwenEnabled
-  }
-  return normalized
-}
-
-export function normalizeAiProfileDefaults(raw = {}, fallback = {}) {
-  const profiles = raw && typeof raw === 'object' ? raw : {}
-  const defaults = {
-    custom: fallback,
-    anime: { wdEnabled: false, pixaiEnabled: true, characterModelEnabled: true, clEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
-    realistic: { wdEnabled: true, pixaiEnabled: false, characterModelEnabled: false, clEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
-  }
-  return ['custom', 'anime', 'realistic'].reduce((memo, profileId) => {
-    memo[profileId] = {
-      ...defaults[profileId],
-      ...normalizeAiModelDefaults(profiles[profileId] || {}),
-    }
-    return memo
-  }, {})
-}
 export function useUploadAiProfiles() {
   const autoTagUploads = ref(false)
   const aiEnabled = ref(false)
@@ -66,6 +34,7 @@ export function useUploadAiProfiles() {
         api.getAutoTagSettings(),
         api.getAutoTagStatus(),
         api.getAiModelDefaults(),
+        loadAiModelRegistry(),
       ])
       const modelDefaults = normalizeAiModelDefaults(defaultsResult?.modelDefaults)
       savedAutoTagProfileDefaults.value = normalizeAiProfileDefaults(defaultsResult?.modelDefaults?.profileDefaults, modelDefaults)
@@ -135,55 +104,12 @@ export function useUploadAiProfiles() {
 
   function uploadAiProfileSettings(upload, profileId) {
     if (profileId === 'custom') return {}
-    const isVideo = isVideoUpload(upload)
-    const profileDefaults = savedAutoTagProfileDefaults.value?.[profileId] || {}
-    const useSemanticQwen = [
-      profileDefaults.qwenEnabled,
-      autoTagSettings.value.qwenEnabled,
-    ].some(Boolean)
-    if (profileId === 'anime') {
-      return {
-        wdEnabled: profileDefaults.wdEnabled === true,
-        pixaiEnabled: profileDefaults.pixaiEnabled === true,
-        characterModelEnabled: profileDefaults.characterModelEnabled !== false,
-        clEnabled: profileDefaults.clEnabled === true,
-        ocrEnabled: profileDefaults.ocrEnabled !== false,
-        whisperEnabled: isVideo && profileDefaults.whisperEnabled !== false,
-        qwenEnabled: useSemanticQwen,
-        semanticPoliticalEnabled: useSemanticQwen,
-        semanticModelId: savedAutoTagSettings.value.semanticModelId || 'qwen',
-        generalThreshold: 0.35,
-        characterThreshold: 0.45,
-        maxTags: 40,
-        ...(isVideo ? {
-          videoMaxFrames: 4,
-          qwenVideoUseFps: savedAutoTagSettings.value.qwenVideoUseFps === true,
-          qwenVideoMaxFrames: savedAutoTagSettings.value.qwenVideoMaxFrames || 20,
-        } : {}),
-      }
-    }
-    if (profileId === 'realistic') {
-      return {
-        wdEnabled: useSemanticQwen ? false : profileDefaults.wdEnabled !== false,
-        pixaiEnabled: profileDefaults.pixaiEnabled === true,
-        characterModelEnabled: profileDefaults.characterModelEnabled === true,
-        clEnabled: profileDefaults.clEnabled === true,
-        ocrEnabled: profileDefaults.ocrEnabled !== false,
-        whisperEnabled: isVideo && profileDefaults.whisperEnabled !== false,
-        qwenEnabled: useSemanticQwen,
-        semanticPoliticalEnabled: useSemanticQwen,
-        semanticModelId: savedAutoTagSettings.value.semanticModelId || 'qwen',
-        generalThreshold: 0.5,
-        characterThreshold: 0.6,
-        maxTags: isVideo ? 20 : 18,
-        ...(isVideo ? {
-          videoMaxFrames: 4,
-          qwenVideoUseFps: savedAutoTagSettings.value.qwenVideoUseFps === true,
-          qwenVideoMaxFrames: savedAutoTagSettings.value.qwenVideoMaxFrames || 20,
-        } : {}),
-      }
-    }
-    return {}
+    return profileRunSettings(profileId, {
+      isVideo: isVideoUpload(upload),
+      profileStack: savedAutoTagProfileDefaults.value?.[profileId] || {},
+      qwenRequested: autoTagSettings.value.qwenEnabled === true,
+      savedSettings: savedAutoTagSettings.value,
+    }) || {}
   }
 
   function profileLabel(profileId) {

@@ -1,5 +1,12 @@
 import { ref, computed } from 'vue'
 import { api } from '../api/client'
+import {
+  loadAiModelRegistry,
+  modelFlags,
+  normalizeAiModelDefaults,
+  normalizeAiProfileDefaults,
+  profileRunSettings,
+} from './useAiModelRegistry'
 
 // "AI Tag Selected": which model profile/stack to run on the selection and
 // the settings sent with the backend auto-tag job.
@@ -21,18 +28,15 @@ const defaultSemanticPrompt = [
   '- Add semantic/context tags only when supported: political_edit, meme_edit, amv, music_video, captioned, protest, politician, propaganda, music, edit, has_text, text_overlay, has_speech, swastika, sonnenrad, black_sun, national_socialism, hammer_and_sickle, communism.',
 ].join('\n')
 
-// Keep in sync with the other views' model-key lists (see CLAUDE.md).
-const aiModelDefaultKeys = ['wdEnabled', 'pixaiEnabled', 'characterModelEnabled', 'clEnabled', 'qwenEnabled', 'semanticPoliticalEnabled', 'ocrEnabled', 'whisperEnabled']
-
-export const batchModelOptions = [
-  { key: 'wdEnabled', label: 'WD Tagger', help: 'Broad booru/media tags from images and sampled video frames.' },
-  { key: 'pixaiEnabled', label: 'PixAI Tagger v0.9', help: 'Fast PixAI/Danbooru anime and illustration tags.' },
-  { key: 'characterModelEnabled', label: 'Camie Tagger v2', help: 'Anime character, copyright, artist, and rating tags.' },
-  { key: 'clEnabled', label: 'CL Tagger v2', help: 'SigLIP2 Danbooru tagger with a 108k-tag character/copyright/general vocabulary.' },
-  { key: 'ocrEnabled', label: 'TrOCR Printed', help: 'Visible text, captions, subtitle, and meme text extraction.' },
-  { key: 'whisperEnabled', label: 'Whisper Small', help: 'Speech, music, AMV/edit, and audio transcript signals for videos.' },
-  { key: 'qwenEnabled', label: 'Qwen Semantic', help: 'Higher-level scene, political/edit, propaganda, and contextual tags.' },
-]
+// The batch panel's model checkboxes: every registry model flag (booru lookup
+// is a setting, not a model, and stays out).
+function batchModelOptions() {
+  return modelFlags({ models: true }).map((flag) => ({
+    key: flag.key,
+    label: flag.key === 'qwenEnabled' ? 'Qwen Semantic' : flag.name,
+    help: flag.description,
+  }))
+}
 
 function defaultBatchAiSettings() {
   return {
@@ -56,36 +60,6 @@ function defaultBatchAiSettings() {
     semanticPromptEnabled: true,
     semanticSearchEnabled: false,
   }
-}
-
-function normalizeAiModelDefaults(raw = {}) {
-  const defaults = raw && typeof raw === 'object' ? raw : {}
-  const normalized = {}
-  for (const key of aiModelDefaultKeys) {
-    if (Object.prototype.hasOwnProperty.call(defaults, key)) {
-      normalized[key] = defaults[key] === true
-    }
-  }
-  if (Object.prototype.hasOwnProperty.call(normalized, 'qwenEnabled') && !Object.prototype.hasOwnProperty.call(normalized, 'semanticPoliticalEnabled')) {
-    normalized.semanticPoliticalEnabled = normalized.qwenEnabled
-  }
-  return normalized
-}
-
-function normalizeAiProfileDefaults(raw = {}, fallback = {}) {
-  const profiles = raw && typeof raw === 'object' ? raw : {}
-  const defaults = {
-    custom: fallback,
-    anime: { wdEnabled: false, pixaiEnabled: true, characterModelEnabled: true, clEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
-    realistic: { wdEnabled: true, pixaiEnabled: false, characterModelEnabled: false, clEnabled: false, qwenEnabled: false, semanticPoliticalEnabled: false, ocrEnabled: true, whisperEnabled: true },
-  }
-  return ['custom', 'anime', 'realistic'].reduce((memo, profileId) => {
-    memo[profileId] = {
-      ...defaults[profileId],
-      ...normalizeAiModelDefaults(profiles[profileId] || {}),
-    }
-    return memo
-  }, {})
 }
 
 function selectedMediaSummary(posts) {
@@ -140,15 +114,7 @@ export function useBatchAiTagging({ selection, operations }) {
 
   function profileStackSummary(profileId) {
     const stack = profileStack(profileId)
-    const names = [
-      stack.wdEnabled ? 'WD' : '',
-      stack.pixaiEnabled ? 'PixAI' : '',
-      stack.characterModelEnabled ? 'Camie' : '',
-      stack.clEnabled ? 'CL' : '',
-      stack.qwenEnabled ? 'Qwen' : '',
-      stack.ocrEnabled ? 'OCR' : '',
-      stack.whisperEnabled ? 'audio' : '',
-    ].filter(Boolean)
+    const names = modelFlags({ models: true }).filter((flag) => stack[flag.key]).map((flag) => flag.label)
     return names.length ? names.join(' + ') : 'No models enabled'
   }
 
@@ -172,34 +138,12 @@ export function useBatchAiTagging({ selection, operations }) {
       }
     }
 
-    const stack = profileStack(batchAiProfile.value)
-    if (batchAiProfile.value === 'anime') {
-      return {
-        ...base,
-        enabled: true,
-        ...stack,
-        semanticPoliticalEnabled: stack.qwenEnabled === true,
-        whisperEnabled: hasVideo && stack.whisperEnabled === true,
-        generalThreshold: 0.35,
-        characterThreshold: 0.45,
-        maxTags: 40,
-        videoMaxFrames: 4,
-      }
-    }
-    if (batchAiProfile.value === 'realistic') {
-      return {
-        ...base,
-        enabled: true,
-        ...stack,
-        semanticPoliticalEnabled: stack.qwenEnabled === true,
-        whisperEnabled: hasVideo && stack.whisperEnabled === true,
-        generalThreshold: 0.5,
-        characterThreshold: 0.6,
-        maxTags: hasVideo ? 20 : 18,
-        videoMaxFrames: 4,
-      }
-    }
-    return base
+    const profileSettings = profileRunSettings(batchAiProfile.value, {
+      isVideo: hasVideo,
+      profileStack: savedAutoTagProfileDefaults.value?.[batchAiProfile.value] || {},
+      savedSettings: base,
+    })
+    return profileSettings ? { ...base, ...profileSettings, enabled: true } : base
   }
 
   async function loadBatchAiSettings() {
@@ -207,6 +151,7 @@ export function useBatchAiTagging({ selection, operations }) {
       const [settings, defaultsResult] = await Promise.all([
         api.getAutoTagSettings(),
         api.getAiModelDefaults(),
+        loadAiModelRegistry(),
       ])
       const modelDefaults = normalizeAiModelDefaults(defaultsResult?.modelDefaults)
       savedAutoTagProfileDefaults.value = normalizeAiProfileDefaults(defaultsResult?.modelDefaults?.profileDefaults, modelDefaults)
@@ -259,7 +204,7 @@ export function useBatchAiTagging({ selection, operations }) {
     batchAiProfile,
     batchAiProfiles,
     batchAiSettings,
-    batchModelOptions,
+    batchModelOptions: computed(batchModelOptions),
     loadBatchAiSettings,
     runBatchAutoTag,
   }
