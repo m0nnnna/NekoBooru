@@ -37,12 +37,7 @@
     </template>
 
     <template v-else>
-      <Pagination
-        v-if="booru.libraryShown"
-        :model-value="library.page"
-        :pages="library.pages"
-        @update:model-value="$emit('page-change', $event)"
-      />
+      <Pagination v-if="feedPage" v-bind="feedPager" @update:model-value="stepFeed" />
 
       <ul ref="strip" class="source-strip" aria-label="Sources">
         <li v-for="site in booru.order" :key="site" :class="{ failed: booru.sections[site].error }">
@@ -60,7 +55,7 @@
       </ul>
 
       <div class="remote-grid mixed-grid">
-        <template v-if="booru.libraryShown">
+        <template v-if="libraryOnFeedPage">
           <PostCard
             v-for="post in library.posts"
             :key="`library-${post.id}`"
@@ -73,7 +68,7 @@
           />
         </template>
         <RemotePostCard
-          v-for="post in booru.feed"
+          v-for="post in feedPosts"
           :key="post.key"
           :post="post"
           :select-mode="selectMode"
@@ -85,17 +80,12 @@
           @open="booru.openPost"
         />
       </div>
-      <p v-if="!booru.feed.length && !(booru.libraryShown && library.posts.length)" class="feed-empty">
+      <p v-if="!feedPosts.length && !(libraryOnFeedPage && library.posts.length)" class="feed-empty">
         {{ booru.anyLoading ? 'Searching the boorus...' : 'No posts found, nyaa~' }}
       </p>
 
       <footer v-if="feedPage" class="feed-footer">
-        <Pagination
-          :model-value="feedPage"
-          :has-next="feedHasNext"
-          :disabled="booru.anyLoading"
-          @update:model-value="stepFeed"
-        />
+        <Pagination v-bind="feedPager" @update:model-value="stepFeed" />
       </footer>
     </template>
 
@@ -113,10 +103,11 @@ import { countLabel, errorLabel, ignoredLabel, pageLabel, waitingLabel } from '.
 
 // The home grid while booru sources are ticked (section 4.2 of
 // docs/booru-search-plan.md). Grouped: the library block under a
-// "NekoBooru" header, then one RemoteSection per booru. Interleaved: library
-// paging on top, a per-source status strip, one mixed grid (library page
-// first, then the boorus round-robin) and one Prev / Next that steps every
-// source a page at a time (each source's own page shows in the strip).
+// "NekoBooru" header, then one RemoteSection per booru. Interleaved: one
+// pager for the whole feed above and below a per-source status strip and one
+// mixed grid (library page first, then the boorus round-robin). The feed has a
+// single page number; every source, the library included, steps to it, and a
+// source that ran out of pages drops out of the later ones.
 // Library card events stay numeric (library-*); booru card events carry keys.
 const props = defineProps({
   // useHomeBooruSearch()'s reactive return.
@@ -128,7 +119,7 @@ const props = defineProps({
   selectedLibraryIds: { type: Array, default: () => [] },
 })
 
-defineEmits([
+const emit = defineEmits([
   'page-change',
   'toggle',
   'hold-select',
@@ -139,13 +130,52 @@ defineEmits([
 ])
 
 const sectionList = computed(() => props.booru.order.map((site) => props.booru.sections[site]).filter(Boolean))
-// The feed's page: the furthest any source has stepped to.
-const feedPage = computed(() => Math.max(0, ...sectionList.value.map((section) => section.page || 0)))
-const feedHasNext = computed(() => sectionList.value.some((section) => section.hasNext))
+const libraryPages = computed(() => (props.booru.libraryShown ? props.library.pages || 0 : 0))
+
+// The feed's page: the furthest any source has reached. Sources that could
+// not reach it (past their last page) are left out of the grid.
+const feedPage = computed(() => Math.max(
+  0,
+  libraryPages.value ? props.library.page || 0 : 0,
+  ...sectionList.value.map((section) => section.page || 0),
+))
+const libraryOnFeedPage = computed(() => libraryPages.value > 0 && props.library.page === feedPage.value)
+const feedPosts = computed(() => props.booru.feed.filter((post) => props.booru.sections[post.site]?.page === feedPage.value))
+
+// The feed's page count: the most pages any source has, "~" when that count
+// is an estimate, unknown while a source that is still going has no total.
+const feedPages = computed(() => {
+  let pages = libraryPages.value
+  let estimate = false
+  for (const section of sectionList.value) {
+    if (!section.totalPages) {
+      if (section.hasNext) return { pages: null, estimate: false }
+      continue
+    }
+    if (section.totalPages > pages || (section.totalPages === pages && section.totalIsEstimate)) {
+      pages = section.totalPages
+      estimate = Boolean(section.totalIsEstimate)
+    }
+  }
+  return { pages: pages || null, estimate }
+})
+
+// A later page exists when the library has one or a source on the feed's
+// page can step forward.
+const feedHasNext = computed(() => feedPage.value < libraryPages.value
+  || sectionList.value.some((section) => section.page === feedPage.value && section.hasNext))
+
+const feedPager = computed(() => {
+  const common = { modelValue: feedPage.value, disabled: Boolean(props.booru.anyLoading || props.library.loading) }
+  const { pages, estimate } = feedPages.value
+  // A known count lets the pager stay up on "Page 1 of 1" like the library's.
+  return pages ? { ...common, pages, estimate } : { ...common, pages: null, hasNext: feedHasNext.value }
+})
 const strip = ref(null)
 
 async function stepFeed(page) {
-  props.booru.stepAll(page - feedPage.value)
+  for (const section of sectionList.value) props.booru.goToPage(section.site, page)
+  if (page <= libraryPages.value && page !== props.library.page) emit('page-change', page)
   await nextTick()
   strip.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
 }
