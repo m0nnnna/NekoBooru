@@ -49,7 +49,7 @@ def reset_engine_for_tests():
     and they all share one database. Call this right after setting the
     NEKO_* env vars in a test's setUpClass to get a genuinely isolated
     database; dispose the returned/previous engine in tearDownClass the same
-    way tests/test_auto_tags.py already does.
+    way tests/auto_tag_support.py already does.
 
     Uses ``async_session.configure(bind=...)`` rather than replacing the
     ``async_session`` object, so code elsewhere that already did
