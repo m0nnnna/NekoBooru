@@ -1,0 +1,82 @@
+{
+  "about": "Shared rules for the Danbooru tag-category lookup Safebooru imports use. Two copies implement it: browser-extension/danbooru-categories.js and frontend/src/remote/danbooruCategories.js. Both danbooru-categories.fixture.test.js files run these cases, so a change to batching, caching, timeout or category mapping in one copy fails the other's test until both agree.",
+  "batchSize": 80,
+  "ttlMs": 86400000,
+  "timeoutMs": 15000,
+  "categoryNames": [
+    [0, "general"],
+    [1, "artist"],
+    [2, "general"],
+    [3, "copyright"],
+    [4, "character"],
+    [5, "meta"],
+    [9, "general"],
+    ["4", "character"],
+    [null, "general"]
+  ],
+  "url": {
+    "names": ["hatsune_miku", "solo"],
+    "expected": "https://danbooru.donmai.us/tags.json?search%5Bname_comma%5D=hatsune_miku%2Csolo&only=name%2Ccategory&limit=2"
+  },
+  "resolveCases": [
+    {
+      "name": "known tags take Danbooru's category, unknown ones come back general, duplicates are asked once",
+      "known": { "hatsune_miku": 4, "kantoku": 1, "vocaloid": 3, "highres": 5 },
+      "names": ["hatsune_miku", "kantoku", "vocaloid", "highres", "solo", "hatsune_miku"],
+      "statuses": [],
+      "requests": [5],
+      "expected": { "hatsune_miku": "character", "kantoku": "artist", "vocaloid": "copyright", "highres": "meta", "solo": "general" }
+    },
+    {
+      "name": "names a name_comma lookup cannot carry are skipped without a request",
+      "known": {},
+      "names": ["a,b", "two words", "", "   "],
+      "statuses": [],
+      "requests": [],
+      "expected": {}
+    },
+    {
+      "name": "161 names go out as batches of 80, 80 and 1",
+      "known": { "tag_0": 1 },
+      "generate": 161,
+      "statuses": [],
+      "requests": [80, 80, 1],
+      "expectedCount": 161,
+      "expected": { "tag_0": "artist", "tag_160": "general" }
+    },
+    {
+      "name": "a 429 stops the remaining batches and answers nothing",
+      "known": {},
+      "generate": 161,
+      "statuses": [429],
+      "requests": [80],
+      "expectedCount": 0,
+      "expected": {}
+    },
+    {
+      "name": "a 503 stops the remaining batches too",
+      "known": {},
+      "generate": 161,
+      "statuses": [200, 503],
+      "requests": [80, 80],
+      "expectedCount": 80,
+      "expected": { "tag_0": "general" }
+    },
+    {
+      "name": "any other failure leaves only that batch unanswered",
+      "known": {},
+      "generate": 161,
+      "statuses": [500, 200, 200],
+      "requests": [80, 80, 1],
+      "expectedCount": 81,
+      "expected": { "tag_80": "general", "tag_160": "general" }
+    }
+  ],
+  "cacheSteps": [
+    { "name": "first resolve asks Danbooru", "atMs": 0, "requests": 1, "expected": { "hatsune_miku": "character" } },
+    { "name": "inside the day the answer comes from the cache", "atMs": 86399999, "requests": 0, "expected": { "hatsune_miku": "character" } },
+    { "name": "past the day it is asked again", "atMs": 86400001, "requests": 1, "expected": { "hatsune_miku": "character" } }
+  ],
+  "cacheKnown": { "hatsune_miku": 4 },
+  "cacheNames": ["hatsune_miku"]
+}

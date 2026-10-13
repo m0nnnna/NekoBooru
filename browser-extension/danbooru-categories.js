@@ -164,6 +164,7 @@
   const api = {
     DANBOORU_CATEGORY_BATCH: BATCH,
     DANBOORU_CATEGORY_TTL_MS: TTL_MS,
+    DANBOORU_CATEGORY_TIMEOUT_MS: TIMEOUT_MS,
     DANBOORU_CATEGORY_STORAGE_KEY: STORAGE_KEY,
     danbooruCategoryName: categoryName,
     danbooruCategoriesUrl: categoriesUrl,
