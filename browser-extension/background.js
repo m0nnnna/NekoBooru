@@ -648,6 +648,12 @@ function sanitizeSiteImportJob(raw, senderUrl) {
     }
     return globalThis.NekoBooruSiteImport.sanitizeSafebooruImportJob(job, sender.href)
   }
+  if (job.kind === 'danbooru') {
+    if (!globalThis.NekoBooruSiteImport.isDanbooruHost(sender.hostname)) {
+      throw new Error('Danbooru imports can only start from Danbooru.')
+    }
+    return globalThis.NekoBooruSiteImport.sanitizeDanbooruImportJob(job, sender.href)
+  }
   if (job.kind === 'sankaku') {
     if (!globalThis.NekoBooruSiteImport.isSankakuHost(sender.hostname)) {
       throw new Error('Sankaku imports can only start from Sankaku.')

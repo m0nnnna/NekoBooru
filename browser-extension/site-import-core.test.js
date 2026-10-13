@@ -378,3 +378,113 @@ assert.equal(core.selectSankakuFlagControl([sankakuShare, sankakuReact, unlabell
 assert.equal(core.selectSankakuFlagControl([sankakuReact]), null)
 
 console.log('site-import-core tests passed')
+
+// Danbooru: host and post ID parsing.
+assert.equal(core.danbooruPostId('https://danbooru.donmai.us/posts/12367727'), '12367727')
+assert.equal(core.danbooruPostId('https://danbooru.donmai.us/posts/12367727?q=seitokai'), '12367727')
+assert.equal(core.danbooruPostId('https://safebooru.donmai.us/posts/5'), '5')
+assert.equal(core.danbooruPostId('https://danbooru.donmai.us/posts?tags=touhou'), '')
+assert.equal(core.danbooruPostId('https://danbooru.donmai.us.evil.example/posts/5'), '')
+assert.equal(core.isDanbooruHost('donmai.us.evil.example'), false)
+
+// Danbooru: the post JSON becomes an original-file job with real categories.
+const danbooruPost = {
+  id: 12367727,
+  file_ext: 'png',
+  image_width: 2894,
+  image_height: 4093,
+  rating: 'q',
+  file_url: 'https://cdn.donmai.us/original/26/87/26874a9f65cc2288731dfe54850401ac.png',
+  large_file_url: 'https://cdn.donmai.us/sample/26/87/sample-26874a9f65cc2288731dfe54850401ac.jpg',
+  tag_string_artist: 'reim1k',
+  tag_string_copyright: 'seitokai_ni_mo_ana_wa_aru!',
+  tag_string_character: 'michinoku_komaro',
+  tag_string_general: '1girl pink_hair',
+  tag_string_meta: 'highres',
+}
+const danbooruJob = core.danbooruImportJob(danbooruPost, 'https://danbooru.donmai.us/posts/12367727')
+assert.equal(danbooruJob.kind, 'danbooru')
+assert.equal(danbooruJob.groupTag, 'danbooru_12367727')
+assert.equal(danbooruJob.canonicalUrl, 'https://danbooru.donmai.us/posts/12367727')
+assert.equal(danbooruJob.media[0].url, danbooruPost.file_url)
+assert.equal(danbooruJob.media[0].type, 'image')
+assert.equal(danbooruJob.media[0].width, 2894)
+assert.equal(danbooruJob.media[0].safety, 'sketchy')
+assert.equal(danbooruJob.media[0].tagCategories['seitokai_ni_mo_ana_wa_aru!'], 'copyright')
+assert.equal(danbooruJob.media[0].tagCategories.michinoku_komaro, 'character')
+assert.equal(danbooruJob.media[0].tagCategories.reim1k, 'artist')
+assert.equal(danbooruJob.media[0].tagCategories.highres, 'meta')
+assert.equal(danbooruJob.media[0].tagCategories.danbooru_12367727, 'meta')
+assert.deepEqual(danbooruJob.media[0].tagDisplayNames, { 'seitokai_ni_mo_ana_wa_aru!': 'seitokai ni mo ana wa aru!' })
+
+// Videos keep the original; ugoira (a zip of frames) takes Danbooru's webm.
+const videoJob = core.danbooruImportJob({ ...danbooruPost, file_ext: 'mp4', file_url: 'https://cdn.donmai.us/original/26/87/x.mp4' }, 'https://danbooru.donmai.us/posts/12367727')
+assert.equal(videoJob.media[0].type, 'video')
+assert.equal(videoJob.media[0].url, 'https://cdn.donmai.us/original/26/87/x.mp4')
+const danbooruUgoiraJob = core.danbooruImportJob({ ...danbooruPost, file_ext: 'zip', file_url: 'https://cdn.donmai.us/original/75/39/y.zip', large_file_url: 'https://cdn.donmai.us/sample/75/39/sample-y.webm' }, 'https://danbooru.donmai.us/posts/12367727')
+assert.equal(danbooruUgoiraJob.media[0].type, 'video')
+assert.equal(danbooruUgoiraJob.media[0].url, 'https://cdn.donmai.us/sample/75/39/sample-y.webm')
+
+// A Gold-only post seen logged out has no file_url: say how to fix it.
+assert.throws(() => core.danbooruImportJob({ ...danbooruPost, file_url: undefined }, 'https://danbooru.donmai.us/posts/12367727'), /Log in to Danbooru/)
+assert.throws(() => core.danbooruImportJob({ ...danbooruPost, id: 1 }, 'https://danbooru.donmai.us/posts/12367727'), /did not return this post/)
+
+// The background's re-check: same post, trusted CDN, display names rebuilt.
+const sanitizedDanbooru = core.sanitizeDanbooruImportJob(danbooruJob, 'https://danbooru.donmai.us/posts/12367727')
+assert.equal(sanitizedDanbooru.media[0].url, danbooruPost.file_url)
+assert.equal(sanitizedDanbooru.media[0].referer, 'https://danbooru.donmai.us/')
+assert.equal(sanitizedDanbooru.media[0].tagCategories['seitokai_ni_mo_ana_wa_aru!'], 'copyright')
+assert.equal(sanitizedDanbooru.media[0].tagDisplayNames['seitokai_ni_mo_ana_wa_aru!'], 'seitokai ni mo ana wa aru!')
+assert.throws(() => core.sanitizeDanbooruImportJob(danbooruJob, 'https://danbooru.donmai.us/posts/1'), /mismatch/)
+const evilDanbooru = structuredClone(danbooruJob)
+evilDanbooru.media[0].url = 'https://evil.example/original/x.png'
+assert.throws(() => core.sanitizeDanbooruImportJob(evilDanbooru, 'https://danbooru.donmai.us/posts/12367727'), /trusted original/)
+const httpDanbooru = structuredClone(danbooruJob)
+httpDanbooru.media[0].url = 'http://cdn.donmai.us/original/26/87/x.png'
+assert.throws(() => core.sanitizeDanbooruImportJob(httpDanbooru, 'https://danbooru.donmai.us/posts/12367727'), /trusted original/)
+
+// AI stays off for Danbooru imports, as for Gelbooru.
+const danbooruBody = core.siteImportPostBody(sanitizedDanbooru, sanitizedDanbooru.media[0], 'tok')
+assert.equal(danbooruBody.autoTag, false)
+assert.equal(danbooruBody.source, 'https://danbooru.donmai.us/posts/12367727')
+assert.deepEqual(danbooruBody.tagDisplayNames, { 'seitokai_ni_mo_ana_wa_aru!': 'seitokai ni mo ana wa aru!' })
+
+// Placement in the sidebar Options list.
+function fakeDoc(ids) {
+  const list = { id: 'list' }
+  const nodes = Object.fromEntries(ids.map((id) => [id, { id, parentElement: list }]))
+  return {
+    list,
+    querySelector: (selector) => selector === '#post-options ul' ? list : (nodes[selector.slice(1)] || null),
+  }
+}
+const loggedIn = fakeDoc(['post-option-download', 'post-option-add-to-favorites', 'post-option-remove-from-favorites'])
+assert.equal(core.selectDanbooruOptionsAnchor(loggedIn).after.id, 'post-option-remove-from-favorites')
+assert.equal(core.selectDanbooruOptionsAnchor(fakeDoc(['post-option-download'])).after.id, 'post-option-download')
+assert.equal(core.selectDanbooruOptionsAnchor(fakeDoc([])).after, null)
+assert.equal(core.selectDanbooruOptionsAnchor({ querySelector: () => null }), null)
+
+console.log('danbooru site-import tests passed')
+assert.deepEqual(
+  core.danbooruImportJob({ ...danbooruPost, tag_string_general: '? @_@ ^_^ pink_hair' }, 'https://danbooru.donmai.us/posts/12367727').media[0].tagDisplayNames,
+  { 'seitokai_ni_mo_ana_wa_aru!': 'seitokai ni mo ana wa aru!' },
+)
+console.log('danbooru display-name tests passed')
+
+// Placement right of "Recommended" in the tabs under the post.
+function fakeSections(links) {
+  const list = { id: 'post-sections-list' }
+  const anchors = links.map(([href, text]) => {
+    const li = { id: `li-${text}`, parentElement: list }
+    return { getAttribute: () => href, textContent: text, closest: () => li, li }
+  })
+  return { anchors, list, querySelectorAll: (sel) => (sel === '#post-sections a' ? anchors : []) }
+}
+const sectionsDoc = fakeSections([['#comments', 'Comments'], ['#recommended', 'Recommended']])
+const sectionsAnchor = core.selectDanbooruSectionsAnchor(sectionsDoc)
+assert.equal(sectionsAnchor.after, sectionsDoc.anchors[1].li)
+assert.equal(sectionsAnchor.list, sectionsDoc.list)
+assert.equal(core.selectDanbooruSectionsAnchor(fakeSections([['#x', ' Recommended ']])).after.id, 'li- Recommended ')
+assert.equal(core.selectDanbooruSectionsAnchor(fakeSections([['#comments', 'Comments']])), null)
+assert.equal(core.selectDanbooruSectionsAnchor({ querySelectorAll: () => [] }), null)
+console.log('danbooru sections placement tests passed')

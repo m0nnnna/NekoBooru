@@ -5,8 +5,9 @@
   const PIXIV_HOST = location.hostname === 'pixiv.net' || location.hostname.endsWith('.pixiv.net')
   const GELBOORU_HOST = core.isGelbooruHost(location.hostname)
   const SAFEBOORU_HOST = location.hostname.replace(/^www\./, '') === 'safebooru.org'
-  const BOORU_KIND = GELBOORU_HOST ? 'gelbooru' : (SAFEBOORU_HOST ? 'safebooru' : '')
-  const BOORU_LABEL = GELBOORU_HOST ? 'Gelbooru' : 'Safebooru'
+  const DANBOORU_HOST = core.isDanbooruHost(location.hostname)
+  const BOORU_KIND = GELBOORU_HOST ? 'gelbooru' : (SAFEBOORU_HOST ? 'safebooru' : (DANBOORU_HOST ? 'danbooru' : ''))
+  const BOORU_LABEL = { gelbooru: 'Gelbooru', safebooru: 'Safebooru', danbooru: 'Danbooru' }[BOORU_KIND] || ''
   const SANKAKU_HOST = core.isSankakuHost(location.hostname)
   if (!PIXIV_HOST && !BOORU_KIND && !SANKAKU_HOST) return
 
@@ -132,7 +133,21 @@
     return core.safebooruImportJob(payload, scraped, location.href, booruOriginalFallback())
   }
 
+  // Danbooru's JSON API needs no key; fetched same-origin it carries the
+  // reader's login, so Gold-only originals come through for those who have it.
+  async function danbooruJob() {
+    const postId = core.danbooruPostId(location.href)
+    if (!postId) throw new Error('Open a Danbooru post first.')
+    const response = await fetch(`/posts/${encodeURIComponent(postId)}.json`, {
+      credentials: 'include',
+      cache: 'no-store',
+    })
+    if (!response.ok) throw new Error(`Danbooru post lookup failed (HTTP ${response.status}).`)
+    return core.danbooruImportJob(await response.json(), location.href)
+  }
+
   function booruJob() {
+    if (DANBOORU_HOST) return danbooruJob()
     return GELBOORU_HOST ? gelbooruJob() : safebooruJob()
   }
 
@@ -319,7 +334,24 @@
     share.insertAdjacentElement('afterend', createPixivIconButton(share))
   }
 
+  // Danbooru: a "NekoBooru" tab right of Comments | Recommended under the post,
+  // styled like its neighbours. Pages without that menu get an entry in the
+  // sidebar's Options list instead.
+  function injectDanbooruButton() {
+    if (!core.danbooruPostId(location.href)) return
+    if (document.querySelector('[data-nekobooru-site-import="danbooru"]')) return
+    const sections = core.selectDanbooruSectionsAnchor(document)
+    const anchor = sections || core.selectDanbooruOptionsAnchor(document)
+    if (!anchor) return
+    const item = document.createElement('li')
+    item.id = sections ? 'post-section-nekobooru' : 'post-option-nekobooru'
+    item.appendChild(createInlineLink(sections ? 'NekoBooru' : 'Import to NekoBooru', 'danbooru'))
+    if (anchor.after) anchor.after.insertAdjacentElement('afterend', item)
+    else anchor.list.appendChild(item)
+  }
+
   function injectBooruButton() {
+    if (DANBOORU_HOST) return injectDanbooruButton()
     const postId = GELBOORU_HOST ? core.gelbooruPostId(location.href) : core.safebooruPostId(location.href)
     if (!postId) return
     if (document.querySelector(`[data-nekobooru-site-import="${BOORU_KIND}"]`)) return

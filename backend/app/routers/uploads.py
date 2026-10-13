@@ -416,7 +416,7 @@ async def upload_from_url(request: UrlFetchRequest, current_user: User = Depends
                     pass
             referer = _media_referer(parsed.hostname, referer)
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': _media_user_agent(parsed.hostname),
                 'Accept': 'image/*,video/*,*/*',
                 'Referer': referer,
             }
@@ -514,6 +514,27 @@ def _is_sankaku_media_host(host: str | None) -> bool:
     if not host.endswith(".sankakucomplex.com"):
         return False
     return host.removesuffix(".sankakucomplex.com") not in _SANKAKU_FRONTEND_HOSTS
+
+
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+DANBOORU_MEDIA_USER_AGENT = "NekoBooru/1.0 (original importer)"
+
+
+def _is_danbooru_host(host: str | None) -> bool:
+    host = (host or "").lower()
+    return host == "donmai.us" or host.endswith(".donmai.us")
+
+
+def _media_user_agent(host: str | None) -> str:
+    # Danbooru's Cloudflare turns away a browser User-Agent that arrives
+    # without a browser's TLS fingerprint (403 challenge page), but serves an
+    # honest client name - the one every other Danbooru call here sends too.
+    if _is_danbooru_host(host):
+        return DANBOORU_MEDIA_USER_AGENT
+    return BROWSER_USER_AGENT
 
 
 def _media_referer(host: str | None, referer: str) -> str:

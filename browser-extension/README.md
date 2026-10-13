@@ -92,7 +92,17 @@ post pages, **NekoBooru** appears as a native-style text link directly to the
 right of the Favorite/Unfavorite action. On Safebooru it appears on the right
 side of the post action row, after **Edit | Respond**. It imports
 the site's original `file_url` plus its tag categories, with AI tagging
-disabled. On classic Sankaku Channel post pages, a cat icon in the
+disabled. On Danbooru post pages, **NekoBooru** sits right of **Comments |
+Recommended** under the post, as one more item of that menu (pages without it
+get **Import to NekoBooru** in the sidebar's **Options** list). It reads the
+post's own `/posts/<id>.json` from the page, so no API key is needed and your
+Danbooru login comes along, which means Gold-only originals work
+if your account has them. It imports the full-resolution `file_url` (videos
+included; ugoira, which Danbooru stores as a zip of frames, comes as Danbooru's
+webm) with Danbooru's artist / copyright / character / general / meta
+categories, its rating, and a `danbooru_<id>` tag. Tags with punctuation that
+NekoBooru flattens (`seitokai_ni_mo_ana_wa_aru!`) keep their spelling as the
+display name. On classic Sankaku Channel post pages, a cat icon in the
 neighbouring icons' colour sits right of the flag under the post, and
 **Import to NekoBooru** appears in the sidebar's Actions list, right under
 **Find similar**. On `sankaku.app` the cat sits immediately left of the heart
@@ -112,7 +122,7 @@ on Danbooru, take its spelling, and keep the Sankaku one as a NekoBooru tag
 alias (which also merges a tag already imported under it). If Danbooru cannot be
 reached, the Sankaku names are kept. Logged out, Sankaku withholds those
 originals and the button says so. Pixiv imports explicitly run and save AI tags, including when
-an original already exists; Gelbooru, Safebooru, and Sankaku imports never invoke AI.
+an original already exists; Gelbooru, Safebooru, Danbooru, and Sankaku imports never invoke AI.
 Most services use temporary extension helper pages that submit the image/frame
 bytes directly instead of relying on a public image URL. TinEye and trace.moe
 open their official UIs and inject the captured image into their upload controls. The menu also includes

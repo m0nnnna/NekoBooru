@@ -47,6 +47,22 @@
     }
   }
 
+  // danbooru.donmai.us and its mirrors (safebooru.donmai.us, ...) share post IDs.
+  function isDanbooruHost(hostname) {
+    const host = String(hostname || '').toLowerCase()
+    return host === 'donmai.us' || host.endsWith('.donmai.us')
+  }
+
+  function danbooruPostId(raw) {
+    try {
+      const url = new URL(raw)
+      if (!isDanbooruHost(url.hostname)) return ''
+      return url.pathname.match(/^\/posts\/(\d+)(?:[/.]|$)/)?.[1] || ''
+    } catch {
+      return ''
+    }
+  }
+
   // Classic Sankaku Channel and the newer sankaku.app are two front-ends over
   // one API and one set of post IDs. Idol is a separate board and is excluded.
   function isSankakuHost(hostname) {
@@ -533,6 +549,140 @@
     }
   }
 
+  const DANBOORU_TAG_FIELDS = [
+    ['tag_string_artist', 'artist'],
+    ['tag_string_copyright', 'copyright'],
+    ['tag_string_character', 'character'],
+    ['tag_string_general', 'general'],
+    ['tag_string_meta', 'meta'],
+  ]
+  const DANBOORU_VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'zip'])
+
+  // NekoBooru flattens tag names to letters, digits and _ : . - only, so a
+  // Danbooru tag like "seitokai_ni_mo_ana_wa_aru!" keeps its spelling only as
+  // the display name - which is also what the tag menu's booru searches use.
+  function booruDisplayNames(tags) {
+    const names = {}
+    for (const tag of tags) {
+      // All-symbol tags ("?", "@_@") flatten to nothing and are dropped anyway.
+      if (/[^\p{L}\p{N}_:.-]/u.test(tag) && /[\p{L}\p{N}]/u.test(tag)) names[tag] = tag.replace(/_/g, ' ')
+    }
+    return names
+  }
+
+  // A Danbooru post's /posts/<id>.json -> an import job for its original file.
+  // Ugoira originals are zips of frames, so those take Danbooru's own webm.
+  function danbooruImportJob(payload, pageUrl) {
+    const postId = danbooruPostId(pageUrl)
+    if (!postId) throw new Error('Open a Danbooru post first.')
+    const post = payload && typeof payload === 'object' ? payload : {}
+    if (String(post.id || '') !== postId) throw new Error('Danbooru did not return this post.')
+    const ext = String(post.file_ext || '').toLowerCase()
+    const fileUrl = String((ext === 'zip' ? post.large_file_url : post.file_url) || '').trim()
+    if (!/^https:\/\//i.test(fileUrl)) {
+      throw new Error('Danbooru hid the original file. Log in to Danbooru (some posts need a Gold account) and try again.')
+    }
+
+    const tags = []
+    const tagCategories = {}
+    for (const [field, category] of DANBOORU_TAG_FIELDS) {
+      for (const raw of String(post[field] || '').split(/\s+/)) {
+        const tag = normalizeTag(raw)
+        if (!tag || tags.includes(tag)) continue
+        tags.push(tag)
+        tagCategories[tag] = category
+      }
+    }
+    const idTag = `danbooru_${postId}`
+    if (!tags.includes(idTag)) tags.push(idTag)
+    tagCategories[idTag] = 'meta'
+
+    const canonicalUrl = `https://danbooru.donmai.us/posts/${postId}`
+    return {
+      kind: 'danbooru',
+      postId,
+      title: `Danbooru #${postId}`,
+      canonicalUrl,
+      groupTag: idTag,
+      media: [{
+        type: DANBOORU_VIDEO_EXTENSIONS.has(ext) ? 'video' : 'image',
+        url: fileUrl,
+        referer: 'https://danbooru.donmai.us/',
+        index: 0,
+        width: importDimension(post.image_width),
+        height: importDimension(post.image_height),
+        source: canonicalUrl,
+        tags,
+        tagCategories,
+        tagDisplayNames: booruDisplayNames(tags),
+        safety: booruImportSafety(post.rating),
+      }],
+    }
+  }
+
+  function sanitizeDanbooruImportJob(raw, senderUrl) {
+    const senderId = danbooruPostId(senderUrl)
+    const job = raw && typeof raw === 'object' ? raw : {}
+    if (!senderId || String(job.postId) !== senderId) throw new Error('Danbooru post ID mismatch.')
+    const item = Array.isArray(job.media) ? job.media[0] : null
+    const mediaUrl = new URL(item?.url || '')
+    if (
+      mediaUrl.protocol !== 'https:' ||
+      !isDanbooruHost(mediaUrl.hostname) ||
+      !/^\/+(original|sample)\//i.test(mediaUrl.pathname)
+    ) {
+      throw new Error('Danbooru did not provide a trusted original URL.')
+    }
+
+    const idTag = `danbooru_${senderId}`
+    const { tags, tagCategories } = sanitizedImportTags(item, idTag)
+    const displayNames = booruDisplayNames(tags)
+    const canonicalUrl = `https://danbooru.donmai.us/posts/${senderId}`
+    return {
+      kind: 'danbooru',
+      postId: senderId,
+      title: `Danbooru #${senderId}`,
+      canonicalUrl,
+      groupTag: idTag,
+      media: [{
+        type: item?.type === 'video' ? 'video' : 'image',
+        url: mediaUrl.href,
+        referer: 'https://danbooru.donmai.us/',
+        index: 0,
+        width: importDimension(item?.width),
+        height: importDimension(item?.height),
+        source: canonicalUrl,
+        tags,
+        tagCategories,
+        tagDisplayNames: displayNames,
+        safety: ['safe', 'sketchy', 'unsafe'].includes(item?.safety) ? item.safety : 'safe',
+      }],
+    }
+  }
+
+  // The "Comments | Recommended" tabs under a Danbooru post (#post-sections):
+  // the import sits right of Recommended, as another item of that menu.
+  function selectDanbooruSectionsAnchor(doc) {
+    const links = Array.from(doc?.querySelectorAll?.('#post-sections a') || [])
+    const recommended = links.find((link) => (
+      /#recommended$/i.test(link.getAttribute?.('href') || '') ||
+      String(link.textContent || '').trim().toLowerCase() === 'recommended'
+    ))
+    const item = recommended?.closest?.('li')
+    return item?.parentElement ? { list: item.parentElement, after: item } : null
+  }
+
+  // Danbooru's sidebar "Options" list: the import goes after Favorite /
+  // Unfavorite (only shown when logged in), else after Download, else last.
+  function selectDanbooruOptionsAnchor(doc) {
+    const list = doc?.querySelector?.('#post-options ul')
+    if (!list) return null
+    const after = doc.querySelector('#post-option-remove-from-favorites')
+      || doc.querySelector('#post-option-add-to-favorites')
+      || doc.querySelector('#post-option-download')
+    return { list, after: after && after.parentElement === list ? after : null }
+  }
+
   function siteImportPostBody(job, item, contentToken) {
     const pixiv = job?.kind === 'pixiv'
     return {
@@ -710,6 +860,12 @@
     pixivArtworkId,
     isGelbooruHost,
     gelbooruPostId,
+    isDanbooruHost,
+    danbooruPostId,
+    danbooruImportJob,
+    sanitizeDanbooruImportJob,
+    selectDanbooruOptionsAnchor,
+    selectDanbooruSectionsAnchor,
     safebooruPostId,
     safebooruImportJob,
     sanitizeSafebooruImportJob,

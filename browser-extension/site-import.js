@@ -12,7 +12,7 @@ const els = {
 }
 let instanceUrl = ''
 const siteImportCore = globalThis.NekoBooruSiteImport
-const SITE_LABELS = { gelbooru: 'Gelbooru', safebooru: 'Safebooru', sankaku: 'Sankaku' }
+const SITE_LABELS = { gelbooru: 'Gelbooru', safebooru: 'Safebooru', danbooru: 'Danbooru', sankaku: 'Sankaku' }
 
 init()
 

@@ -1375,6 +1375,14 @@ class AutoTagUnitTests(unittest.TestCase):
         self.assertTrue(_is_sankaku_hotlink_placeholder("https://chan.sankakucomplex.com/redirect.png?e=1&m=x"))
         self.assertFalse(_is_sankaku_hotlink_placeholder("https://s.sankakucomplex.com/o/62/4e/abc.jpg?e=1&m=x"))
 
+    def test_danbooru_media_is_fetched_with_an_honest_user_agent(self):
+        from app.routers.uploads import BROWSER_USER_AGENT, _media_user_agent
+
+        self.assertTrue(_media_user_agent("cdn.donmai.us").startswith("NekoBooru/"))
+        self.assertTrue(_media_user_agent("danbooru.donmai.us").startswith("NekoBooru/"))
+        self.assertEqual(_media_user_agent("donmai.us.evil.example"), BROWSER_USER_AGENT)
+        self.assertEqual(_media_user_agent("img.example"), BROWSER_USER_AGENT)
+
     def test_post_process_filters_default_noisy_tags(self):
         from app.services.auto_tagger import AutoTagOptions, AutoTagResult, _post_process
 
