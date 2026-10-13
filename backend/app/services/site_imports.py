@@ -97,14 +97,35 @@ async def gelbooru_post_for_import(post_id: int, *, timeout: float = DEFAULT_TIM
     if not file_url.startswith(("http://", "https://")):
         raise LookupError("Gelbooru did not return an original file URL")
 
-    tags = list(dict.fromkeys(str(post.get("tags") or "").split()))
+    tags = _post_tags(post)
+    categories = await _tag_categories(tags, auth, timeout)
+    return _import_payload(post, post_id, file_url, tags, categories)
+
+
+def _post_tags(post: dict) -> list[str]:
+    return list(dict.fromkeys(str(post.get("tags") or "").split()))
+
+
+# Tag types change rarely, and a search page repeats most of its tags from
+# post to post and page to page, so they are remembered for a day.
+_TAG_CATEGORY_TTL = 24 * 60 * 60
+_tag_category_cache: dict[str, tuple[float, str]] = {}
+
+
+async def _tag_categories(tags: list[str], auth: dict[str, str], timeout: float) -> dict[str, str]:
+    now = time.monotonic()
     categories = {tag: "general" for tag in tags}
+    unknown = []
+    for tag in categories:
+        cached = _tag_category_cache.get(tag)
+        if cached and now - cached[0] < _TAG_CATEGORY_TTL:
+            categories[tag] = cached[1]
+        else:
+            unknown.append(tag)
     # Keep each request URL bounded; posts with hundreds of tags still receive
     # every tag even if category enrichment for a later chunk fails.
-    for offset in range(0, len(tags), 80):
-        chunk = tags[offset:offset + 80]
-        if not chunk:
-            continue
+    for offset in range(0, len(unknown), 80):
+        chunk = unknown[offset:offset + 80]
         try:
             tag_payload = await _fetch_json(
                 {
@@ -125,7 +146,13 @@ async def gelbooru_post_for_import(post_id: int, *, timeout: float = DEFAULT_TIM
             category = TAG_TYPE_TO_CATEGORY.get(int(row.get("type") or 0))
             if name in categories and category:
                 categories[name] = category
+                _tag_category_cache[name] = (now, category)
+    return categories
 
+
+def _import_payload(post: dict, post_id: int, file_url: str, tags: list[str], categories: dict[str, str]) -> dict:
+    tags = list(tags)
+    categories = {tag: categories.get(tag, "general") for tag in tags}
     id_tag = f"gelbooru_{post_id}"
     if id_tag not in tags:
         tags.append(id_tag)
@@ -144,6 +171,89 @@ async def gelbooru_post_for_import(post_id: int, *, timeout: float = DEFAULT_TIM
         "remoteSource": str(post.get("source") or "").strip() or None,
         "width": post.get("width"),
         "height": post.get("height"),
+    }
+
+
+GELBOORU_SEARCH_PAGE_SIZE = 42
+GELBOORU_SEARCH_MAX_POSTS = 100
+
+
+async def gelbooru_search_for_import(
+    tags: str,
+    offset: int,
+    ids: list[int],
+    *,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> dict:
+    """Original files and tags for the posts one Gelbooru search page shows.
+
+    The page's own query is replayed in one API call - the site's pid is a
+    post offset, the API's a page number, at the site's 42 per page - and only
+    the posts the reader saw (``ids``, in page order) are returned. One that
+    call misses (the page shifted since it loaded) gets a lookup of its own.
+    Tag types are fetched once for the whole page.
+    """
+    wanted = [post_id for post_id in dict.fromkeys(ids) if post_id > 0][:GELBOORU_SEARCH_MAX_POSTS]
+    if not wanted:
+        raise ValueError("No Gelbooru posts to import")
+    auth = _auth_params()
+    query = " ".join(str(tags or "").split())[:500]
+    payload = await _fetch_json(
+        {
+            "page": "dapi",
+            "s": "post",
+            "q": "index",
+            "json": 1,
+            "tags": query,
+            "limit": GELBOORU_SEARCH_PAGE_SIZE,
+            "pid": max(0, offset) // GELBOORU_SEARCH_PAGE_SIZE,
+            **auth,
+        },
+        timeout,
+    )
+    by_id: dict[int, dict] = {}
+    for row in _rows(payload, "post"):
+        try:
+            by_id[int(row.get("id"))] = row
+        except (TypeError, ValueError):
+            continue
+    for post_id in wanted:
+        if post_id in by_id:
+            continue
+        try:
+            rows = _rows(
+                await _fetch_json(
+                    {"page": "dapi", "s": "post", "q": "index", "json": 1, "id": post_id, **auth},
+                    timeout,
+                ),
+                "post",
+            )
+        except RuntimeError:
+            continue
+        if rows:
+            by_id[post_id] = rows[0]
+
+    found: list[tuple[int, dict, str]] = []
+    missing: list[dict] = []
+    for post_id in wanted:
+        post = by_id.get(post_id)
+        file_url = str((post or {}).get("file_url") or "").strip()
+        if not post:
+            missing.append({"postId": post_id, "reason": "Gelbooru did not return this post"})
+        elif not file_url.startswith(("http://", "https://")):
+            missing.append({"postId": post_id, "reason": "Gelbooru did not return an original file URL"})
+        else:
+            found.append((post_id, post, file_url))
+
+    all_tags = list(dict.fromkeys(tag for _, post, _ in found for tag in _post_tags(post)))
+    categories = await _tag_categories(all_tags, auth, timeout)
+    return {
+        "tags": query,
+        "posts": [
+            _import_payload(post, post_id, file_url, _post_tags(post), categories)
+            for post_id, post, file_url in found
+        ],
+        "missing": missing,
     }
 
 

@@ -108,7 +108,12 @@ excepted) the same way. One `/posts.json?tags=id:…` request fetches the whole
 page, files download one at a time with a pause between them, a 429/503 backs
 off and retries, and posts an earlier import already brought in (found by
 their `danbooru_<id>` tag) are not downloaded again - their tags are merged
-instead. On classic Sankaku Channel post pages, a cat icon in the
+instead. Gelbooru search pages get the same: a **NekoBooru** bar right above
+the thumbnails imports every post shown. Gelbooru's API needs the key saved in
+NekoBooru Settings, so the backend resolves the page - one API call replaying
+the page's search, plus tag-type lookups shared by the whole page and cached
+for a day - and the downloads are paced, retried and de-duplicated (by
+`gelbooru_<id>`) the same way. On classic Sankaku Channel post pages, a cat icon in the
 neighbouring icons' colour sits right of the flag under the post, and
 **Import to NekoBooru** appears in the sidebar's Actions list, right under
 **Find similar**. On `sankaku.app` the cat sits immediately left of the heart

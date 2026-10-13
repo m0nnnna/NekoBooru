@@ -529,3 +529,38 @@ assert.equal(core.selectDanbooruSearchAnchor({ querySelector: (s) => (s.endsWith
 assert.equal(core.selectDanbooruSearchAnchor({ querySelector: (s) => (s.endsWith('#show-posts-link') ? postsLink : null) }).after, postsLink)
 assert.equal(core.selectDanbooruSearchAnchor({ querySelector: () => null }), null)
 console.log('danbooru search-page tests passed')
+
+// Gelbooru search pages: the site's pid is a post offset.
+assert.deepEqual(core.gelbooruSearchPage('https://gelbooru.com/index.php?page=post&s=list&tags=templus&pid=84'), { tags: 'templus', offset: 84 })
+assert.deepEqual(core.gelbooruSearchPage('https://gelbooru.com/index.php?page=post&s=list&tags=all'), { tags: '', offset: 0 })
+assert.equal(core.gelbooruSearchPage('https://gelbooru.com/index.php?page=post&s=view&id=1'), null)
+assert.equal(core.gelbooruSearchPage('https://gelbooru.com.evil.example/index.php?page=post&s=list&tags=x'), null)
+
+const gelSearchJob = core.gelbooruSearchImportJob(['5', '3', 'x', '5'], 'https://gelbooru.com/index.php?page=post&s=list&tags=templus+rating:general&pid=84')
+assert.equal(gelSearchJob.kind, 'gelbooru_search')
+assert.equal(gelSearchJob.postId, 'templus rating:general|84')
+assert.deepEqual(gelSearchJob.ids, ['5', '3'])
+assert.equal(gelSearchJob.offset, 84)
+assert.equal(gelSearchJob.groupTag, 'templus')
+assert.match(gelSearchJob.title, /page 3/)
+assert.throws(() => core.gelbooruSearchImportJob([], 'https://gelbooru.com/index.php?page=post&s=list&tags=x'), /No posts/)
+
+assert.deepEqual(
+  core.sanitizeGelbooruSearchImportJob({ ...gelSearchJob, ids: [...gelSearchJob.ids, '../evil'] }, 'https://gelbooru.com/index.php?page=post&s=list&tags=templus+rating:general&pid=84').ids,
+  ['5', '3'],
+)
+assert.throws(() => core.sanitizeGelbooruSearchImportJob(gelSearchJob, 'https://gelbooru.com/index.php?page=post&s=list&tags=templus'), /mismatch/)
+
+const gelMedia = core.gelbooruSearchMedia({ posts: [
+  { postId: 5, fileUrl: 'https://img4.gelbooru.com/images/aa/bb/5.png', postUrl: 'https://gelbooru.com/index.php?page=post&s=view&id=5', tags: ['templus', 'k-on!', 'gelbooru_5'], tagCategories: { templus: 'artist' }, safety: 'sketchy', width: 10, height: 20 },
+  { postId: 3, fileUrl: 'https://video-cdn3.gelbooru.com/images/aa/bb/3.mp4', postUrl: 'u', tags: [], safety: 'bogus' },
+] })
+assert.equal(gelMedia[0].idTag, 'gelbooru_5')
+assert.equal(gelMedia[0].label, 'Gelbooru #5')
+assert.equal(gelMedia[0].type, 'image')
+assert.equal(gelMedia[0].safety, 'sketchy')
+assert.deepEqual(gelMedia[0].tagDisplayNames, { 'k-on!': 'k-on!' })
+assert.equal(gelMedia[1].type, 'video')
+assert.equal(gelMedia[1].safety, 'safe')
+assert.deepEqual(gelMedia.map((item) => item.index), [0, 1])
+console.log('gelbooru search-page tests passed')

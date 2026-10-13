@@ -12,6 +12,78 @@ class SiteImportTests(unittest.TestCase):
         if backend_path not in sys.path:
             sys.path.insert(0, backend_path)
 
+    def setUp(self):
+        from app.services import site_imports
+
+        site_imports._tag_category_cache.clear()
+
+    def test_gelbooru_search_replays_the_page_and_keeps_its_order(self):
+        from app.services import site_imports
+
+        def post(post_id, tags, file_url=True):
+            return {
+                "id": post_id,
+                "file_url": f"https://img.example/{post_id}.png" if file_url else "",
+                "tags": tags,
+                "rating": "general",
+                "width": 100,
+                "height": 200,
+            }
+
+        fetch = AsyncMock(side_effect=[
+            {"post": [post(3, "templus solo"), post(1, "templus azur_lane"), post(2, "templus", file_url=False)]},
+            {"post": [post(7, "templus azur_lane")]},
+            {"tag": [
+                {"name": "templus", "type": 1},
+                {"name": "azur_lane", "type": 3},
+                {"name": "solo", "type": 0},
+            ]},
+        ])
+        with patch.object(site_imports, "gelbooru_credentials", return_value=("10", "secret")), patch.object(
+            site_imports, "_fetch_json", fetch
+        ):
+            result = asyncio.run(site_imports.gelbooru_search_for_import("templus  rating:general", 84, [1, 7, 3, 2, 1]))
+
+        page_call = fetch.await_args_list[0].args[0]
+        self.assertEqual(page_call["tags"], "templus rating:general")
+        self.assertEqual(page_call["pid"], 2)
+        self.assertEqual(page_call["limit"], 42)
+        self.assertEqual(page_call["api_key"], "secret")
+        self.assertEqual(fetch.await_args_list[1].args[0]["id"], 7)
+        self.assertEqual(len(fetch.await_args_list), 3)
+        self.assertEqual([item["postId"] for item in result["posts"]], [1, 7, 3])
+        self.assertEqual(result["posts"][0]["fileUrl"], "https://img.example/1.png")
+        self.assertEqual(result["posts"][0]["tagCategories"]["templus"], "artist")
+        self.assertEqual(result["posts"][0]["tagCategories"]["azur_lane"], "copyright")
+        self.assertIn("gelbooru_7", result["posts"][1]["tags"])
+        self.assertEqual([item["postId"] for item in result["missing"]], [2])
+
+    def test_gelbooru_tag_types_are_cached_between_pages(self):
+        from app.services import site_imports
+
+        fetch = AsyncMock(side_effect=[
+            {"post": [{"id": 1, "file_url": "https://img.example/1.png", "tags": "templus"}]},
+            {"tag": [{"name": "templus", "type": 1}]},
+            {"post": [{"id": 2, "file_url": "https://img.example/2.png", "tags": "templus"}]},
+        ])
+        with patch.object(site_imports, "gelbooru_credentials", return_value=("10", "secret")), patch.object(
+            site_imports, "_fetch_json", fetch
+        ):
+            asyncio.run(site_imports.gelbooru_search_for_import("templus", 0, [1]))
+            second = asyncio.run(site_imports.gelbooru_search_for_import("templus", 42, [2]))
+
+        self.assertEqual(len(fetch.await_args_list), 3)
+        self.assertEqual(second["posts"][0]["tagCategories"]["templus"], "artist")
+
+    def test_gelbooru_search_needs_posts_and_credentials(self):
+        from app.services import site_imports
+
+        with self.assertRaises(ValueError):
+            asyncio.run(site_imports.gelbooru_search_for_import("x", 0, []))
+        with patch.object(site_imports, "gelbooru_credentials", return_value=None):
+            with self.assertRaises(PermissionError):
+                asyncio.run(site_imports.gelbooru_search_for_import("x", 0, [1]))
+
     def test_gelbooru_import_uses_original_file_and_categories(self):
         from app.services import site_imports
 

@@ -3,9 +3,15 @@ from pydantic import BaseModel
 
 from ..dependencies import get_current_user
 from ..models import User
-from ..services.site_imports import danbooru_names, gelbooru_post_for_import
+from ..services.site_imports import danbooru_names, gelbooru_post_for_import, gelbooru_search_for_import
 
 router = APIRouter(prefix="/api/site-imports", tags=["site-imports"])
+
+
+class GelbooruSearchRequest(BaseModel):
+    tags: str = ""
+    offset: int = 0
+    ids: list[int] = []
 
 
 class DanbooruNamesRequest(BaseModel):
@@ -24,6 +30,19 @@ async def get_gelbooru_import(post_id: int, current_user: User = Depends(get_cur
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/gelbooru-search")
+async def get_gelbooru_search_import(request: GelbooruSearchRequest, current_user: User = Depends(get_current_user)):
+    """Resolve the posts on one Gelbooru search page to their originals and tags."""
+    try:
+        return await gelbooru_search_for_import(request.tags, request.offset, request.ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

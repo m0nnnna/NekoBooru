@@ -170,6 +170,30 @@
     return core.danbooruSearchImportJob(await response.json(), ids, location.href)
   }
 
+  // The posts a Gelbooru search page shows, in order. Thumbnails the reader's
+  // blacklist hides are not rendered, so anything without a layout box is
+  // left out.
+  function gelbooruSearchPostIds() {
+    const ids = []
+    for (const link of document.querySelectorAll('.thumbnail-container a[href*="s=view"], article.thumbnail-preview a[href]')) {
+      const preview = link.closest('article, .thumbnail-preview') || link
+      if (!preview.getClientRects().length) continue
+      let id = ''
+      try {
+        id = new URL(link.href, location.href).searchParams.get('id') || ''
+      } catch {
+        id = ''
+      }
+      if (!id) id = String(link.id || '').replace(/^p/, '')
+      if (/^\d+$/.test(id) && !ids.includes(id)) ids.push(id)
+    }
+    return ids
+  }
+
+  function gelbooruSearchJob() {
+    return core.gelbooruSearchImportJob(gelbooruSearchPostIds(), location.href)
+  }
+
   function booruJob() {
     if (DANBOORU_HOST) return danbooruJob()
     return GELBOORU_HOST ? gelbooruJob() : safebooruJob()
@@ -294,7 +318,11 @@
       const kind = button.dataset.nekobooruSiteImport
       const job = kind === 'pixiv'
         ? await pixivJob()
-        : (kind === 'sankaku' ? await sankakuJob() : (kind === 'danbooru_search' ? await danbooruSearchJob() : await booruJob()))
+        : kind === 'sankaku'
+          ? await sankakuJob()
+          : kind === 'danbooru_search'
+            ? await danbooruSearchJob()
+            : kind === 'gelbooru_search' ? gelbooruSearchJob() : await booruJob()
       const response = await chrome.runtime.sendMessage({ type: 'nekobooru-open-site-import', job })
       if (!response?.ok) throw new Error(response?.error || 'The NekoBooru import window could not be opened.')
       if (label) label.textContent = response.alreadyOpen ? 'Already importing' : 'Import opened'
@@ -389,7 +417,26 @@
     anchor.after.insertAdjacentElement('afterend', link)
   }
 
+  // Gelbooru search pages: a "NekoBooru" bar right above the thumbnails,
+  // importing every post on the page.
+  function injectGelbooruSearchButton() {
+    if (!core.gelbooruSearchPage(location.href)) return
+    if (document.querySelector('[data-nekobooru-site-import="gelbooru_search"]')) return
+    const grid = document.querySelector('.thumbnail-container')
+      || document.querySelector('article.thumbnail-preview')?.parentElement
+    if (!grid?.parentElement) return
+    const bar = document.createElement('div')
+    bar.dataset.nekobooruSiteImport = 'wrapper'
+    bar.style.margin = '0 0 8px'
+    const link = createInlineLink('NekoBooru', 'gelbooru_search')
+    link.title = 'Import the original file of every post on this page to NekoBooru'
+    link.setAttribute('aria-label', link.title)
+    bar.append(link, document.createTextNode(' · import every post on this page'))
+    grid.insertAdjacentElement('beforebegin', bar)
+  }
+
   function injectBooruButton() {
+    if (GELBOORU_HOST && core.gelbooruSearchPage(location.href)) return injectGelbooruSearchButton()
     if (DANBOORU_HOST) {
       injectDanbooruSearchButton()
       return injectDanbooruButton()

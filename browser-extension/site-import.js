@@ -12,10 +12,18 @@ const els = {
 }
 let instanceUrl = ''
 const siteImportCore = globalThis.NekoBooruSiteImport
-const SITE_LABELS = { gelbooru: 'Gelbooru', safebooru: 'Safebooru', danbooru: 'Danbooru', danbooru_search: 'Danbooru', sankaku: 'Sankaku' }
-// A Danbooru search page imports one post after another, never in parallel,
-// with a pause between downloads so a big page cannot trip Danbooru's limits.
-// A 429/503 backs off and retries rather than failing the post.
+const SITE_LABELS = {
+  gelbooru: 'Gelbooru',
+  gelbooru_search: 'Gelbooru',
+  safebooru: 'Safebooru',
+  danbooru: 'Danbooru',
+  danbooru_search: 'Danbooru',
+  sankaku: 'Sankaku',
+}
+const BATCH_KINDS = new Set(['danbooru_search', 'gelbooru_search'])
+// A search page imports one post after another, never in parallel, with a
+// pause between downloads so a big page cannot trip the site's limits. A
+// 429/503 backs off and retries rather than failing the post.
 const BATCH_DOWNLOAD_GAP_MS = 1500
 const BATCH_RETRY_DELAYS_MS = [10000, 30000, 60000]
 
@@ -35,7 +43,9 @@ async function init() {
     await chrome.storage.local.remove(jobKey)
     if (!job) throw new Error('This import job expired. Click the site button again.')
     await ensureBackend()
-    const resolved = job.kind === 'gelbooru' ? await resolveGelbooru(job) : job
+    const resolved = job.kind === 'gelbooru'
+      ? await resolveGelbooru(job)
+      : (job.kind === 'gelbooru_search' ? await resolveGelbooruSearch(job) : job)
     const renames = await useDanbooruNames(resolved)
     await importAll(resolved)
     await aliasSourceNames(renames)
@@ -85,6 +95,22 @@ async function resolveGelbooru(job) {
       tagDisplayNames: data.tagDisplayNames || {},
       safety: data.safety || 'safe',
     }],
+  }
+}
+
+// The backend holds the Gelbooru API key, so it resolves the page's posts:
+// one search call for the page plus the tag types, shared by every post.
+async function resolveGelbooruSearch(job) {
+  setStatus('Looking up the posts on this page…', 'working')
+  const data = await api(`${instanceUrl}/api/site-imports/gelbooru-search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tags: job.tags || '', offset: job.offset || 0, ids: (job.ids || []).map(Number) }),
+  })
+  return {
+    ...job,
+    unavailable: (data.missing || []).map((entry) => ({ postId: String(entry.postId), reason: entry.reason || '' })),
+    media: siteImportCore.gelbooruSearchMedia(data),
   }
 }
 
@@ -140,15 +166,16 @@ async function importAll(job) {
   const allMedia = Array.isArray(job.media) ? job.media : []
   if (!allMedia.length) throw new Error('The source returned no original-resolution files.')
   els.title.textContent = job.title || 'Site import'
-  const batch = job.kind === 'danbooru_search'
+  const batch = BATCH_KINDS.has(job.kind)
+  const siteLabel = SITE_LABELS[job.kind] || 'Gelbooru'
   const unavailable = Array.isArray(job.unavailable) ? job.unavailable : []
   els.detail.textContent = job.kind === 'pixiv'
     ? (job.isUgoira
       ? 'Original Pixiv animation · MP4 conversion · Pixiv tags included · AI tagging enabled'
       : `${allMedia.length} original Pixiv page${allMedia.length === 1 ? '' : 's'} · Choose pages below · Pixiv tags included · AI tagging enabled`)
     : batch
-      ? `${allMedia.length} original Danbooru file${allMedia.length === 1 ? '' : 's'} · one at a time · posts already in NekoBooru are not downloaded again · AI disabled`
-        + (unavailable.length ? ` · ${unavailable.length} withheld by Danbooru (log in, or Gold-only)` : '')
+      ? `${allMedia.length} original ${siteLabel} file${allMedia.length === 1 ? '' : 's'} · one at a time · posts already in NekoBooru are not downloaded again · AI disabled`
+        + (unavailable.length ? ` · ${unavailable.length} withheld by ${siteLabel}` : '')
       : `Original ${SITE_LABELS[job.kind] || 'Gelbooru'} file · source tags included · AI disabled`
   renderItems(allMedia, job.kind === 'pixiv')
 
@@ -209,11 +236,11 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// A post an earlier import already brought in, found by the danbooru_<id> tag
-// every Danbooru import carries. Only an exact tag match counts: semantic
-// search may widen the query, and a near miss must never skip a download.
+// A post an earlier import already brought in, found by the <site>_<id> tag
+// every booru import carries. Only an exact tag match counts: semantic search
+// may widen the query, and a near miss must never skip a download.
 async function existingImportedPost(item) {
-  const idTag = `danbooru_${item.postId}`
+  const idTag = item.idTag || `danbooru_${item.postId}`
   try {
     const data = await api(`${instanceUrl}/api/posts?${new URLSearchParams({ q: idTag, limit: '5' })}`)
     return (data.results || []).find((post) => (post.tags || []).includes(idTag)) || null
@@ -222,7 +249,7 @@ async function existingImportedPost(item) {
   }
 }
 
-// Danbooru (or its CDN) saying "slow down" is not a failed post: wait and try
+// The site (or its CDN) saying "slow down" is not a failed post: wait and try
 // the same file again, longer each time.
 async function importWithBackoff(job, item, rowIndex) {
   for (let attempt = 0; ; attempt += 1) {
@@ -232,8 +259,9 @@ async function importWithBackoff(job, item, rowIndex) {
       const message = error?.message || String(error)
       const delay = BATCH_RETRY_DELAYS_MS[attempt]
       if (!/HTTP (429|503)\b/.test(message) || delay === undefined) throw error
-      setItem(rowIndex, 'working', `Danbooru asked to slow down · retrying in ${Math.round(delay / 1000)} s…`)
-      setStatus(`Danbooru is rate limiting; waiting ${Math.round(delay / 1000)} s before retrying.`, 'working')
+      const site = SITE_LABELS[job.kind] || 'The site'
+      setItem(rowIndex, 'working', `${site} asked to slow down · retrying in ${Math.round(delay / 1000)} s…`)
+      setStatus(`${site} is rate limiting; waiting ${Math.round(delay / 1000)} s before retrying.`, 'working')
       await sleep(delay)
     }
   }

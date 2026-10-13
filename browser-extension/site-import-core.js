@@ -752,6 +752,77 @@
     }
   }
 
+  // A Gelbooru search/listing page (index.php?page=post&s=list&tags=...&pid=N)
+  // -> its query and post offset (the site's pid counts posts, not pages).
+  function gelbooruSearchPage(raw) {
+    try {
+      const url = new URL(raw)
+      if (!isGelbooruHost(url.hostname)) return null
+      if (url.searchParams.get('page') !== 'post' || url.searchParams.get('s') !== 'list') return null
+      const tags = String(url.searchParams.get('tags') || '').trim().replace(/\s+/g, ' ').slice(0, 500)
+      const offset = Number.parseInt(url.searchParams.get('pid') || '0', 10)
+      return { tags: tags === 'all' ? '' : tags, offset: Number.isInteger(offset) && offset > 0 ? offset : 0 }
+    } catch {
+      return null
+    }
+  }
+
+  const GELBOORU_SEARCH_MAX_POSTS = 100
+
+  // What crosses from the Gelbooru content script: just the page and the post
+  // IDs it showed. The backend, holding the API key, resolves the files.
+  function gelbooruSearchImportJob(ids, pageUrl) {
+    const search = gelbooruSearchPage(pageUrl)
+    if (!search) throw new Error('Open a Gelbooru search page first.')
+    const cleanIds = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter((id) => /^\d+$/.test(id)))]
+      .slice(0, GELBOORU_SEARCH_MAX_POSTS)
+    if (!cleanIds.length) throw new Error('No posts on this page to import.')
+    const pageNumber = Math.floor(search.offset / 42) + 1
+    const pageLabel = pageNumber > 1 ? ` · page ${pageNumber}` : ''
+    return {
+      kind: 'gelbooru_search',
+      postId: `${search.tags}|${search.offset}`,
+      tags: search.tags,
+      offset: search.offset,
+      ids: cleanIds,
+      title: `Gelbooru: ${search.tags || 'latest posts'}${pageLabel}`,
+      groupTag: danbooruSearchGroupQuery(search.tags),
+    }
+  }
+
+  function sanitizeGelbooruSearchImportJob(raw, senderUrl) {
+    const search = gelbooruSearchPage(senderUrl)
+    const job = raw && typeof raw === 'object' ? raw : {}
+    if (!search || String(job.postId) !== `${search.tags}|${search.offset}`) {
+      throw new Error('Gelbooru search page mismatch.')
+    }
+    return gelbooruSearchImportJob(job.ids, senderUrl)
+  }
+
+  // The backend's answer for a Gelbooru search page -> the batch's media list.
+  function gelbooruSearchMedia(data) {
+    return (Array.isArray(data?.posts) ? data.posts : []).map((post, index) => {
+      const postId = String(post.postId)
+      const tags = Array.isArray(post.tags) ? post.tags : []
+      return {
+        type: /\.(mp4|webm)(?:$|[?#])/i.test(String(post.fileUrl || '')) ? 'video' : 'image',
+        url: post.fileUrl,
+        referer: post.referer || 'https://gelbooru.com/',
+        index,
+        width: importDimension(post.width),
+        height: importDimension(post.height),
+        source: post.postUrl,
+        tags,
+        tagCategories: post.tagCategories || {},
+        tagDisplayNames: booruDisplayNames(tags),
+        safety: ['safe', 'sketchy', 'unsafe'].includes(post.safety) ? post.safety : 'safe',
+        postId,
+        idTag: `gelbooru_${postId}`,
+        label: `Gelbooru #${postId}`,
+      }
+    })
+  }
+
   // "Posts | Artist" over a Danbooru search: the import goes right of the last
   // of those links (Artist, or a wiki link, else Posts) in the same item.
   function selectDanbooruSearchAnchor(doc) {
@@ -971,6 +1042,10 @@
     danbooruSearchImportJob,
     sanitizeDanbooruSearchImportJob,
     selectDanbooruSearchAnchor,
+    gelbooruSearchPage,
+    gelbooruSearchImportJob,
+    sanitizeGelbooruSearchImportJob,
+    gelbooruSearchMedia,
     safebooruPostId,
     safebooruImportJob,
     sanitizeSafebooruImportJob,
