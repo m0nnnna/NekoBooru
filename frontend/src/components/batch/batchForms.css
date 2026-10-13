@@ -1,0 +1,87 @@
+/* Form/action primitives shared by the batch panel's cards. Included with
+   <style scoped src="./batchForms.css"> after each component's own styles. */
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+}
+
+.link-btn:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.batch-actions-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.batch-note,
+.batch-check small {
+  color: var(--text-secondary);
+}
+
+.batch-field-grid,
+.batch-actions-row,
+.batch-textarea-label {
+  margin-top: 0.75rem;
+}
+
+.batch-check span {
+  display: block;
+}
+
+.batch-check {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-tertiary);
+}
+
+.batch-check input {
+  margin-top: 0.2rem;
+}
+
+.batch-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.65rem;
+}
+
+.batch-field-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.batch-field-grid label,
+.batch-textarea-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+}
+
+.batch-field-grid input,
+.batch-field-grid select,
+.batch-textarea-label textarea {
+  width: 100%;
+  color: var(--text-primary);
+}
+
+.batch-textarea-label textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.batch-note {
+  margin: 0.65rem 0 0;
+  font-size: 0.85rem;
+}
