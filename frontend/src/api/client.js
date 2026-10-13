@@ -764,31 +764,30 @@ export const api = {
     })
   },
 
-  async getShares() {
-    return request('/auth/shares')
-  },
+  async getShares() { return request('/auth/shares') },
+  async setShares(granteeUsernames) { return request('/auth/shares', { method: 'PUT', body: JSON.stringify({ granteeUsernames }) }) },
 
-  async setShares(granteeUsernames) {
-    return request('/auth/shares', {
-      method: 'PUT',
-      body: JSON.stringify({ granteeUsernames }),
-    })
-  },
+  async getApiTokens() { return request('/auth/tokens') },
+  async createApiToken(label) { return request('/auth/tokens', { method: 'POST', body: JSON.stringify({ label }) }) },
+  async deleteApiToken(id) { return request(`/auth/tokens/${id}`, { method: 'DELETE' }) },
 
-  async getApiTokens() {
-    return request('/auth/tokens')
+  // Booru search (docs/booru-search-plan.md section 2)
+  async getBooruSearchStatus() { return request('/booru-search/status') },
+  async searchGelbooru(params, signal) { return request(`/booru-search/gelbooru?${new URLSearchParams(params)}`, { signal }) },
+  async searchSafebooru(params, signal) { return request(`/booru-search/safebooru?${new URLSearchParams(params)}`, { signal }) },
+  async lookupInLibrary(keys) { return request('/booru-search/in-library', { method: 'POST', body: JSON.stringify({ keys }) }) },
+  async gelbooruTagCategories(tags) { return request('/booru-search/gelbooru-categories', { method: 'POST', body: JSON.stringify({ tags }) }) },
+  // The plan calls this both as (tags, tagCategories) and as ({ tags, tagCategories }); accept either.
+  async danbooruNames(tags, tagCategories) {
+    const body = Array.isArray(tags) ? { tags, tagCategories } : { tags: tags?.tags, tagCategories: tags?.tagCategories }
+    return request('/site-imports/danbooru-names', { method: 'POST', body: JSON.stringify(body) })
   },
-
-  async createApiToken(label) {
-    return request('/auth/tokens', {
-      method: 'POST',
-      body: JSON.stringify({ label }),
-    })
-  },
-
-  async deleteApiToken(id) {
-    return request(`/auth/tokens/${id}`, { method: 'DELETE' })
-  },
+  async fetchFromUrl({ url, referer, progressId }) { return request('/uploads/from-url', { method: 'POST', body: JSON.stringify({ url, referer, progressId }) }) },
+  async getFromUrlProgress(progressId) { return request(`/uploads/from-url/progress/${encodeURIComponent(progressId)}`) },
+  async restorePost(id) { return request(`/posts/${id}/restore`, { method: 'POST' }) },
+  // Admin switch (section 2.2)
+  async getBooruSearchSettings() { return request('/settings/booru-search') },
+  async updateBooruSearchSettings(enabled) { return request('/settings/booru-search', { method: 'PUT', body: JSON.stringify({ enabled }) }) },
 }
 
 export default api
