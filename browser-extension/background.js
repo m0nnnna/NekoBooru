@@ -1228,8 +1228,22 @@ function reverseUploadPage(uploadType) {
 }
 
 async function openTraceMoeUpload(tab, info, active = true) {
+  let blob
   try {
-    const blob = await blobForReverseSearch(tab, info, { landscape: true })
+    blob = await blobForReverseSearch(tab, info, { landscape: true })
+  } catch (e) {
+    // A frame of cross-origin media (Gelbooru's video and GIF CDN) cannot be
+    // read back from the page. trace.moe can fetch a public URL itself, video
+    // included, so hand it the address instead.
+    const publicUrl = await publicMediaUrl(info.srcUrl || lastMediaUrl)
+    if (publicUrl) {
+      openReverseSearchTab(`https://trace.moe/?url=${encodeURIComponent(publicUrl)}`, tab, active)
+      return
+    }
+    notifyReverseSearch(e.message || 'trace.moe upload failed.')
+    return
+  }
+  try {
     const dataUrl = await blobToDataUrl(blob)
     const created = await createReverseSearchTab('https://trace.moe/', tab, active)
     await waitForTabComplete(created.id)
@@ -1408,6 +1422,21 @@ function reverseUploadFilename(info) {
   return base.replace(/\.[^.]+$/, '') + '.png'
 }
 
+// A media URL another site's server can fetch: http(s), and not this
+// NekoBooru instance (its media needs the login) or another local address.
+async function publicMediaUrl(raw) {
+  let url
+  try {
+    url = new URL(normalizeUploadSrcUrl(raw || ''))
+  } catch {
+    return ''
+  }
+  if (!/^https?:$/.test(url.protocol)) return ''
+  if (['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return ''
+  if (await isTrustedNekoBooruPage(url.href)) return ''
+  return url.href
+}
+
 async function blobForReverseSearch(tab, info, options = {}) {
   if (info.dataUrl) return dataUrlToBlob(info.dataUrl)
   const directUrl = info.srcUrl || lastMediaUrl
@@ -1436,7 +1465,19 @@ async function blobForReverseSearch(tab, info, options = {}) {
       })
     }
   }
-  if (!result.ok || !result.dataUrl) throw new Error(result.error || 'Could not capture media frame.')
+  if (!result.ok || !result.dataUrl) {
+    // A GIF is still an image every provider takes: when its frame cannot be
+    // read back (cross-origin), send the file itself.
+    if (directUrl && /\.gif(?:$|[?#])/i.test(directUrl)) {
+      try {
+        const response = await fetch(normalizeUploadSrcUrl(directUrl), { credentials: 'include' })
+        if (response.ok) return await response.blob()
+      } catch {
+        // Fall through to the capture error.
+      }
+    }
+    throw new Error(result.error || 'Could not capture media frame.')
+  }
   return dataUrlToBlob(result.dataUrl)
 }
 
