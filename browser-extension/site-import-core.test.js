@@ -112,6 +112,16 @@ assert.equal(safebooruJob.media[0].tagCategories.highres, 'meta')
 assert.equal(safebooruJob.media[0].tagCategories.safebooru_55, 'meta')
 assert.equal(safebooruJob.media[0].safety, 'safe')
 
+// Safebooru's dapi JSON HTML-escapes tags; they must not flatten to girls_039_frontline.
+const escapedSafebooruJob = core.safebooruImportJob(
+  { post: { file_url: 'https://safebooru.org/images/1/a.png', tags: 'girls&#039;_frontline &gt;_&lt; tom_&amp;_jerry &#x27;quoted&#X27; &bogus; a&b', rating: 'q' } },
+  null,
+  'https://safebooru.org/index.php?page=post&s=view&id=56',
+)
+assert.deepEqual(escapedSafebooruJob.media[0].tags, ["girls'_frontline", '>_<', 'tom_&_jerry', "'quoted'", '&bogus;', 'a&b', 'safebooru_56'])
+assert.equal(escapedSafebooruJob.media[0].tagCategories["girls'_frontline"], 'general')
+assert.equal(escapedSafebooruJob.media[0].safety, 'sketchy')
+
 const sanitizedSafebooru = core.sanitizeSafebooruImportJob(
   safebooruJob,
   'https://safebooru.org/index.php?page=post&s=view&id=55',

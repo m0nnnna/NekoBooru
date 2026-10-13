@@ -121,6 +121,36 @@ class SiteImportTests(unittest.TestCase):
         self.assertEqual(fetch.await_args_list[0].args[0]["user_id"], "10")
         self.assertEqual(fetch.await_args_list[0].args[0]["api_key"], "secret")
 
+    def test_gelbooru_import_decodes_html_escaped_tags_and_source(self):
+        from app.services import site_imports
+
+        fetch = AsyncMock(side_effect=[
+            {"post": [{
+                "id": 5,
+                "file_url": "https://img.example/5.png",
+                "tags": "girls&#039;_frontline &gt;_&lt; tom_&amp;_jerry solo &gt;_&lt;",
+                "rating": "general",
+                "source": "https://example.com/a?x=1&amp;y=2",
+            }]},
+            {"tag": [
+                {"name": "girls&#039;_frontline", "type": 3},
+                {"name": "&gt;_&lt;", "type": 0},
+                {"name": "tom_&amp;_jerry", "type": 3},
+            ]},
+        ])
+        with patch.object(site_imports, "gelbooru_credentials", return_value=("10", "secret")), patch.object(
+            site_imports, "_fetch_json", fetch
+        ):
+            result = asyncio.run(site_imports.gelbooru_post_for_import(5))
+
+        self.assertEqual(result["tags"], ["girls'_frontline", ">_<", "tom_&_jerry", "solo", "gelbooru_5"])
+        self.assertEqual(fetch.await_args_list[1].args[0]["names"], "girls'_frontline >_< tom_&_jerry solo")
+        self.assertEqual(result["tagCategories"]["girls'_frontline"], "copyright")
+        self.assertEqual(result["tagCategories"]["tom_&_jerry"], "copyright")
+        self.assertEqual(result["remoteSource"], "https://example.com/a?x=1&y=2")
+        # Unescaped text is left alone.
+        self.assertEqual(site_imports._post_tags({"tags": "a&b c;d &unknown;"}), ["a&b", "c;d", "&unknown;"])
+
     def test_gelbooru_import_requires_saved_credentials(self):
         from app.services import site_imports
 

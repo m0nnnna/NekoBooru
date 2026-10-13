@@ -1,6 +1,7 @@
 """Metadata needed by one-click imports from supported source sites."""
 from __future__ import annotations
 
+import html
 import re
 import time
 
@@ -102,8 +103,14 @@ async def gelbooru_post_for_import(post_id: int, *, timeout: float = DEFAULT_TIM
     return _import_payload(post, post_id, file_url, tags, categories)
 
 
+def _decoded(value) -> str:
+    # The Gelbooru engine's dapi HTML-escapes text fields (girls&#039;_frontline,
+    # &gt;_&lt;); unescaping text that was never escaped leaves it as it is.
+    return html.unescape(str(value or ""))
+
+
 def _post_tags(post: dict) -> list[str]:
-    return list(dict.fromkeys(str(post.get("tags") or "").split()))
+    return list(dict.fromkeys(_decoded(post.get("tags")).split()))
 
 
 # Tag types change rarely, and a search page repeats most of its tags from
@@ -142,7 +149,7 @@ async def _tag_categories(tags: list[str], auth: dict[str, str], timeout: float)
         except RuntimeError:
             continue
         for row in _rows(tag_payload, "tag"):
-            name = str(row.get("name") or row.get("tag") or "").strip()
+            name = _decoded(row.get("name") or row.get("tag")).strip()
             category = TAG_TYPE_TO_CATEGORY.get(int(row.get("type") or 0))
             if name in categories and category:
                 categories[name] = category
@@ -168,7 +175,7 @@ def _import_payload(post: dict, post_id: int, file_url: str, tags: list[str], ca
         "tagCategories": categories,
         "tagDisplayNames": {},
         "safety": _safety(post.get("rating")),
-        "remoteSource": str(post.get("source") or "").strip() or None,
+        "remoteSource": _decoded(post.get("source")).strip() or None,
         "width": post.get("width"),
         "height": post.get("height"),
     }

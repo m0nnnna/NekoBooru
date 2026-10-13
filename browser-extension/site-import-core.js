@@ -341,9 +341,14 @@
   function booruImportSafety(raw) {
     const rating = String(raw || '').trim().toLowerCase()
     if (rating === 'e' || rating === 'explicit') return 'unsafe'
-    if (rating === 'q' || rating === 'questionable' || rating === 's' || rating === 'sensitive') return 'sketchy'
-    return 'safe'
+    return ['q', 'questionable', 's', 'sensitive'].includes(rating) ? 'sketchy' : 'safe'
   }
+
+  // The Gelbooru engine's dapi JSON HTML-escapes text ('girls&#039;_frontline', '&gt;_&lt;').
+  const decodeEntities = (raw) => String(raw || '').replace(/&(?:#(x[0-9a-f]+|\d+)|(amp|lt|gt|quot|apos));/gi, (match, num, name) => {
+    const code = num ? Number(/^x/i.test(num) ? `0${num}` : num) : 0
+    return name ? { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name.toLowerCase()] : (code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match)
+  })
 
   function safebooruImportJob(payload, scraped, pageUrl, fallbackOriginalUrl = '') {
     const postId = safebooruPostId(pageUrl)
@@ -359,11 +364,10 @@
       const tag = normalizeTag(raw)
       if (!tag) return
       if (!tags.includes(tag)) tags.push(tag)
-      if (['general', 'artist', 'copyright', 'character', 'meta'].includes(category)) {
-        tagCategories[tag] = category
-      } else if (!tagCategories[tag]) tagCategories[tag] = 'general'
+      if (IMPORT_CATEGORIES.has(category)) tagCategories[tag] = category
+      else if (!tagCategories[tag]) tagCategories[tag] = 'general'
     }
-    String(post.tags || '').split(/\s+/).forEach((tag) => addTag(tag))
+    decodeEntities(post.tags).split(/\s+/).forEach((tag) => addTag(tag))
     for (const entry of Array.isArray(scraped?.tags) ? scraped.tags : []) {
       addTag(entry?.name, entry?.category)
     }
@@ -774,8 +778,7 @@
   function gelbooruSearchImportJob(ids, pageUrl) {
     const search = gelbooruSearchPage(pageUrl)
     if (!search) throw new Error('Open a Gelbooru search page first.')
-    const cleanIds = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter((id) => /^\d+$/.test(id)))]
-      .slice(0, GELBOORU_SEARCH_MAX_POSTS)
+    const cleanIds = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter((id) => /^\d+$/.test(id)))].slice(0, GELBOORU_SEARCH_MAX_POSTS)
     if (!cleanIds.length) throw new Error('No posts on this page to import.')
     const pageNumber = Math.floor(search.offset / 42) + 1
     const pageLabel = pageNumber > 1 ? ` · page ${pageNumber}` : ''
@@ -1020,10 +1023,7 @@
 
   function selectedSiteImportMedia(media, selectedIndexes) {
     const selected = new Set(Array.from(selectedIndexes || []).map((value) => Number(value)))
-    return Array.from(media || []).filter((item, arrayIndex) => {
-      const mediaIndex = Number.isInteger(item?.index) ? item.index : arrayIndex
-      return selected.has(mediaIndex)
-    })
+    return Array.from(media || []).filter((item, i) => selected.has(Number.isInteger(item?.index) ? item.index : i))
   }
 
   const api = {
