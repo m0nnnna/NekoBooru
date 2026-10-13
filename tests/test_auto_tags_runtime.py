@@ -28,8 +28,8 @@ class AutoTagRuntimeTests(unittest.TestCase):
     def test_missing_selected_model_returns_structured_error_without_loading(self):
         from app.services.auto_tagger import AutoTagOptions, _tag_image
 
-        with patch("app.services.auto_tagger.runtime_available", return_value=True), \
-             patch("app.services.auto_tagger.model_cache_status", return_value={"downloaded": False, "files": {}}), \
+        with patch("app.services.auto_tagger.dispatch.runtime_available", return_value=True), \
+             patch("app.services.auto_tagger.dispatch.model_cache_status", return_value={"downloaded": False, "files": {}}), \
              patch("app.services.auto_tagger._camie_tagger.tag_image") as camie_tag:
             result = _tag_image(Path("sample.png"), AutoTagOptions(wdEnabled=False, characterModelEnabled=True))
 
@@ -40,8 +40,8 @@ class AutoTagRuntimeTests(unittest.TestCase):
     def test_missing_pixai_model_returns_structured_error_without_loading(self):
         from app.services.auto_tagger import AutoTagOptions, _tag_image
 
-        with patch("app.services.auto_tagger.runtime_available", return_value=True), \
-             patch("app.services.auto_tagger.model_cache_status", return_value={"downloaded": False, "files": {}}), \
+        with patch("app.services.auto_tagger.dispatch.runtime_available", return_value=True), \
+             patch("app.services.auto_tagger.dispatch.model_cache_status", return_value={"downloaded": False, "files": {}}), \
              patch("app.services.auto_tagger._pixai_tagger.tag_image") as pixai_tag:
             result = _tag_image(Path("sample.png"), AutoTagOptions(wdEnabled=False, pixaiEnabled=True))
 
@@ -64,7 +64,7 @@ class AutoTagRuntimeTests(unittest.TestCase):
         auto_tagger._download_job = None
         try:
             # downloaded=False keeps the reconciler from completing rows early.
-            with patch("huggingface_hub.snapshot_download", fake_snapshot_download),                  patch.object(auto_tagger, "model_cache_status", return_value={"downloaded": False, "files": {}}):
+            with patch("huggingface_hub.snapshot_download", fake_snapshot_download),                  patch.object(auto_tagger.downloads, "model_cache_status", return_value={"downloaded": False, "files": {}}):
                 first = auto_tagger.start_model_download(["wd"])
                 for _ in range(100):
                     if repos:
@@ -120,7 +120,7 @@ class AutoTagRuntimeTests(unittest.TestCase):
         auto_tagger._load_queue.clear()
         auto_tagger._load_worker = None
         try:
-            with patch.object(auto_tagger, "_tagger_for_model", lambda mid: fakes[mid]),                  patch.object(auto_tagger, "_wd_tagger", fakes["wd"]):
+            with patch.object(auto_tagger.models, "_tagger_for_model", lambda mid: fakes[mid]),                  patch.object(auto_tagger.models, "_wd_tagger", fakes["wd"]):
                 auto_tagger.start_model_load("wd")
                 for _ in range(100):
                     if auto_tagger.current_model_load_job().get("modelId") == "wd":
@@ -177,8 +177,8 @@ class AutoTagRuntimeTests(unittest.TestCase):
         auto_tagger._load_worker = None
         try:
             # Patch the inner function: _infer_local itself now takes the GPU lock.
-            with patch.object(auto_tagger, "_infer_local_locked", slow_infer), \
-                 patch.object(auto_tagger, "_tagger_for_model", lambda mid: FakeTagger()):
+            with patch.object(auto_tagger.dispatch, "_infer_local_locked", slow_infer), \
+                 patch.object(auto_tagger.models, "_tagger_for_model", lambda mid: FakeTagger()):
                 tag_thread = threading.Thread(
                     target=auto_tagger.tag_media,
                     args=(Path("sample.png"), auto_tagger.AutoTagOptions(enabled=True)),
@@ -214,13 +214,13 @@ class AutoTagRuntimeTests(unittest.TestCase):
             # back to CPU rather than raising.
             auto_tagger._ONNX_PRELOAD_HANDLES.clear()
             auto_tagger._ONNX_CUDA_PREPARED = False
-            with patch("app.services.auto_tagger.find_spec", return_value=None):
+            with patch("app.services.auto_tagger.runtime.find_spec", return_value=None):
                 auto_tagger._prepare_onnx_cuda_runtime()
             self.assertEqual(auto_tagger._ONNX_PRELOAD_HANDLES, [])
 
             # Repeat calls must not reload the libraries on every session.
             auto_tagger._ONNX_CUDA_PREPARED = False
-            with patch("app.services.auto_tagger.find_spec", return_value=None):
+            with patch("app.services.auto_tagger.runtime.find_spec", return_value=None):
                 auto_tagger._prepare_onnx_cuda_runtime()
                 auto_tagger._prepare_onnx_cuda_runtime()
             self.assertTrue(auto_tagger._ONNX_CUDA_PREPARED)
@@ -231,7 +231,7 @@ class AutoTagRuntimeTests(unittest.TestCase):
     def test_missing_cl_model_returns_structured_error_without_loading(self):
         from app.services.auto_tagger import AutoTagOptions, _tag_image
 
-        with patch("app.services.auto_tagger.runtime_available", return_value=True),              patch("app.services.auto_tagger.model_cache_status", return_value={"downloaded": False, "files": {}}),              patch("app.services.auto_tagger._cl_tagger.tag_image") as cl_tag:
+        with patch("app.services.auto_tagger.dispatch.runtime_available", return_value=True),              patch("app.services.auto_tagger.dispatch.model_cache_status", return_value={"downloaded": False, "files": {}}),              patch("app.services.auto_tagger._cl_tagger.tag_image") as cl_tag:
             result = _tag_image(Path("sample.png"), AutoTagOptions(wdEnabled=False, clEnabled=True))
 
         cl_tag.assert_not_called()
@@ -359,8 +359,8 @@ class AutoTagRuntimeTests(unittest.TestCase):
             (snapshot / "config.json").write_text("{}", encoding="utf-8")
 
             with patch.object(auto_tagger.settings, "models_dir", root), \
-                 patch("app.services.auto_tagger.find_spec", return_value=True), \
-                 patch("app.services.auto_tagger.huggingface_token", return_value=None), \
+                 patch("app.services.auto_tagger.cache.find_spec", return_value=True), \
+                 patch("app.services.auto_tagger.cache.huggingface_token", return_value=None), \
                  patch("huggingface_hub.hf_hub_download"):
                 status = auto_tagger.model_cache_status("whisper")
 
@@ -384,19 +384,19 @@ class AutoTagRuntimeTests(unittest.TestCase):
         from app.services.auto_tagger import _qwen_device_map
 
         self.assertEqual(_qwen_device_map("cpu"), "cpu")
-        with patch("app.services.auto_tagger._torch_runtime_info", return_value={"cudaAvailable": False}):
+        with patch("app.services.auto_tagger.runtime._torch_runtime_info", return_value={"cudaAvailable": False}):
             self.assertEqual(_qwen_device_map("auto"), "cpu")
             with self.assertRaises(RuntimeError):
                 _qwen_device_map("gpu")
-        with patch("app.services.auto_tagger._torch_runtime_info", return_value={"cudaAvailable": True}), \
-             patch("app.services.auto_tagger._ensure_qwen_gpu_headroom") as headroom:
+        with patch("app.services.auto_tagger.runtime._torch_runtime_info", return_value={"cudaAvailable": True}), \
+             patch("app.services.auto_tagger.runtime._ensure_qwen_gpu_headroom") as headroom:
             self.assertEqual(_qwen_device_map("auto"), {"": 0})
             headroom.assert_called_once()
 
     def test_qwen_gpu_headroom_blocks_low_free_vram(self):
         from app.services.auto_tagger import _ensure_qwen_gpu_headroom
 
-        with patch("app.services.auto_tagger._qwen_gpu_memory_info", return_value={"freeGb": 2.0, "totalGb": 24.0}):
+        with patch("app.services.auto_tagger.runtime._qwen_gpu_memory_info", return_value={"freeGb": 2.0, "totalGb": 24.0}):
             with self.assertRaisesRegex(RuntimeError, "free VRAM"):
                 _ensure_qwen_gpu_headroom()
 
@@ -439,7 +439,7 @@ class AutoTagRuntimeTests(unittest.TestCase):
     def test_onnx_runtime_info_marks_import_failure_unavailable(self):
         from app.services.auto_tagger import _onnx_runtime_info
 
-        with patch("app.services.auto_tagger.find_spec", return_value=True), \
+        with patch("app.services.auto_tagger.models.find_spec", return_value=True), \
              patch.dict("sys.modules", {"onnxruntime": None}):
             info = _onnx_runtime_info()
 
@@ -461,7 +461,7 @@ class AutoTagRuntimeTests(unittest.TestCase):
         _whisper_tagger._pipeline = pipeline
         _whisper_tagger._loaded = True
         try:
-            with patch("app.services.auto_tagger._extract_audio", return_value=True) as extract_audio:
+            with patch("app.services.auto_tagger.media_taggers._extract_audio", return_value=True) as extract_audio:
                 result = _whisper_tagger.transcribe_video(Path("sample.mp4"), AutoTagOptions(videoMaxDurationSeconds=900))
         finally:
             _whisper_tagger._pipeline = old_pipeline

@@ -18,7 +18,6 @@ from ..dependencies import get_current_user
 from ..models import User
 from ..services.media import check_ffmpeg_available
 from ..services.pixiv_ugoira import convert_ugoira_zip_to_mp4, normalize_frames, validate_pixiv_ugoira_url
-from ..utils.module_split import mirror_rebinding
 from . import uploads_fediverse, uploads_fetch
 from .uploads_fediverse import (
     FediverseRequest,
@@ -386,5 +385,3 @@ async def upload_from_pixiv_ugoira(request: PixivUgoiraRequest, current_user: Us
 
 
 router.include_router(uploads_fediverse.router)
-
-mirror_rebinding(__name__, (uploads_fetch, uploads_fediverse))

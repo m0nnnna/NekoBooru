@@ -79,9 +79,9 @@ class AutoTagSemanticTests(unittest.TestCase):
         tagger = QwenGgufSemanticTagger("qwen_gguf_q4")
 
         with patch.object(tagger, "ensure_loaded", return_value=True), \
-             patch("app.services.auto_tagger._image_data_url", return_value="data:image/jpeg;base64,abc"), \
-             patch("app.services.auto_tagger._parse_semantic_json", return_value={"tags": ["video"], "safety": "safe", "rationale": "A video."}), \
-             patch("app.services.auto_tagger._sanitize_qwen_semantic_payload", side_effect=lambda parsed, context: parsed):
+             patch("app.services.auto_tagger.media_taggers._image_data_url", return_value="data:image/jpeg;base64,abc"), \
+             patch("app.services.auto_tagger.media_taggers._parse_semantic_json", return_value={"tags": ["video"], "safety": "safe", "rationale": "A video."}), \
+             patch("app.services.auto_tagger.media_taggers._sanitize_qwen_semantic_payload", side_effect=lambda parsed, context: parsed):
             captured = {}
 
             class FakeLlama:

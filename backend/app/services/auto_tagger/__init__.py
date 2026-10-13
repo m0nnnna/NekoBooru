@@ -7,10 +7,10 @@ one namespace. Every name the old module had is re-exported here, and:
   source-image cache) lives in this module, and the parts read and write it as
   ``_at.<name>``. Callers and tests that read or assign
   ``auto_tagger._download_job`` and friends therefore see the live value.
-- Rebinding any other attribute here (``mock.patch("app.services.auto_tagger.X")``)
-  is propagated to every part that holds the same object under that name
-  (app.utils.module_split), so a patch on the package path still redirects
-  callers inside the parts.
+- Every other name is a plain re-export. A part looks up the names it imported
+  in its own globals, so to redirect a caller inside a part, patch the name on
+  the part that calls it (``app.services.auto_tagger.dispatch.runtime_available``),
+  not on the package.
 
 Parts, in import order (each imports only from the ones before it):
   core          Model ids, the model registry, and the option/result dataclasses every auto-tagger part shares.
@@ -29,7 +29,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ...utils.module_split import mirror_rebinding
 
 if TYPE_CHECKING:
     import threading
@@ -74,5 +73,3 @@ for _part in _PARTS:
             continue
         globals().setdefault(_name, _value)
 del _part, _name, _value
-
-mirror_rebinding(__name__, _PARTS)

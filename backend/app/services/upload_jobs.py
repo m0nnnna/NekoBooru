@@ -26,7 +26,6 @@ from ..config import settings
 from ..database import async_session
 from ..models import UploadArtifact, UploadJob
 from .media import check_ffmpeg_available, get_video_info
-from ..utils.module_split import mirror_rebinding
 from . import upload_job_runners
 from .upload_job_runners import (
     _download_section,
@@ -738,6 +737,3 @@ async def cleanup_loop() -> None:
     while True:
         await asyncio.sleep(60 * 60)
         await recover_and_cleanup(recover_active=False)
-
-
-mirror_rebinding(__name__, (upload_job_runners,))

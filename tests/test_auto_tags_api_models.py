@@ -69,7 +69,7 @@ class AutoTagModelApiTests(support.AutoTagApiTestCase):
             )
             results[index] = response.status_code
 
-        with patch.object(auto_tagger, "_infer_local_locked", fake_pipeline):
+        with patch.object(auto_tagger.dispatch, "_infer_local_locked", fake_pipeline):
             threads = [threading.Thread(target=worker, args=(i,)) for i in range(4)]
             for thread in threads:
                 thread.start()

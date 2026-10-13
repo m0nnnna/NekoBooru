@@ -32,7 +32,6 @@ from ..services.tagging import normalize_tag
 from ..services.tagging import process_tags_for_post as apply_tags_for_post
 from ..services.tagging import replace_tags_for_post
 from .uploads import get_upload_path, remove_upload_token
-from ..utils.module_split import mirror_rebinding
 from . import posts_ai, posts_media, posts_optimize
 from .posts_ai import (
     SaveAiAnalysisRequest,
@@ -731,5 +730,3 @@ async def bulk_update_posts(
 
 router.include_router(posts_optimize.router)
 router.include_router(posts_media.router)
-
-mirror_rebinding(__name__, (posts_ai, posts_media, posts_optimize))
