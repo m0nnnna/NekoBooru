@@ -239,7 +239,12 @@ const {
 } = operations
 
 const ai = useBatchAiTagging({ selection: librarySelection, operations })
-const edits = useBatchPostEdits({ selection: librarySelection, operations, browser })
+// Edits patch imported posts too (booru.updateLibraryPost), not only the page.
+const edits = useBatchPostEdits({
+  selection: librarySelection,
+  operations,
+  browser: { ...browser, updateLocalPost: booru.updateLibraryPost },
+})
 const optimizer = useBatchMediaOptimize({ selection: librarySelection, operations, browser })
 const { inspectedSemanticAnalysis, inspectedSemanticLoading } = usePostSemanticAnalysis(inspectedLibraryPost)
 

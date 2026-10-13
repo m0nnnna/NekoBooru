@@ -190,6 +190,14 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
     return (browser.posts.value || []).find((post) => post.id === id) || importedPosts.get(id) || null
   }
 
+  // The batch tools' updateLocalPost: patch the page post and the imported
+  // one, so the next edit (or the per-post fallback) starts from current tags.
+  function updateLibraryPost(postId, data) {
+    browser.updateLocalPost(postId, data)
+    const imported = importedPosts.get(postId)
+    if (imported) importedPosts.set(postId, { ...imported, ...data })
+  }
+
   // `prepend`: a newly created post, shown at the top of page 1 of a
   // newest-first library listing so the user sees it arrive.
   function rememberLibraryPost(post, { prepend = false } = {}) {
@@ -233,6 +241,7 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
     importedPosts,
     libraryPostById,
     rememberLibraryPost,
+    updateLibraryPost,
     viewerKey,
     viewerPost,
     viewerHasPrev: computed(() => viewerIndex.value > 0),

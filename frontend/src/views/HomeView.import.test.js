@@ -82,8 +82,8 @@ const POSTS = [5, 6].map((id) => ({
   thumbUrl: `/thumb/${id}.webp`,
 }))
 
-async function mountHome() {
-  localStorage.setItem('nekobooru.remoteSources', JSON.stringify(['nekobooru', 'danbooru']))
+async function mountHome({ sources = ['nekobooru', 'danbooru'] } = {}) {
+  localStorage.setItem('nekobooru.remoteSources', JSON.stringify(sources))
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -214,6 +214,31 @@ describe('HomeView booru import', () => {
     expect(wrapper.get('.action-toast').text()).toBe('Imported · #42')
     // The viewer now links to the library post instead of offering Import.
     expect(document.body.querySelector('.remote-viewer a[href="/post/42"]')).not.toBeNull()
+  })
+
+  it('keeps an imported post that is not on the page current across batch tag edits', async () => {
+    // The library is unticked, so post #42 lives only in the imported-posts
+    // map; the per-post fallback must build each edit on the previous one.
+    api.bulkUpdatePosts = vi.fn(async () => { throw new Error('Not Found') })
+    const wrapper = await mountHome({ sources: ['danbooru'] })
+    await selectRemote(wrapper, [0])
+    await startButton(wrapper).trigger('click')
+    await drainQueue()
+    expect(batchTitle(wrapper)).toBe('1 selected · 1 library · 0 remote')
+    api.updatePost.mockClear()
+
+    const tagInput = wrapper.findComponent({ name: 'BulkTagCard' }).findComponent({ name: 'TagInput' })
+    const apply = () => wrapper.findAll('.batch-actions-row button').find((b) => b.text().startsWith('Apply Tag')).trigger('click')
+    tagInput.vm.$emit('update:modelValue', ['first'])
+    await apply()
+    await flushPromises()
+    tagInput.vm.$emit('update:modelValue', ['second'])
+    await apply()
+    await flushPromises()
+
+    expect(api.updatePost.mock.calls.map(([id]) => id)).toEqual([42, 42])
+    expect(api.updatePost.mock.calls[1][1].tags).toEqual(expect.arrayContaining(['first', 'second']))
+    delete api.bulkUpdatePosts
   })
 
   it('cancels the queue when the home view unmounts', async () => {
