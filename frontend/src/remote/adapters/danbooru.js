@@ -254,6 +254,7 @@ export const danbooruAdapter = Object.freeze({
   transport: site.transport,
   // Requests use effectiveLimit(); this is the default for callers that ask.
   pageSize: site.defaultLimit,
+  pageCap: () => DANBOORU_PAGE_CAP,
   translate,
   search,
   refresh,

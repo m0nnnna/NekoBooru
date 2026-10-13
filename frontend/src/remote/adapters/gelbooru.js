@@ -166,6 +166,8 @@ export const gelbooruAdapter = Object.freeze({
   label: SITE_INFO.label,
   transport: SITE_INFO.transport,
   pageSize: SITE_INFO.defaultLimit,
+  // The last page nextCursorFor() ever hands out for this page size.
+  pageCap: (limit) => Math.min(MAX_PAGE, Math.ceil(MAX_OFFSET / Math.max(1, limit || SITE_INFO.defaultLimit))),
 
   translate(query, options) {
     return translateQuery(SITE, query, options)

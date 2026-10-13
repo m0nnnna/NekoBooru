@@ -47,7 +47,9 @@ function countOrNull(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null
 }
 
-function updatePages(section) {
+// `pageCap` is the last page the booru pages to anonymously (adapter.pageCap),
+// null when it has none: Load more never gets past it, so neither may the count.
+function updatePages(section, pageCap = null) {
   if (section.exhausted) {
     // Everything has been seen: the page count is exact now, and so is the
     // total unless the booru gave an exact one.
@@ -58,9 +60,12 @@ function updatePages(section) {
     }
     return
   }
-  section.totalPages = section.total === null
-    ? null
-    : Math.max(section.page, Math.ceil(section.total / Math.max(1, section.limit)))
+  if (section.total === null) {
+    section.totalPages = null
+    return
+  }
+  const pages = Math.max(section.page, Math.ceil(section.total / Math.max(1, section.limit)))
+  section.totalPages = pageCap ? Math.max(section.page, Math.min(pages, pageCap)) : pages
 }
 
 /**
@@ -236,7 +241,7 @@ export function useRemoteResults(config = {}) {
       section.total = total
       section.totalIsEstimate = Boolean(result.totalIsEstimate)
     }
-    updatePages(section)
+    updatePages(section, rt.pageCap)
     if (fresh.length) Promise.resolve(lookup.lookup(fresh.map((post) => post.key))).catch(() => {})
   }
 
@@ -263,7 +268,7 @@ export function useRemoteResults(config = {}) {
           if (section.exhausted) return
           section.total = total
           section.totalIsEstimate = Boolean(adapter.countIsEstimate)
-          updatePages(section)
+          updatePages(section, rt.pageCap)
         })
         .catch(() => {})
     }
@@ -292,8 +297,11 @@ export function useRemoteResults(config = {}) {
       inFlight: false,
       throttleRetries: 0,
       countTimer: null,
+      pageCap: null,
     })
     const section = newSection(site, effectiveLimit(site, current.limit))
+    const cap = Number(adapters[site].pageCap?.(section.limit))
+    runtime.get(site).pageCap = Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : null
     // Show what the booru will not understand before its results arrive.
     try {
       const translation = adapters[site].translate?.(current.query, current.options)

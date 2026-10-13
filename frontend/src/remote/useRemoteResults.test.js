@@ -367,6 +367,25 @@ describe('useRemoteResults page counts', () => {
     expect(results.sections.sankaku).toMatchObject({ page: 2, totalPages: 2, total: 2, totalIsEstimate: false })
   })
 
+  it('caps the page count at the pages the booru will page to anonymously', async () => {
+    const pageCap = vi.fn(() => 4)
+    const { adapters, results } = setup(['danbooru'], { extra: { danbooru: { pageCap } } })
+    results.search({ query: 'cat', options: ALL, sites: ['danbooru'], limit: 20 })
+    adapters.danbooru.calls[0].resolve(page('danbooru', [1], { total: 80000 }))
+    await settle()
+    expect(pageCap).toHaveBeenCalledWith(20)
+    expect(results.sections.danbooru).toMatchObject({ total: 80000, totalPages: 4 })
+  })
+
+  it('knows each booru\'s anonymous paging cap', () => {
+    expect(ADAPTERS.danbooru.pageCap(20)).toBe(1000)
+    expect(ADAPTERS.e621.pageCap(75)).toBe(750)
+    expect(ADAPTERS.gelbooru.pageCap(100)).toBe(200) // offsets stop at 20000
+    expect(ADAPTERS.gelbooru.pageCap(20)).toBe(500) // the relay's page limit
+    expect(ADAPTERS.safebooru.pageCap(42)).toBe(500)
+    expect(ADAPTERS.sankaku.pageCap).toBeUndefined() // keyset paging, no page cap
+  })
+
   it('does not let a late count from a superseded search land', async () => {
     const pending = deferred()
     const count = vi.fn(() => pending.promise)
