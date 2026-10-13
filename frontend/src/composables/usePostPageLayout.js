@@ -1,6 +1,7 @@
-// Post page layout: the wide-frame / hidden-sidebar / zoom-animation
-// toggles (saved per browser) and which post tool tab is open.
+// Post page layout: the frame toggles (usePostFrameLayout) and which post
+// tool tab is open.
 import { ref, computed, watch } from 'vue'
+import { usePostFrameLayout } from './usePostFrameLayout'
 
 export function usePostPageLayout({ autoTag, search, optimize }) {
   const { autoTagControlsVisible, autoTagLoading } = autoTag
@@ -13,48 +14,7 @@ export function usePostPageLayout({ autoTag, search, optimize }) {
     { id: 'search', label: 'Search', busy: onlineExactLoading.value || onlineSearchBusy.value !== '' },
     { id: 'optimize', label: 'Optimize', busy: optimizeBusy.value },
   ])
-  const POST_LAYOUT_KEY = 'nekobooru.postLayout'
-  const savedPostLayout = readPostLayout()
-  const wideFrame = ref(savedPostLayout.wideFrame === true)
-  const sidebarHidden = ref(savedPostLayout.sidebarHidden === true)
-  // On unless turned off: the media eases into its fitted size as each post opens.
-  // Saved per browser, so one person turning it off does not change it for others.
-  const zoomAnimation = ref(savedPostLayout.zoomAnimation !== false)
-
-  function readPostLayout() {
-    try {
-      return JSON.parse(localStorage.getItem(POST_LAYOUT_KEY) || '{}') || {}
-    } catch {
-      return {}
-    }
-  }
-
-  function savePostLayout() {
-    try {
-      localStorage.setItem(POST_LAYOUT_KEY, JSON.stringify({
-        wideFrame: wideFrame.value,
-        sidebarHidden: sidebarHidden.value,
-        zoomAnimation: zoomAnimation.value,
-      }))
-    } catch {
-      // localStorage unavailable
-    }
-  }
-
-  function toggleWideFrame() {
-    wideFrame.value = !wideFrame.value
-    savePostLayout()
-  }
-
-  function toggleZoomAnimation() {
-    zoomAnimation.value = !zoomAnimation.value
-    savePostLayout()
-  }
-
-  function toggleSidebarHidden() {
-    sidebarHidden.value = !sidebarHidden.value
-    savePostLayout()
-  }
+  const frame = usePostFrameLayout()
 
   // Opens on Similar each time the post page loads.
   const postToolTab = ref('similar')
@@ -70,12 +30,7 @@ export function usePostPageLayout({ autoTag, search, optimize }) {
     if (tab === 'search') refreshExtensionAvailable()
   })
   return {
-    wideFrame,
-    sidebarHidden,
-    zoomAnimation,
-    toggleWideFrame,
-    toggleZoomAnimation,
-    toggleSidebarHidden,
+    ...frame,
     postToolTabs,
     activePostToolTab,
     selectPostToolTab,
