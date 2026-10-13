@@ -231,6 +231,39 @@ describe('ImportCard', () => {
     expect(wrapper.find('[data-test="backoff"]').exists()).toBe(false)
   })
 
+  it('counts the back-off down live from the item retryAt', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+      const queue = fakeQueue()
+      const post = remotePost('danbooru', 1)
+      queue.items.push(item(post, 'retrying', 'Danbooru asked to slow down · retrying in 10 s…', {
+        attempt: 1,
+        retryAt: Date.now() + 10000,
+      }))
+      queue.running.value = true
+      const wrapper = await mountCard({ queue, selectedRemote: [] })
+      const backoff = () => button(wrapper, 'backoff').text()
+      const row = () => wrapper.get('[data-test="items"] li').text()
+      expect(backoff()).toContain('retrying in 10 s…')
+
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(backoff()).toContain('retrying in 7 s…')
+      expect(backoff()).not.toContain('10 s')
+      expect(row()).toContain('retrying in 7 s…')
+
+      await vi.advanceTimersByTimeAsync(20000)
+      expect(backoff()).toContain('retrying in 0 s…')
+
+      queue.items[0].status = 'downloading'
+      queue.items[0].message = 'Downloading original…'
+      await flushPromises()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('lists existing pools and offers a new pool by name', async () => {
     const queue = fakeQueue()
     const wrapper = await mountCard({ queue, selectedRemote: [remotePost('danbooru', 1)] })

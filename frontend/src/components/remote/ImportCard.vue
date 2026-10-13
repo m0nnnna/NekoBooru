@@ -107,7 +107,7 @@
 
     <div v-if="backoffItem" class="import-backoff" role="status" data-test="backoff">
       <strong>{{ backoffTitle }}</strong>
-      <span>{{ backoffItem.message }}</span>
+      <span>{{ itemMessage(backoffItem) }}</span>
     </div>
 
     <p v-if="poolSummary" class="batch-note" :class="{ 'import-warning': poolResult?.error }" data-test="pool-result">
@@ -138,7 +138,7 @@
             <span class="import-pill">{{ statusLabel(item) }}</span>
           </span>
           <span class="import-item-message">
-            {{ item.message }}
+            {{ itemMessage(item) }}
             <router-link
               v-if="item.postId && FINISHED.has(item.status)"
               class="import-item-link"
@@ -152,7 +152,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, unref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, unref, watch } from 'vue'
 import { api } from '../../api/client'
 import BatchCard from '../batch/BatchCard.vue'
 import TagInput from '../TagInput.vue'
@@ -197,6 +197,10 @@ const STATUS_LABELS = {
   failed: 'Failed',
   cancelled: 'Cancelled',
 }
+
+// The queue's "retrying in N s…", counted down from the item's retryAt.
+const RETRY_IN = /retrying in \d+ s…/
+const COUNTDOWN_TICK_MS = 1000
 
 const pools = reactive([])
 const poolsState = reactive({ error: '' })
@@ -246,6 +250,32 @@ const backoffTitle = computed(() => {
     ? `Rate limited · attempt ${attempt} of ${RETRY_DELAYS_MS.length}`
     : 'Waiting to retry'
 })
+
+// A clock that ticks only while some item is waiting to retry.
+const now = ref(Date.now())
+let countdownTimer = null
+const counting = computed(() => items.value.some((item) => item.status === 'retrying' && Number.isFinite(item.retryAt)))
+
+function stopCountdown() {
+  clearInterval(countdownTimer)
+  countdownTimer = null
+}
+
+watch(counting, (active) => {
+  stopCountdown()
+  if (!active) return
+  now.value = Date.now()
+  countdownTimer = setInterval(() => { now.value = Date.now() }, COUNTDOWN_TICK_MS)
+}, { immediate: true })
+
+onBeforeUnmount(stopCountdown)
+
+function itemMessage(item) {
+  const message = item?.message || ''
+  if (item?.status !== 'retrying' || !Number.isFinite(item.retryAt)) return message
+  const live = `retrying in ${Math.max(0, Math.ceil((item.retryAt - now.value) / 1000))} s…`
+  return RETRY_IN.test(message) ? message.replace(RETRY_IN, live) : `${message} · ${live}`
+}
 
 const poolSummary = computed(() => {
   const result = poolResult.value

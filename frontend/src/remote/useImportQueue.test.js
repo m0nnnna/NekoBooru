@@ -205,6 +205,28 @@ describe('useImportQueue', () => {
     expect(queue.progress.value).toEqual({ done: 1, total: 2, failed: 1, skipped: 0 })
   })
 
+  it('stamps retryAt when an item starts waiting and clears it when it moves on', async () => {
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+    let calls = 0
+    const api = fakeApi({
+      fetchFromUrl: vi.fn(async () => {
+        calls += 1
+        if (calls === 1) throw httpError(400, 'Failed to fetch URL: HTTP 429')
+        return { token: 'ok' }
+      }),
+    })
+    const queue = useImportQueue({ api, inLibrary: notInLibrary() })
+    queue.enqueue([remotePost('danbooru', 1)])
+    expect(queue.items[0].retryAt).toBeNull()
+    const run = queue.start()
+    await settle()
+
+    expect(queue.items[0]).toMatchObject({ status: 'retrying', retryAt: Date.parse('2026-01-01T00:00:10Z') })
+    await vi.advanceTimersByTimeAsync(10000)
+    await run
+    expect(queue.items[0]).toMatchObject({ status: 'done', retryAt: null })
+  })
+
   it('retries after a 503 and succeeds; an unrelated error fails without retrying', async () => {
     let calls = 0
     const api = fakeApi({
@@ -633,6 +655,7 @@ describe('useImportQueue', () => {
       postId: null,
       duplicate: false,
       attempt: 0,
+      retryAt: null,
     })
     expect(queue.items[1].message).toBe('No original file · hidden from logged-out visitors')
     expect(queue.items[2].message).toBe('No original file · deleted on the site')

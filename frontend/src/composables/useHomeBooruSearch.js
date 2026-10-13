@@ -181,6 +181,28 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
     if (next) viewerKey.value = next.key
   }
 
+  // --- Posts imported from a booru (4.4) ---
+  // An imported post is usually not on the current library page; the batch
+  // tools resolve selected library posts through libraryPostById().
+  const importedPosts = reactive(new Map())
+
+  function libraryPostById(id) {
+    return (browser.posts.value || []).find((post) => post.id === id) || importedPosts.get(id) || null
+  }
+
+  // `prepend`: a newly created post, shown at the top of page 1 of a
+  // newest-first library listing so the user sees it arrive.
+  function rememberLibraryPost(post, { prepend = false } = {}) {
+    const id = Number(post?.id)
+    if (!id) return
+    importedPosts.set(id, post)
+    const posts = browser.posts.value || []
+    const newestFirst = browser.sortBy.value === 'date' && browser.sortOrder.value === 'desc' && browser.page.value === 1
+    if (prepend && libraryShown.value && newestFirst && !posts.some((entry) => entry.id === id)) {
+      browser.posts.value = [post, ...posts]
+    }
+  }
+
   const resultCountLabel = computed(() => {
     if (libraryShown.value) return `${browser.total.value} posts found`
     const count = results.order.value.reduce((sum, site) => sum + (results.sections[site]?.posts.length || 0), 0)
@@ -207,6 +229,10 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
     loadMoreAll: () => results.loadMoreAll(),
     retry: (site) => results.retry(site),
     postByKey: (key) => results.postByKey(key),
+    markImported: (key, postId) => results.markImported(key, postId),
+    importedPosts,
+    libraryPostById,
+    rememberLibraryPost,
     viewerKey,
     viewerPost,
     viewerHasPrev: computed(() => viewerIndex.value > 0),

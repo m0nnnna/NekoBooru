@@ -71,4 +71,16 @@ describe('useMixedSelection', () => {
     expect(selection.replaceKey('danbooru:1', 'nekobooru:5')).toBe(false)
     expect(selection.selectedLibraryIds.value).toEqual([42])
   })
+
+  it('resolves an imported library post that is not on the page for the batch tools', () => {
+    const entries = ref([...library, ...danbooru])
+    const imported = new Map([[42, { id: 42, tags: ['danbooru_7'] }]])
+    const selection = useMixedSelection(entries, { libraryPostById: (id) => imported.get(id) || null })
+    selection.onLibraryToggle(2)
+    selection.toggle({ key: 'danbooru:7' })
+    selection.replaceKey('danbooru:7', 'nekobooru:42')
+    expect(selection.selectedKeys.value).toEqual(['nekobooru:2', 'nekobooru:42'])
+    expect(selection.librarySelection.selectedIds.value).toEqual([2, 42])
+    expect(selection.librarySelection.selectedItems.value).toEqual([{ id: 2 }, { id: 42, tags: ['danbooru_7'] }])
+  })
 })

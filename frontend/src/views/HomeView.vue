@@ -62,6 +62,7 @@
       :select-mode="selectMode"
       :selected-keys="selectedKeySet"
       :selected-library-ids="selectedLibraryIds"
+      importable
       @page-change="onPageChange"
       @toggle="selection.toggle"
       @hold-select="selection.holdSelect"
@@ -69,6 +70,7 @@
       @library-toggle="onLibraryToggle"
       @library-hold="onLibraryHold"
       @library-hover="onLibraryHover"
+      @import="importer.importFromViewer"
     />
     <template v-else>
       <Pagination
@@ -111,6 +113,9 @@
       @done="toggleSelectMode"
       @cancel-job="cancelBatchAutoTag"
     >
+      <template v-if="counts.remote > 0 || importer.queue.items.length" #remote>
+        <ImportCard :queue="importer.importQueue" :selected-remote="selectedRemotePosts" />
+      </template>
       <AiTagCard :ai="ai" :selected-count="selectedLibraryIds.length" :busy="busy" />
       <PostInspectorCard
         :post="inspectedLibraryPost"
@@ -147,6 +152,7 @@ import { computed, onMounted, toRef } from 'vue'
 import PostGrid from '../components/PostGrid.vue'
 import Pagination from '../components/Pagination.vue'
 import BooruResults from '../components/remote/BooruResults.vue'
+import ImportCard from '../components/remote/ImportCard.vue'
 import BatchPanel from '../components/batch/BatchPanel.vue'
 import AiTagCard from '../components/batch/AiTagCard.vue'
 import PostInspectorCard from '../components/batch/PostInspectorCard.vue'
@@ -158,6 +164,7 @@ import MediaOptimizeDialogs from '../components/batch/MediaOptimizeDialogs.vue'
 import { PER_PAGE_DEFAULT, usePostBrowser } from '../composables/usePostBrowser'
 import { useMixedSelection } from '../composables/useMixedSelection'
 import { useHomeBooruSearch } from '../composables/useHomeBooruSearch'
+import { useHomeImport } from '../composables/useHomeImport'
 import { useBatchDock } from '../composables/useBatchDock'
 import { useBatchOperations } from '../composables/useBatchOperations'
 import { useBatchAiTagging } from '../composables/useBatchAiTagging'
@@ -191,19 +198,17 @@ const booru = useHomeBooruSearch({ browser })
 
 // --- Multi-select editing mode ---
 // String keys across library and booru cards ('nekobooru:42', 'danbooru:7').
-// The batch tools get `librarySelection`: library ids and posts only.
-//
-// Seam for the Import card (P4b): mount it in BatchPanel's #remote slot, fed
-// `selection.selectedRemotePosts` (keys: `selection.selectedRemoteKeys`,
-// count: `counts.remote`). After an import, `selection.replaceKey(key,
-// libraryKey(postId))` and `booru.results.markImported(key, postId)`. The
-// viewer's Import button appears with BooruResults' `importable` prop and
-// arrives as its `import` event.
-const selection = useMixedSelection(toRef(booru, 'entries'), { postByKey: booru.postByKey })
+// The batch tools get `librarySelection`: library ids and posts only, plus
+// posts imported from a booru while selected (booru.libraryPostById).
+const selection = useMixedSelection(toRef(booru, 'entries'), {
+  postByKey: booru.postByKey,
+  libraryPostById: booru.libraryPostById,
+})
 const {
   selectMode,
   selectedKeySet,
   selectedLibraryIds,
+  selectedRemotePosts,
   counts,
   inspectedLibraryPost,
   librarySelection,
@@ -235,6 +240,9 @@ const ai = useBatchAiTagging({ selection: librarySelection, operations })
 const edits = useBatchPostEdits({ selection: librarySelection, operations, browser })
 const optimizer = useBatchMediaOptimize({ selection: librarySelection, operations, browser })
 const { inspectedSemanticAnalysis, inspectedSemanticLoading } = usePostSemanticAnalysis(inspectedLibraryPost)
+
+// Booru imports (Import card and the viewer's Import button), section 4.4.
+const importer = useHomeImport({ booru, selection, showMessage: operations.showMessage })
 
 onMounted(() => {
   browser.applyInitialRoute()

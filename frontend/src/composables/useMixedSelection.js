@@ -10,8 +10,9 @@ import { isRemoteKey, libraryIdFromKey, libraryKey } from '../remote/types.js'
 // `entries` is a computed list of { key, group, item } in grid order. `group`
 // bounds shift-click ranges (a range never crosses sections; a shift-click in
 // another section is a plain toggle). `postByKey` resolves selected booru
-// posts that are no longer on screen.
-export function useMixedSelection(entries, { postByKey = () => null } = {}) {
+// posts that are no longer on screen; `libraryPostById` resolves selected
+// library posts that are not on the page, such as one just imported (P4b).
+export function useMixedSelection(entries, { postByKey = () => null, libraryPostById = () => null } = {}) {
   const base = useSelection(entries, { keyOf: (entry) => entry.key })
   const { selectMode, selectedIds: selectedKeys, lastSelectedId, hoveredId } = base
 
@@ -20,9 +21,19 @@ export function useMixedSelection(entries, { postByKey = () => null } = {}) {
 
   // What the existing batch tools act on: library posts only.
   const selectedLibraryIds = computed(() => selectedKeys.value.map(libraryIdFromKey).filter((id) => id !== null))
-  const selectedLibraryPosts = computed(() => base.selectedItems.value
-    .filter((entry) => !isRemoteKey(entry.key))
-    .map((entry) => entry.item))
+  // Page posts in grid order, then selected library posts that are off the
+  // page but known (imported from a booru while selected).
+  const selectedLibraryPosts = computed(() => {
+    const onPage = base.selectedItems.value
+      .filter((entry) => !isRemoteKey(entry.key))
+      .map((entry) => entry.item)
+    const seen = new Set(onPage.map((post) => post?.id))
+    const offPage = selectedLibraryIds.value
+      .filter((id) => !seen.has(id))
+      .map((id) => libraryPostById(id))
+      .filter(Boolean)
+    return offPage.length ? [...onPage, ...offPage] : onPage
+  })
 
   // What the import card acts on (P4b), in selection order.
   const selectedRemoteKeys = computed(() => selectedKeys.value.filter(isRemoteKey))

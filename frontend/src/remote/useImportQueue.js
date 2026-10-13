@@ -229,7 +229,11 @@ export function useImportQueue({
   // Aborted by cancel() so a slow category lookup does not hold the queue.
   let lookupAbort = null
 
-  const setStatus = (item, status, message) => Object.assign(item, { status, message })
+  const setStatus = (item, status, message) => Object.assign(item, {
+    status,
+    message,
+    ...(status === 'retrying' ? {} : { retryAt: null }),
+  })
 
   function pause(ms, generation) {
     if (generation !== cancelGeneration) return Promise.reject(new ImportCancelled())
@@ -264,6 +268,8 @@ export function useImportQueue({
         postId: null,
         duplicate: false,
         attempt: 0,
+        // When a 'retrying' item tries again (ms epoch), for a live countdown.
+        retryAt: null,
       })
       added.push(items[items.length - 1])
     }
@@ -407,12 +413,14 @@ export function useImportQueue({
           const delay = throttleWaitMs(error, scheduled)
           attempt += 1
           item.attempt = attempt
+          item.retryAt = Date.now() + delay
           setStatus(item, 'retrying', `${label} asked to slow down · retrying in ${Math.round(delay / 1000)} s…`)
           await pause(delay, generation)
           continue
         }
         if (phase === 'downloading' && error?.status === 409 && !busyRetried) {
           busyRetried = true
+          item.retryAt = Date.now() + BUSY_RETRY_MS
           setStatus(item, 'retrying', 'This file is already downloading · retrying in 5 s…')
           await pause(BUSY_RETRY_MS, generation)
           continue
@@ -471,6 +479,7 @@ export function useImportQueue({
     item.attempt = 0
     item.duplicate = false
     item.postId = null
+    item.retryAt = null
     try {
       setStatus(item, 'checking', 'Checking the library…')
       const existingId = await lookupExisting(item.key)
