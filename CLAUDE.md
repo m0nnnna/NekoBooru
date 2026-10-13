@@ -62,6 +62,8 @@ If `--ff-only` is refused, main moved: go back to the worktree, rebase again, re
 
 **Definition of done:** the change is on `main`, `main` builds, and `main`'s tests pass. A green branch is not done. Report the merged commit SHA. If integration is blocked, say so explicitly and leave the branch intact rather than reporting success.
 
+**Running a wave of lanes efficiently** (few fat lanes, claim-then-dispatch, brief and report shapes, one batched landing): [docs/SUBAGENT_RUNBOOK.md](docs/SUBAGENT_RUNBOOK.md). Read it before orchestrating more than two subagents.
+
 **Serialize the conflict-prone paths.** `frontend/dist/` is committed and built with content-hashed filenames, so two agents that both touch `frontend/src/` produce guaranteed, unmergeable conflicts. Give frontend work to a single agent, or have agents change only `frontend/src/` and rebuild `dist` once at integration time on `main`. The same applies to any single large file several agents want — most of all [backend/app/services/auto_tagger.py](backend/app/services/auto_tagger.py).
 
 ### 3. Rebuild the frontend when you change it
