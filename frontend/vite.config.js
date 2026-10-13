@@ -3,8 +3,8 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig(({ mode }) => {
   // Backend address for the dev /api proxy. Defaults to :8772; override by
-  // setting VITE_BACKEND (env var or a frontend/.env.local file) — useful when
-  // another local env file if needed. Must match the backend's NEKO_PORT.
+  // setting VITE_BACKEND (env var or a gitignored frontend/.env.local or
+  // .env.development.local file). Must match the backend's NEKO_PORT.
   const env = loadEnv(mode, process.cwd(), '')
   const backend = env.VITE_BACKEND || 'http://127.0.0.1:8772'
   const frontendPort = Number(env.VITE_FRONTEND_PORT || env.NEKO_FRONTEND_PORT || 5173)
