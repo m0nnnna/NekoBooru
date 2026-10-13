@@ -228,7 +228,7 @@ export function useSettingsAiModels({ autoTag, models }) {
       qwenEnabled: false,
       semanticPoliticalEnabled: false,
       ocrEnabled: true,
-      whisperEnabled: !isAnime ? true : true,
+      whisperEnabled: true,
     }
   }
 

@@ -37,7 +37,6 @@ export function useSettingsRuntime({ autoTag }) {
     success: true,
     message: '',
   })
-  const aiSetupTarget = ref('cuda')
   const aiSetupCopied = ref(false)
   const recheckingRuntime = ref(false)
   let aiRuntimePollTimer = null
