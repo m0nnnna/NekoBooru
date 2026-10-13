@@ -43,6 +43,11 @@ export const tagsApi = {
     return request(`/tags/${encodeURIComponent(name)}/sankaku-name`, { method: 'POST' })
   },
 
+  // e621's name for a tag (yui_hirasawa for hirasawa_yui), same contract.
+  async resolveE621Name(name) {
+    return request(`/tags/${encodeURIComponent(name)}/e621-name`, { method: 'POST' })
+  },
+
   async deleteTag(name) {
     return request(`/tags/${encodeURIComponent(name)}`, { method: 'DELETE' })
   },

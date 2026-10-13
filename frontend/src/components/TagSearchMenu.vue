@@ -57,6 +57,16 @@
         <a
           class="tag-search-option"
           role="menuitem"
+          :href="e621Url"
+          target="_blank"
+          rel="noopener noreferrer"
+          @click="searchE621($event)"
+        >
+          Search on e621 <span aria-hidden="true">&#8599;</span>
+        </a>
+        <a
+          class="tag-search-option"
+          role="menuitem"
           :href="sankakuChanUrl"
           target="_blank"
           rel="noopener noreferrer"
@@ -83,6 +93,7 @@
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { SANKAKU_APP, SANKAKU_CHAN, booruSearchTag, sankakuSearchUrl } from '../utils/booruSearchTag.js'
 import { openSankakuSearch } from '../utils/sankakuSearch.js'
+import { e621SearchUrl, openE621Search } from '../utils/e621Search.js'
 
 const props = defineProps({
   tag: {
@@ -102,6 +113,11 @@ const props = defineProps({
   // Sankaku's own spelling when it differs (honoka_(dead_or_alive) for the
   // Danbooru-spelled honoka_doa); only the Sankaku searches use it.
   sankakuName: {
+    type: String,
+    default: '',
+  },
+  // e621's spelling when it differs (yui_hirasawa for hirasawa_yui).
+  e621Name: {
     type: String,
     default: '',
   },
@@ -139,6 +155,8 @@ const resolvedSankakuName = ref('')
 const sankakuTag = computed(() => props.sankakuName || resolvedSankakuName.value || externalTag.value)
 const sankakuChanUrl = computed(() => sankakuSearchUrl(sankakuTag.value, SANKAKU_CHAN))
 const sankakuAppUrl = computed(() => sankakuSearchUrl(sankakuTag.value, SANKAKU_APP))
+const resolvedE621Name = ref('')
+const e621Url = computed(() => e621SearchUrl(props.e621Name || resolvedE621Name.value || externalTag.value))
 
 function booruSearchUrl(origin, tag) {
   return `${origin}/index.php?page=post&s=list&tags=${encodeURIComponent(tag)}`
@@ -152,6 +170,16 @@ async function searchSankaku(event, origin) {
     sankakuName: props.sankakuName || resolvedSankakuName.value,
   }, origin)
   if (name) resolvedSankakuName.value = name
+}
+
+async function searchE621(event) {
+  closeMenu()
+  const name = await openE621Search(event, {
+    name: props.tag,
+    displayName: props.displayName,
+    e621Name: props.e621Name || resolvedE621Name.value,
+  })
+  if (name) resolvedE621Name.value = name
 }
 
 function updatePosition() {
