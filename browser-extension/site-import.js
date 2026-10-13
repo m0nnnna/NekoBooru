@@ -12,7 +12,12 @@ const els = {
 }
 let instanceUrl = ''
 const siteImportCore = globalThis.NekoBooruSiteImport
-const SITE_LABELS = { gelbooru: 'Gelbooru', safebooru: 'Safebooru', danbooru: 'Danbooru', sankaku: 'Sankaku' }
+const SITE_LABELS = { gelbooru: 'Gelbooru', safebooru: 'Safebooru', danbooru: 'Danbooru', danbooru_search: 'Danbooru', sankaku: 'Sankaku' }
+// A Danbooru search page imports one post after another, never in parallel,
+// with a pause between downloads so a big page cannot trip Danbooru's limits.
+// A 429/503 backs off and retries rather than failing the post.
+const BATCH_DOWNLOAD_GAP_MS = 1500
+const BATCH_RETRY_DELAYS_MS = [10000, 30000, 60000]
 
 init()
 
@@ -135,17 +140,23 @@ async function importAll(job) {
   const allMedia = Array.isArray(job.media) ? job.media : []
   if (!allMedia.length) throw new Error('The source returned no original-resolution files.')
   els.title.textContent = job.title || 'Site import'
+  const batch = job.kind === 'danbooru_search'
+  const unavailable = Array.isArray(job.unavailable) ? job.unavailable : []
   els.detail.textContent = job.kind === 'pixiv'
     ? (job.isUgoira
       ? 'Original Pixiv animation · MP4 conversion · Pixiv tags included · AI tagging enabled'
       : `${allMedia.length} original Pixiv page${allMedia.length === 1 ? '' : 's'} · Choose pages below · Pixiv tags included · AI tagging enabled`)
-    : `Original ${SITE_LABELS[job.kind] || 'Gelbooru'} file · source tags included · AI disabled`
+    : batch
+      ? `${allMedia.length} original Danbooru file${allMedia.length === 1 ? '' : 's'} · one at a time · posts already in NekoBooru are not downloaded again · AI disabled`
+        + (unavailable.length ? ` · ${unavailable.length} withheld by Danbooru (log in, or Gold-only)` : '')
+      : `Original ${SITE_LABELS[job.kind] || 'Gelbooru'} file · source tags included · AI disabled`
   renderItems(allMedia, job.kind === 'pixiv')
 
   const media = job.kind === 'pixiv' ? await choosePixivMedia(allMedia) : allMedia
 
   const results = []
   let failed = 0
+  let downloadedLast = false
   for (let index = 0; index < media.length; index += 1) {
     const item = media[index]
     const rowIndex = Number.isInteger(item.index) ? item.index : allMedia.indexOf(item)
@@ -154,12 +165,25 @@ async function importAll(job) {
       : `Importing ${index + 1} of ${media.length} at original resolution…`, 'working')
     setItem(rowIndex, 'working', item.type === 'ugoira' ? 'Converting to MP4…' : 'Downloading original…')
     try {
-      const result = await importOne(job, item, (text) => setItem(rowIndex, 'working', text))
-      results.push(result)
-      const savedTags = job.kind === 'pixiv' ? 'AI tags saved' : 'source tags saved'
-      setItem(rowIndex, 'done', result.duplicate
-        ? `Already existed · ${savedTags} · post #${result.id}`
-        : `Imported · ${savedTags} · post #${result.id}`)
+      const existing = batch ? await existingImportedPost(item) : null
+      if (existing) {
+        setItem(rowIndex, 'working', 'Already in NekoBooru · merging tags…')
+        const merged = await mergeDuplicate(job, { postId: existing.id, post: existing }, item)
+        results.push(merged)
+        setItem(rowIndex, 'done', `Already existed · not downloaded · tags merged · post #${merged.id}`)
+        downloadedLast = false
+      } else {
+        if (batch && downloadedLast) await sleep(BATCH_DOWNLOAD_GAP_MS)
+        const result = batch
+          ? await importWithBackoff(job, item, rowIndex)
+          : await importOne(job, item, (text) => setItem(rowIndex, 'working', text))
+        downloadedLast = true
+        results.push(result)
+        const savedTags = job.kind === 'pixiv' ? 'AI tags saved' : 'source tags saved'
+        setItem(rowIndex, 'done', result.duplicate
+          ? `Already existed · ${savedTags} · post #${result.id}`
+          : `Imported · ${savedTags} · post #${result.id}`)
+      }
     } catch (error) {
       failed += 1
       setItem(rowIndex, 'failed', error?.message || String(error))
@@ -167,7 +191,7 @@ async function importAll(job) {
     els.progressBar.style.width = `${Math.round(((index + 1) / media.length) * 100)}%`
   }
 
-  if (results.length) {
+  if (results.length && job.groupTag) {
     const query = encodeURIComponent(job.groupTag || '')
     els.openGroup.href = `${instanceUrl}/?q=${query}`
     els.openGroup.classList.remove('hidden')
@@ -178,6 +202,40 @@ async function importAll(job) {
   } else {
     setStatus(`Finished: ${results.length} original file${results.length === 1 ? '' : 's'} imported or already present.`, 'success')
     notify('NekoBooru site import complete', `${results.length} original file${results.length === 1 ? '' : 's'} processed.`)
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// A post an earlier import already brought in, found by the danbooru_<id> tag
+// every Danbooru import carries. Only an exact tag match counts: semantic
+// search may widen the query, and a near miss must never skip a download.
+async function existingImportedPost(item) {
+  const idTag = `danbooru_${item.postId}`
+  try {
+    const data = await api(`${instanceUrl}/api/posts?${new URLSearchParams({ q: idTag, limit: '5' })}`)
+    return (data.results || []).find((post) => (post.tags || []).includes(idTag)) || null
+  } catch {
+    return null
+  }
+}
+
+// Danbooru (or its CDN) saying "slow down" is not a failed post: wait and try
+// the same file again, longer each time.
+async function importWithBackoff(job, item, rowIndex) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await importOne(job, item, (text) => setItem(rowIndex, 'working', text))
+    } catch (error) {
+      const message = error?.message || String(error)
+      const delay = BATCH_RETRY_DELAYS_MS[attempt]
+      if (!/HTTP (429|503)\b/.test(message) || delay === undefined) throw error
+      setItem(rowIndex, 'working', `Danbooru asked to slow down · retrying in ${Math.round(delay / 1000)} s…`)
+      setStatus(`Danbooru is rate limiting; waiting ${Math.round(delay / 1000)} s before retrying.`, 'working')
+      await sleep(delay)
+    }
   }
 }
 
@@ -329,7 +387,7 @@ function renderItems(media, selectable = false) {
     const description = document.createElement('span')
     description.textContent = item.type === 'ugoira'
       ? `Animation${dimensions} · ${item.frameCount || item.frames?.length || 0} frames`
-      : `Page ${mediaIndex + 1}${dimensions}`
+      : `${item.label || `Page ${mediaIndex + 1}`}${dimensions}`
     if (selectable) {
       const label = document.createElement('label')
       const input = document.createElement('input')

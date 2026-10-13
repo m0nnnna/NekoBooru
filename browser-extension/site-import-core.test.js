@@ -488,3 +488,44 @@ assert.equal(core.selectDanbooruSectionsAnchor(fakeSections([['#x', ' Recommende
 assert.equal(core.selectDanbooruSectionsAnchor(fakeSections([['#comments', 'Comments']])), null)
 assert.equal(core.selectDanbooruSectionsAnchor({ querySelectorAll: () => [] }), null)
 console.log('danbooru sections placement tests passed')
+
+// Danbooru search pages: which pages count, and the batch they become.
+assert.deepEqual(core.danbooruSearchPage('https://danbooru.donmai.us/posts?tags=templus&page=2'), { tags: 'templus', page: '2' })
+assert.deepEqual(core.danbooruSearchPage('https://danbooru.donmai.us/'), { tags: '', page: '1' })
+assert.equal(core.danbooruSearchPage('https://danbooru.donmai.us/posts/12367727'), null)
+assert.equal(core.danbooruSearchPage('https://danbooru.donmai.us/artists/1'), null)
+assert.equal(core.danbooruSearchPage('https://danbooru.donmai.us.evil.example/posts?tags=x'), null)
+assert.equal(core.danbooruSearchGroupQuery('templus rating:g -comic order:score ~a azur_lane'), 'templus azur_lane')
+
+const searchPosts = [
+  { ...danbooruPost, id: 2, file_url: 'https://cdn.donmai.us/original/aa/bb/two.png' },
+  { ...danbooruPost, id: 1, file_url: 'https://cdn.donmai.us/original/aa/bb/one.png' },
+  { ...danbooruPost, id: 3, file_url: undefined },
+]
+const searchJob = core.danbooruSearchImportJob(searchPosts, ['1', '2', '3', '4'], 'https://danbooru.donmai.us/posts?tags=templus&page=2')
+assert.equal(searchJob.kind, 'danbooru_search')
+assert.equal(searchJob.postId, 'templus|2')
+assert.equal(searchJob.groupTag, 'templus')
+assert.deepEqual(searchJob.media.map((item) => item.postId), ['1', '2'])
+assert.deepEqual(searchJob.media.map((item) => item.index), [0, 1])
+assert.equal(searchJob.media[0].url, 'https://cdn.donmai.us/original/aa/bb/one.png')
+assert.ok(searchJob.media[0].tags.includes('danbooru_1'))
+assert.deepEqual(searchJob.unavailable.map((entry) => entry.postId), ['3', '4'])
+assert.match(searchJob.unavailable[0].reason, /Log in to Danbooru/)
+
+const cleanSearch = core.sanitizeDanbooruSearchImportJob(searchJob, 'https://danbooru.donmai.us/posts?tags=templus&page=2')
+assert.deepEqual(cleanSearch.media.map((item) => item.postId), ['1', '2'])
+assert.equal(cleanSearch.media[1].source, 'https://danbooru.donmai.us/posts/2')
+assert.equal(cleanSearch.media[1].tagCategories.danbooru_2, 'meta')
+assert.throws(() => core.sanitizeDanbooruSearchImportJob(searchJob, 'https://danbooru.donmai.us/posts?tags=other'), /mismatch/)
+const evilSearch = structuredClone(searchJob)
+evilSearch.media[0].url = 'https://evil.example/original/x.png'
+assert.throws(() => core.sanitizeDanbooruSearchImportJob(evilSearch, 'https://danbooru.donmai.us/posts?tags=templus&page=2'), /trusted original/)
+
+// Placement right of "Posts | Artist".
+const artistLink = { id: 'show-excerpt-link', parentElement: { id: 'li' } }
+const postsLink = { id: 'show-posts-link', parentElement: { id: 'li' } }
+assert.equal(core.selectDanbooruSearchAnchor({ querySelector: (s) => (s.endsWith('#show-excerpt-link') ? artistLink : postsLink) }).after, artistLink)
+assert.equal(core.selectDanbooruSearchAnchor({ querySelector: (s) => (s.endsWith('#show-posts-link') ? postsLink : null) }).after, postsLink)
+assert.equal(core.selectDanbooruSearchAnchor({ querySelector: () => null }), null)
+console.log('danbooru search-page tests passed')

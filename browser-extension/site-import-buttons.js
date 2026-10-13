@@ -146,6 +146,30 @@
     return core.danbooruImportJob(await response.json(), location.href)
   }
 
+  // Every post the search page is showing, in its order. Posts the reader's
+  // blacklist hides stay out. One /posts.json call fetches them all, so a page
+  // costs Danbooru's API a single request however many posts it holds.
+  function danbooruSearchPostIds() {
+    const previews = document.querySelectorAll('#posts [data-id], #posts article[id^="post_"]')
+    const ids = []
+    for (const preview of previews) {
+      if (preview.classList.contains('blacklisted-active') || preview.closest('.blacklisted-active')) continue
+      const id = preview.dataset.id || preview.id.replace(/^post_/, '')
+      if (/^\d+$/.test(id) && !ids.includes(id)) ids.push(id)
+    }
+    return ids
+  }
+
+  async function danbooruSearchJob() {
+    if (!core.danbooruSearchPage(location.href)) throw new Error('Open a Danbooru search page first.')
+    const ids = danbooruSearchPostIds().slice(0, 200)
+    if (!ids.length) throw new Error('No posts on this page to import.')
+    const query = new URLSearchParams({ tags: `id:${ids.join(',')}`, limit: String(ids.length) })
+    const response = await fetch(`/posts.json?${query}`, { credentials: 'include', cache: 'no-store' })
+    if (!response.ok) throw new Error(`Danbooru post lookup failed (HTTP ${response.status}).`)
+    return core.danbooruSearchImportJob(await response.json(), ids, location.href)
+  }
+
   function booruJob() {
     if (DANBOORU_HOST) return danbooruJob()
     return GELBOORU_HOST ? gelbooruJob() : safebooruJob()
@@ -268,7 +292,9 @@
     button.setAttribute('aria-label', button.title)
     try {
       const kind = button.dataset.nekobooruSiteImport
-      const job = kind === 'pixiv' ? await pixivJob() : (kind === 'sankaku' ? await sankakuJob() : await booruJob())
+      const job = kind === 'pixiv'
+        ? await pixivJob()
+        : (kind === 'sankaku' ? await sankakuJob() : (kind === 'danbooru_search' ? await danbooruSearchJob() : await booruJob()))
       const response = await chrome.runtime.sendMessage({ type: 'nekobooru-open-site-import', job })
       if (!response?.ok) throw new Error(response?.error || 'The NekoBooru import window could not be opened.')
       if (label) label.textContent = response.alreadyOpen ? 'Already importing' : 'Import opened'
@@ -350,8 +376,24 @@
     else anchor.list.appendChild(item)
   }
 
+  // Danbooru search pages: "NekoBooru" right of "Posts | Artist", importing
+  // every post on the page.
+  function injectDanbooruSearchButton() {
+    if (!core.danbooruSearchPage(location.href)) return
+    if (document.querySelector('[data-nekobooru-site-import="danbooru_search"]')) return
+    const anchor = core.selectDanbooruSearchAnchor(document)
+    if (!anchor) return
+    const link = createInlineLink('NekoBooru', 'danbooru_search')
+    link.title = 'Import the original file of every post on this page to NekoBooru'
+    link.setAttribute('aria-label', link.title)
+    anchor.after.insertAdjacentElement('afterend', link)
+  }
+
   function injectBooruButton() {
-    if (DANBOORU_HOST) return injectDanbooruButton()
+    if (DANBOORU_HOST) {
+      injectDanbooruSearchButton()
+      return injectDanbooruButton()
+    }
     const postId = GELBOORU_HOST ? core.gelbooruPostId(location.href) : core.safebooruPostId(location.href)
     if (!postId) return
     if (document.querySelector(`[data-nekobooru-site-import="${BOORU_KIND}"]`)) return

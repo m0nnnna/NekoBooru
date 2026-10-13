@@ -102,7 +102,13 @@ included; ugoira, which Danbooru stores as a zip of frames, comes as Danbooru's
 webm) with Danbooru's artist / copyright / character / general / meta
 categories, its rating, and a `danbooru_<id>` tag. Tags with punctuation that
 NekoBooru flattens (`seitokai_ni_mo_ana_wa_aru!`) keep their spelling as the
-display name. On classic Sankaku Channel post pages, a cat icon in the
+display name. On a Danbooru search page, **NekoBooru** sits right of
+**Posts | Artist** and imports every post the page shows (blacklisted ones
+excepted) the same way. One `/posts.json?tags=id:…` request fetches the whole
+page, files download one at a time with a pause between them, a 429/503 backs
+off and retries, and posts an earlier import already brought in (found by
+their `danbooru_<id>` tag) are not downloaded again - their tags are merged
+instead. On classic Sankaku Channel post pages, a cat icon in the
 neighbouring icons' colour sits right of the flag under the post, and
 **Import to NekoBooru** appears in the sidebar's Actions list, right under
 **Find similar**. On `sankaku.app` the cat sits immediately left of the heart

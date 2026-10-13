@@ -660,6 +660,106 @@
     }
   }
 
+  // A Danbooru search/listing page (/posts?tags=...&page=..., or the front
+  // page, which lists posts too) -> its query, or null for any other page.
+  function danbooruSearchPage(raw) {
+    try {
+      const url = new URL(raw)
+      if (!isDanbooruHost(url.hostname)) return null
+      if (url.pathname !== '/' && !/^\/posts\/?$/.test(url.pathname)) return null
+      const tags = String(url.searchParams.get('tags') || '').trim().replace(/\s+/g, ' ').slice(0, 500)
+      const page = String(url.searchParams.get('page') || '1').slice(0, 20)
+      return { tags, page }
+    } catch {
+      return null
+    }
+  }
+
+  // The plain tags of a Danbooru query, as a NekoBooru search for the batch:
+  // metatags (order:score, rating:g), negations and OR terms have no
+  // NekoBooru meaning here, so they are left out.
+  function danbooruSearchGroupQuery(tags) {
+    return String(tags || '')
+      .split(/\s+/)
+      .filter((tag) => tag && !tag.includes(':') && !/^[-~]/.test(tag) && !tag.includes('*'))
+      .map((tag) => normalizeTag(tag))
+      .filter(Boolean)
+      .slice(0, 6)
+      .join(' ')
+  }
+
+  const DANBOORU_SEARCH_MAX_POSTS = 200
+
+  // Every post shown on a Danbooru search page -> one job of original files,
+  // in page order. Posts whose original Danbooru withholds (Gold-only while
+  // logged out, deleted, banned) are listed as unavailable rather than failing
+  // the batch.
+  function danbooruSearchImportJob(posts, ids, pageUrl) {
+    const search = danbooruSearchPage(pageUrl)
+    if (!search) throw new Error('Open a Danbooru search page first.')
+    const byId = new Map((Array.isArray(posts) ? posts : []).map((post) => [String(post?.id || ''), post]))
+    const media = []
+    const unavailable = []
+    for (const id of (Array.isArray(ids) ? ids : []).map(String).filter((id) => /^\d+$/.test(id)).slice(0, DANBOORU_SEARCH_MAX_POSTS)) {
+      const post = byId.get(id)
+      try {
+        if (!post) throw new Error('Danbooru did not return this post.')
+        const item = danbooruImportJob(post, `https://danbooru.donmai.us/posts/${id}`).media[0]
+        media.push({ ...item, postId: id, label: `Danbooru #${id}`, index: media.length })
+      } catch (error) {
+        unavailable.push({ postId: id, reason: error?.message || String(error) })
+      }
+    }
+    const pageLabel = search.page && search.page !== '1' ? ` · page ${search.page}` : ''
+    return {
+      kind: 'danbooru_search',
+      postId: `${search.tags}|${search.page}`,
+      title: `Danbooru: ${search.tags || 'latest posts'}${pageLabel}`,
+      canonicalUrl: `https://danbooru.donmai.us/posts?${new URLSearchParams({ tags: search.tags, page: search.page })}`,
+      groupTag: danbooruSearchGroupQuery(search.tags),
+      unavailable,
+      media,
+    }
+  }
+
+  function sanitizeDanbooruSearchImportJob(raw, senderUrl) {
+    const search = danbooruSearchPage(senderUrl)
+    const job = raw && typeof raw === 'object' ? raw : {}
+    if (!search || String(job.postId) !== `${search.tags}|${search.page}`) {
+      throw new Error('Danbooru search page mismatch.')
+    }
+    const media = []
+    for (const item of (Array.isArray(job.media) ? job.media : []).slice(0, DANBOORU_SEARCH_MAX_POSTS)) {
+      const postId = String(item?.postId || '')
+      if (!/^\d+$/.test(postId) || media.some((entry) => entry.postId === postId)) continue
+      const clean = sanitizeDanbooruImportJob({ postId, media: [item] }, `https://danbooru.donmai.us/posts/${postId}`).media[0]
+      media.push({ ...clean, postId, label: `Danbooru #${postId}`, index: media.length })
+    }
+    if (!media.length) throw new Error('None of the posts on this page has an original file Danbooru will hand out.')
+    const unavailable = (Array.isArray(job.unavailable) ? job.unavailable : [])
+      .slice(0, DANBOORU_SEARCH_MAX_POSTS)
+      .filter((entry) => /^\d+$/.test(String(entry?.postId || '')))
+      .map((entry) => ({ postId: String(entry.postId), reason: String(entry.reason || '').slice(0, 200) }))
+    const pageLabel = search.page && search.page !== '1' ? ` · page ${search.page}` : ''
+    return {
+      kind: 'danbooru_search',
+      postId: `${search.tags}|${search.page}`,
+      title: `Danbooru: ${search.tags || 'latest posts'}${pageLabel}`,
+      canonicalUrl: `https://danbooru.donmai.us/posts?${new URLSearchParams({ tags: search.tags, page: search.page })}`,
+      groupTag: danbooruSearchGroupQuery(search.tags),
+      unavailable,
+      media,
+    }
+  }
+
+  // "Posts | Artist" over a Danbooru search: the import goes right of the last
+  // of those links (Artist, or a wiki link, else Posts) in the same item.
+  function selectDanbooruSearchAnchor(doc) {
+    const after = doc?.querySelector?.('#post-sections #show-excerpt-link')
+      || doc?.querySelector?.('#post-sections #show-posts-link')
+    return after?.parentElement ? { list: after.parentElement, after } : null
+  }
+
   // The "Comments | Recommended" tabs under a Danbooru post (#post-sections):
   // the import sits right of Recommended, as another item of that menu.
   function selectDanbooruSectionsAnchor(doc) {
@@ -866,6 +966,11 @@
     sanitizeDanbooruImportJob,
     selectDanbooruOptionsAnchor,
     selectDanbooruSectionsAnchor,
+    danbooruSearchPage,
+    danbooruSearchGroupQuery,
+    danbooruSearchImportJob,
+    sanitizeDanbooruSearchImportJob,
+    selectDanbooruSearchAnchor,
     safebooruPostId,
     safebooruImportJob,
     sanitizeSafebooruImportJob,
