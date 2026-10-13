@@ -103,6 +103,7 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
       sites: [...store.sources],
       hiddenKeys: hiddenKeys(),
       limit: browser.remoteLimit.value,
+      siteSafety: JSON.parse(JSON.stringify(store.ratings)),
     }
   }
 
@@ -123,6 +124,7 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
       browser.sortOrder.value,
       store.sources.join(','),
       browser.remoteLimit.value,
+      JSON.stringify(store.ratings),
     ],
     () => {
       if (!started) return
@@ -131,13 +133,13 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
     },
   )
 
-  // Back/forward onto a URL with other ?sources/?layout: follow it.
+  // Back/forward onto a URL with other ?sources/?layout/?ratings: follow it.
   watch(
-    () => [route.query.sources, route.query.layout],
+    () => [route.query.sources, route.query.layout, route.query.ratings],
     () => {
       if (!started || !enabled.value || route.name !== 'home') return
       const wanted = store.toRouteQuery()
-      if ((route.query.sources ?? undefined) === wanted.sources && (route.query.layout ?? undefined) === wanted.layout) return
+      if (['sources', 'layout', 'ratings'].every((key) => (route.query[key] ?? undefined) === wanted[key])) return
       store.fromRoute(route.query)
     },
   )

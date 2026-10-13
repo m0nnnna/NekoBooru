@@ -12,7 +12,7 @@ const fakeRouter = vi.hoisted(() => {
 
 vi.mock('../router', () => ({ default: fakeRouter }))
 
-import { LAYOUT_STORAGE_KEY, SOURCES_STORAGE_KEY, useRemoteSourcesStore } from './remoteSources.js'
+import { LAYOUT_STORAGE_KEY, RATINGS_STORAGE_KEY, SOURCES_STORAGE_KEY, useRemoteSourcesStore } from './remoteSources.js'
 
 function freshStore(query = {}) {
   fakeRouter.currentRoute.value = { name: 'home', query }
@@ -136,5 +136,41 @@ describe('useRemoteSourcesStore', () => {
       getItem.mockRestore()
       setItem.mockRestore()
     }
+  })
+
+  it('keeps per-site ratings, all on by default, and never switches off the last one', () => {
+    const store = freshStore()
+    expect(store.siteRatings('e621')).toEqual({ safe: true, sketchy: true, unsafe: true })
+    expect(store.toRouteQuery().ratings).toBeUndefined()
+    expect(store.toggleRating('e621', 'unsafe')).toBe(true)
+    expect(store.siteRatings('e621')).toEqual({ safe: true, sketchy: true, unsafe: false })
+    expect(store.siteRatings('danbooru')).toEqual({ safe: true, sketchy: true, unsafe: true })
+    expect(JSON.parse(localStorage.getItem(RATINGS_STORAGE_KEY)).e621).toEqual({ safe: true, sketchy: true, unsafe: false })
+    expect(store.toggleRating('nekobooru', 'safe')).toBe(false)
+    store.toggleRating('danbooru', 'sketchy')
+    store.toggleRating('danbooru', 'unsafe')
+    expect(store.toggleRating('danbooru', 'safe')).toBe(false)
+    expect(store.toRouteQuery().ratings).toBe('danbooru:s,e621:sq')
+  })
+
+  it('round-trips the ratings through the URL and keeps them across a reload', async () => {
+    const store = freshStore({ ratings: 'e621:sq,danbooru:s,bogus:x' })
+    await store.fromRoute({ ratings: 'e621:sq,danbooru:s,bogus:x' })
+    expect(store.siteRatings('e621')).toEqual({ safe: true, sketchy: true, unsafe: false })
+    expect(store.siteRatings('danbooru')).toEqual({ safe: true, sketchy: false, unsafe: false })
+    expect(store.siteRatings('sankaku')).toEqual({ safe: true, sketchy: true, unsafe: true })
+    expect(fakeRouter.currentRoute.value.query.ratings).toBe('danbooru:s,e621:sq')
+
+    // A plain "/" keeps the saved ratings, and the URL gets them back.
+    const reloaded = freshStore({})
+    await reloaded.fromRoute({})
+    expect(reloaded.siteRatings('e621').unsafe).toBe(false)
+    expect(fakeRouter.currentRoute.value.query.ratings).toBe('danbooru:s,e621:sq')
+
+    // Turning everything back on drops the parameter.
+    reloaded.toggleRating('e621', 'unsafe')
+    reloaded.toggleRating('danbooru', 'sketchy')
+    await reloaded.toggleRating('danbooru', 'unsafe')
+    expect(fakeRouter.currentRoute.value.query).not.toHaveProperty('ratings')
   })
 })

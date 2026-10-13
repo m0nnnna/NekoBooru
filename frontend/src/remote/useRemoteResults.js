@@ -48,6 +48,15 @@ function newSection(site, limit, canJump) {
   }
 }
 
+// The global options with the safety narrowed to what `site` may show:
+// the global filter intersected with the site's own rating toggles.
+function optionsFor(site, options, siteSafety) {
+  const own = siteSafety?.[site]
+  if (!own) return options
+  const safety = Object.fromEntries(SAFETY_ORDER.map((level) => [level, options.safety[level] && own[level] !== false]))
+  return { ...options, safety }
+}
+
 function countOrNull(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null
 }
@@ -182,7 +191,7 @@ export function useRemoteResults(config = {}) {
 
   async function run(site, rt, cursor, page) {
     const section = sections[site]
-    const context = current
+    const context = { ...current, options: rt.options }
     rt.lastCursor = cursor
     rt.lastRequestedPage = page
     rt.inFlight = true
@@ -235,7 +244,8 @@ export function useRemoteResults(config = {}) {
   // Cache an answered page, and show it unless the user has moved on.
   function apply(site, rt, page, result) {
     const section = sections[site]
-    const safety = current.options.safety
+    // Re-applied here whatever the booru made of the rating terms.
+    const safety = rt.options.safety
     const seen = new Set()
     const posts = []
     let fetched = 0
@@ -346,7 +356,7 @@ export function useRemoteResults(config = {}) {
     delete sections[site]
   }
 
-  function resetSection(site) {
+  function resetSection(site, options) {
     removeSection(site)
     const adapter = adapters[site]
     const limit = effectiveLimit(site, current.limit)
@@ -366,11 +376,13 @@ export function useRemoteResults(config = {}) {
       counted: false,
       countTimer: null,
       pageCap: Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : null,
+      options,                 // the global options with this site's safety
+      optionsKey: JSON.stringify(options.safety),
     })
     const section = newSection(site, limit, typeof adapter.pageCursor === 'function')
     // Show what the booru will not understand before its results arrive.
     try {
-      const translation = adapter.translate?.(current.query, current.options)
+      const translation = adapter.translate?.(current.query, options)
       if (translation) {
         section.ignoredTerms = translation.ignored || []
         section.note = translation.note ?? null
@@ -382,14 +394,17 @@ export function useRemoteResults(config = {}) {
   }
 
   /**
-   * search({ query, options, sites, hiddenKeys, limit })
+   * search({ query, options, sites, hiddenKeys, limit, siteSafety })
    * Runs at once; scheduleSearch() is the debounced form for a watch.
    * `sites` are ticked SOURCE_IDS (NekoBooru included or not); `limit` is the
    * per-page choice: null/'default' = each booru's own page size, a number =
    * that many everywhere, capped per booru. Re-running the same query only
    * starts newly ticked sites; unticked ones are aborted and removed.
+   * `siteSafety` = { [site]: { safe, sketchy, unsafe } } narrows the safety
+   * per booru; a change there re-runs (and drops the page cache of) only the
+   * sites whose effective safety changed.
    */
-  function search({ query = '', options = {}, sites = [], hiddenKeys: hidden = null, limit = null } = {}) {
+  function search({ query = '', options = {}, sites = [], hiddenKeys: hidden = null, limit = null, siteSafety = null } = {}) {
     cancelScheduledSearch()
     const ticked = new Set(sites || [])
     const remote = SOURCE_IDS.filter((site) => site !== LIBRARY_SOURCE && ticked.has(site) && adapters[site])
@@ -407,8 +422,9 @@ export function useRemoteResults(config = {}) {
     }
     activeSites.value = remote
     for (const site of remote) {
-      if (sameQuery && sections[site]) continue
-      resetSection(site)
+      const siteOptions = optionsFor(site, normalized, siteSafety)
+      if (sameQuery && sections[site] && runtime.get(site)?.optionsKey === JSON.stringify(siteOptions.safety)) continue
+      resetSection(site, siteOptions)
       request(site, null, 1)
     }
   }

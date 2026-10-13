@@ -349,6 +349,54 @@ describe('useRemoteResults', () => {
   })
 })
 
+describe('useRemoteResults per-site ratings', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  const noSketchy = { ...ALL, safety: { safe: true, sketchy: false, unsafe: true } }
+  const mixed = (site) => ({ ...page(site, []), posts: [post(site, 1), post(site, 2, 'sketchy'), post(site, 3, 'unsafe')] })
+
+  it('translates and requests with the global filter intersected with the site toggles', async () => {
+    const { adapters, results } = setup(['e621', 'danbooru'])
+    results.search({ query: 'cat', options: noSketchy, sites: ['e621', 'danbooru'], siteSafety: { e621: { safe: true, sketchy: true, unsafe: false } } })
+    expect(adapters.e621.translate).toHaveBeenCalledWith('cat', expect.objectContaining({ safety: { safe: true, sketchy: false, unsafe: false } }))
+    expect(adapters.e621.calls[0].args.options.safety).toEqual({ safe: true, sketchy: false, unsafe: false })
+    expect(adapters.danbooru.calls[0].args.options.safety).toEqual({ safe: true, sketchy: false, unsafe: true })
+  })
+
+  it('hides unsafe posts for e621 only, counting them as rating-filtered', async () => {
+    const { adapters, results } = setup(['e621', 'danbooru'])
+    results.search({ query: '', options: ALL, sites: ['e621', 'danbooru'], siteSafety: { e621: { safe: true, sketchy: true, unsafe: false } } })
+    adapters.e621.calls[0].resolve(mixed('e621'))
+    adapters.danbooru.calls[0].resolve(mixed('danbooru'))
+    await settle()
+    expect(results.sections.e621.posts.map((p) => p.key)).toEqual(['e621:1', 'e621:2'])
+    expect(results.sections.e621).toMatchObject({ fetched: 3, ratingFiltered: 1 })
+    expect(results.sections.danbooru.posts).toHaveLength(3)
+    expect(results.sections.danbooru.ratingFiltered).toBe(0)
+  })
+
+  it('re-runs only the site whose toggles changed, dropping its page cache', async () => {
+    const { adapters, results } = setup(['e621', 'danbooru'], { budgets: { e621: createBudget({ burst: 10 }) } })
+    const run = (siteSafety) => results.search({ query: 'cat', options: ALL, sites: ['e621', 'danbooru'], siteSafety })
+    run({})
+    adapters.e621.calls[0].resolve(page('e621', [1]))
+    adapters.danbooru.calls[0].resolve(page('danbooru', [1]))
+    await settle()
+    results.goToPage('e621', 2)
+    adapters.e621.calls[1].resolve(page('e621', [2]))
+    await settle()
+
+    run({ e621: { safe: true, sketchy: true, unsafe: false } })
+    expect(adapters.danbooru.search).toHaveBeenCalledTimes(1)
+    expect(adapters.e621.search).toHaveBeenCalledTimes(3)
+    expect(adapters.e621.calls[2].args.cursor).toBeNull()
+    expect(results.sections.e621.page).toBe(0)
+    run({ e621: { safe: true, sketchy: true, unsafe: false } })
+    expect(adapters.e621.search).toHaveBeenCalledTimes(3)
+  })
+})
+
 describe('useRemoteResults page counts', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
