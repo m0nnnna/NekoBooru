@@ -15,6 +15,7 @@ import {
   booruDisplayNames,
   effectiveLimit,
   idTagFor,
+  imageReferrerPolicy,
   isRemoteKey,
   libraryIdFromKey,
   libraryKey,
@@ -38,6 +39,17 @@ describe('site registry', () => {
     expect(siteById('nope')).toBeNull()
     expect(SAFETY_ORDER).toEqual(['safe', 'sketchy', 'unsafe'])
     expect([...CATEGORIES]).toEqual(['general', 'artist', 'copyright', 'character', 'meta'])
+  })
+
+  it('sends no Referer for images except where the CDN demands one', () => {
+    expect(SITES.map((site) => [site.id, imageReferrerPolicy(site.id)])).toEqual([
+      ['danbooru', 'strict-origin-when-cross-origin'],
+      ['e621', 'strict-origin-when-cross-origin'],
+      ['sankaku', 'no-referrer'],
+      ['gelbooru', 'no-referrer'],
+      ['safebooru', 'no-referrer'],
+    ])
+    expect(imageReferrerPolicy('nope')).toBe('no-referrer')
   })
 })
 

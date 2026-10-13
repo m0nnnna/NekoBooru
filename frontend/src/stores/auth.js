@@ -37,16 +37,25 @@ export const useAuthStore = defineStore('auth', () => {
     await fetchMe()
   }
 
-  async function login(username, password) {
-    user.value = await api.login(username, password)
+  // The login answers carry the bare user; /me adds the capabilities
+  // (canBrowseBoorus, shares). Keep the bare user if /me is unreachable.
+  async function adoptSignedInUser(signedIn) {
+    user.value = signedIn
     hasUsers.value = true
+    try {
+      user.value = (await api.getMe()) || signedIn
+    } catch {
+      // Capabilities stay off until the next fetchMe().
+    }
     return user.value
   }
 
+  async function login(username, password) {
+    return adoptSignedInUser(await api.login(username, password))
+  }
+
   async function bootstrapAdmin(username, password) {
-    user.value = await api.bootstrapAdmin(username, password)
-    hasUsers.value = true
-    return user.value
+    return adoptSignedInUser(await api.bootstrapAdmin(username, password))
   }
 
   async function logout() {

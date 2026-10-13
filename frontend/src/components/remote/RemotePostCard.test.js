@@ -30,10 +30,13 @@ describe('RemotePostCard', () => {
   })
 
   it('loads the booru preview without a referrer', () => {
-    const img = mountCard().get('img')
+    const sankaku = { ...POST, key: 'sankaku:AbC', site: 'sankaku', id: 'AbC' }
+    const img = mountCard({ post: sankaku }).get('img')
     expect(img.attributes('src')).toBe(POST.thumbUrl)
     expect(img.attributes('referrerpolicy')).toBe('no-referrer')
     expect(img.attributes('loading')).toBe('lazy')
+    // Danbooru's CDN refuses image requests that carry no Referer at all.
+    expect(mountCard().get('img').attributes('referrerpolicy')).toBe('strict-origin-when-cross-origin')
   })
 
   it('shows a placeholder with the site and id when the preview fails or is missing', async () => {

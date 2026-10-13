@@ -19,7 +19,7 @@
         v-if="post.thumbUrl && !failed"
         :src="post.thumbUrl"
         :alt="`${siteLabel} #${post.id}`"
-        referrerpolicy="no-referrer"
+        :referrerpolicy="referrerPolicy"
         loading="lazy"
         draggable="false"
         @error="failed = true"
@@ -49,7 +49,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { siteById } from '../../remote/types.js'
+import { imageReferrerPolicy, siteById } from '../../remote/types.js'
 
 // One booru post in the home grid. Same hold/shift/pointer contract as
 // PostCard.vue, but every payload is the post's string key ('danbooru:123')
@@ -74,6 +74,7 @@ const emit = defineEmits(['toggle', 'hold-select', 'hover-post', 'open'])
 
 const failed = ref(false)
 const siteLabel = computed(() => siteById(props.post.site)?.label || props.post.site)
+const referrerPolicy = computed(() => imageReferrerPolicy(props.post.site))
 const siteShort = computed(() => SHORT_LABELS[props.post.site] || props.post.site)
 const unavailableText = computed(() => UNAVAILABLE_TEXT[props.post.unavailable] || 'Unavailable')
 

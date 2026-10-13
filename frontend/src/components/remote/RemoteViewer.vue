@@ -1,90 +1,89 @@
 <template>
-  <Teleport :to="teleportTarget">
-    <div class="remote-viewer" role="dialog" aria-modal="true" :aria-label="`${siteLabel} post ${post.id}`">
-      <div class="remote-viewer-media">
-        <MediaViewer
-          v-if="media.src"
-          :key="post.key"
-          :src="media.src"
-          :type="media.type"
-          :alt="`${siteLabel} #${post.id}`"
-          no-referrer
-          @close="$emit('close')"
-        />
-        <div v-else class="remote-viewer-missing">
-          <p>{{ siteLabel }} #{{ post.id }} has no file to show.</p>
-          <button type="button" class="btn btn-secondary" @click="$emit('close')">Close</button>
-        </div>
+  <div class="remote-viewer" role="dialog" aria-modal="true" :aria-label="`${siteLabel} post ${post.id}`">
+    <div class="remote-viewer-media">
+      <MediaViewer
+        v-if="media.src"
+        :key="post.key"
+        :src="media.src"
+        :type="media.type"
+        :alt="`${siteLabel} #${post.id}`"
+        :no-referrer="imageReferrerPolicy(post.site) === 'no-referrer'"
+        @close="$emit('close')"
+      />
+      <div v-else class="remote-viewer-missing">
+        <p>{{ siteLabel }} #{{ post.id }} has no file to show.</p>
+        <button type="button" class="btn btn-secondary" @click="$emit('close')">Close</button>
+      </div>
+      <button
+        v-if="hasPrev"
+        type="button"
+        class="viewer-nav prev"
+        title="Previous post (Left arrow)"
+        aria-label="Previous post"
+        @click="$emit('navigate', -1)"
+      >&#8249;</button>
+      <button
+        v-if="hasNext"
+        type="button"
+        class="viewer-nav next"
+        title="Next post (Right arrow)"
+        aria-label="Next post"
+        @click="$emit('navigate', 1)"
+      >&#8250;</button>
+    </div>
+
+    <aside class="remote-viewer-panel">
+      <header class="panel-head">
+        <span class="site-pill">{{ siteLabel }}</span>
+        <a class="post-id" :href="post.postUrl" target="_blank" rel="noopener noreferrer" title="Open on the booru">#{{ post.id }}</a>
+        <span class="safety-pill" :class="post.safety">{{ post.safety }}</span>
+      </header>
+
+      <div class="panel-actions">
+        <router-link
+          v-if="inLibraryPostId"
+          class="btn btn-secondary btn-sm"
+          :to="`/post/${inLibraryPostId}`"
+        >In library &#8594; open</router-link>
         <button
-          v-if="hasPrev"
+          v-else-if="importable"
           type="button"
-          class="viewer-nav prev"
-          title="Previous post (Left arrow)"
-          aria-label="Previous post"
-          @click="$emit('navigate', -1)"
-        >&#8249;</button>
-        <button
-          v-if="hasNext"
-          type="button"
-          class="viewer-nav next"
-          title="Next post (Right arrow)"
-          aria-label="Next post"
-          @click="$emit('navigate', 1)"
-        >&#8250;</button>
+          class="btn btn-primary btn-sm"
+          :disabled="!post.fileUrl"
+          :title="post.fileUrl ? 'Import this post into NekoBooru' : 'The booru does not offer the original file'"
+          @click="$emit('import', post)"
+        >Import</button>
+        <a class="btn btn-secondary btn-sm" :href="post.postUrl" target="_blank" rel="noopener noreferrer">
+          View on {{ siteLabel }}
+        </a>
       </div>
 
-      <aside class="remote-viewer-panel">
-        <header class="panel-head">
-          <span class="site-pill">{{ siteLabel }}</span>
-          <a class="post-id" :href="post.postUrl" target="_blank" rel="noopener noreferrer" title="Open on the booru">#{{ post.id }}</a>
-          <span class="safety-pill" :class="post.safety">{{ post.safety }}</span>
-        </header>
-
-        <div class="panel-actions">
-          <router-link
-            v-if="inLibraryPostId"
-            class="btn btn-secondary btn-sm"
-            :to="`/post/${inLibraryPostId}`"
-          >In library &#8594; open</router-link>
-          <button
-            v-else-if="importable"
-            type="button"
-            class="btn btn-primary btn-sm"
-            :disabled="!post.fileUrl"
-            :title="post.fileUrl ? 'Import this post into NekoBooru' : 'The booru does not offer the original file'"
-            @click="$emit('import', post)"
-          >Import</button>
-          <a class="btn btn-secondary btn-sm" :href="post.postUrl" target="_blank" rel="noopener noreferrer">
-            View on {{ siteLabel }}
-          </a>
+      <dl class="panel-props">
+        <div>
+          <dt>Size</dt>
+          <dd>{{ post.width || '?' }} &#215; {{ post.height || '?' }}</dd>
         </div>
-
-        <dl class="panel-props">
-          <div>
-            <dt>Size</dt>
-            <dd>{{ post.width || '?' }} &#215; {{ post.height || '?' }}</dd>
-          </div>
-          <div>
-            <dt>File</dt>
-            <dd>{{ post.fileExt || 'unknown' }} · {{ formatFileSize(post.fileSize) }}</dd>
-          </div>
-          <div v-if="post.rawRating">
-            <dt>Rating</dt>
-            <dd>{{ post.rawRating }}</dd>
-          </div>
-          <div v-if="post.score !== null && post.score !== undefined">
-            <dt>Score</dt>
-            <dd>{{ post.score }}</dd>
-          </div>
-          <div v-if="post.unavailable">
-            <dt>Status</dt>
-            <dd>{{ post.unavailable }}</dd>
-          </div>
-          <div v-if="post.source">
-            <dt>Source</dt>
-            <dd :title="post.source">
-              <a v-if="isLink(post.source)" :href="post.source" target="_blank" rel="noopener noreferrer">{{ post.source }}</a>
-              <template v-else>{{ post.source }}</template>
+        <div>
+          <dt>File</dt>
+          <dd>{{ post.fileExt || 'unknown' }} · {{ formatFileSize(post.fileSize) }}</dd>
+        </div>
+        <div v-if="post.rawRating">
+          <dt>Rating</dt>
+          <dd>{{ post.rawRating }}</dd>
+        </div>
+        <div v-if="post.score !== null && post.score !== undefined">
+          <dt>Score</dt>
+          <dd>{{ post.score }}</dd>
+        </div>
+        <div v-if="post.unavailable">
+          <dt>Status</dt>
+          <dd>{{ post.unavailable }}</dd>
+        </div>
+        <div v-if="post.source">
+          <dt>Source</dt>
+          <dd :title="post.source">
+            <a v-if="isLink(post.source)" :href="post.source" target="_blank" rel="noopener noreferrer">{{ post.source }}</a>
+            <template v-else>{{ post.source }}</template>
             </dd>
           </div>
         </dl>
@@ -100,13 +99,12 @@
         <p v-if="!tagGroups.length" class="panel-note">No tags on this post.</p>
       </aside>
     </div>
-  </Teleport>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import MediaViewer from '../MediaViewer.vue'
-import { siteById } from '../../remote/types.js'
+import { imageReferrerPolicy, siteById } from '../../remote/types.js'
 import { formatFileSize } from '../../utils/format'
 
 // Full-screen viewer for one booru post (section 4.5 of
@@ -131,9 +129,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'navigate', 'import'])
-
-// Inside #app when it exists, so the dark-mode colour variables apply.
-const teleportTarget = typeof document !== 'undefined' && document.querySelector('#app') ? '#app' : 'body'
 
 const siteLabel = computed(() => siteById(props.post.site)?.label || props.post.site)
 

@@ -9,8 +9,8 @@ import { normalizeTagName } from '../utils/booruSearchTag.js'
 // unless the user picks a number in the home per-page dropdown; `maxLimit` is
 // the most one API request may ask for (verified live 2026-10-13).
 export const SITES = [
-  { id: 'danbooru', label: 'Danbooru', transport: 'browser', homepage: 'https://danbooru.donmai.us', referer: 'https://danbooru.donmai.us/', defaultLimit: 20, maxLimit: 200 },
-  { id: 'e621', label: 'e621 / e926', transport: 'browser', homepage: 'https://e621.net', referer: 'https://e621.net/', defaultLimit: 75, maxLimit: 320 },
+  { id: 'danbooru', label: 'Danbooru', transport: 'browser', homepage: 'https://danbooru.donmai.us', referer: 'https://danbooru.donmai.us/', defaultLimit: 20, maxLimit: 200, imageReferrerPolicy: 'strict-origin-when-cross-origin' },
+  { id: 'e621', label: 'e621 / e926', transport: 'browser', homepage: 'https://e621.net', referer: 'https://e621.net/', defaultLimit: 75, maxLimit: 320, imageReferrerPolicy: 'strict-origin-when-cross-origin' },
   { id: 'sankaku', label: 'Sankaku', transport: 'browser', homepage: 'https://sankaku.app', referer: 'https://sankaku.app/', defaultLimit: 20, maxLimit: 100 },
   { id: 'gelbooru', label: 'Gelbooru', transport: 'relay', homepage: 'https://gelbooru.com', referer: 'https://gelbooru.com/', defaultLimit: 42, maxLimit: 100 },
   { id: 'safebooru', label: 'Safebooru', transport: 'relay', homepage: 'https://safebooru.org', referer: 'https://safebooru.org/', defaultLimit: 42, maxLimit: 100 },
@@ -59,6 +59,15 @@ export const CATEGORIES = new Set(['general', 'artist', 'copyright', 'character'
 
 export function siteById(site) {
   return SITES.find((entry) => entry.id === site) || null
+}
+
+// The referrerpolicy for a booru's images in the grid and viewer. Sankaku's
+// CDN refuses the app's origin as a Referer, so no Referer is the default;
+// Danbooru's and e621's CDNs refuse an image request with no Referer at all
+// (checked in a browser 2026-10-13), so they get the browser default, which
+// sends the origin only.
+export function imageReferrerPolicy(site) {
+  return siteById(site)?.imageReferrerPolicy || 'no-referrer'
 }
 
 // Posts per request for `site`: its defaultLimit when the user left the

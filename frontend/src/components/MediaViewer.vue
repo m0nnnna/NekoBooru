@@ -57,7 +57,7 @@
       <button @click="resetZoom" title="Reset">1:1</button>
       <button @click="fitToScreen" title="Fit to screen">Fit</button>
       <button @click="downloadMedia" title="Download">&#8681;</button>
-      <button v-if="isVideo && !noReferrer" @click="downloadAsGif" :disabled="convertingGif" title="Download as GIF">
+      <button v-if="isVideo && !isForeignSrc" @click="downloadAsGif" :disabled="convertingGif" title="Download as GIF">
         {{ convertingGif ? '…' : 'GIF' }}
       </button>
       <!-- Extra page-level buttons, e.g. the post page's layout toggles. -->
@@ -89,8 +89,7 @@ const props = defineProps({
     default: true,
   },
   // Media from another site (booru search): load and download it without a
-  // Referer, which some CDNs refuse when it names this app's origin. The
-  // server-side GIF conversion only exists for local media, so it is hidden.
+  // Referer, which some CDNs refuse when it names this app's origin.
   noReferrer: {
     type: Boolean,
     default: false,
@@ -134,6 +133,15 @@ const touchState = ref({
 })
 
 const referrerPolicy = computed(() => (props.noReferrer ? 'no-referrer' : undefined))
+// Media on another origin (a booru's CDN): the server-side GIF conversion
+// only exists for this app's own files, so its button is hidden.
+const isForeignSrc = computed(() => {
+  try {
+    return new URL(props.src, window.location.origin).origin !== window.location.origin
+  } catch {
+    return false
+  }
+})
 const isImage = computed(() => props.type === 'image' || props.type === 'gif')
 const isVideo = computed(() => props.type === 'video')
 

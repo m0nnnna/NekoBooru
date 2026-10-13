@@ -14,7 +14,6 @@
         <path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" />
       </svg>
       <span class="source-label">{{ summary }}</span>
-      <span v-if="store.sources.length > 1" class="source-count">{{ store.sources.length }}</span>
     </button>
 
     <div v-if="open" class="source-menu" role="menu" aria-label="Search sources">
@@ -168,16 +167,6 @@ onBeforeUnmount(() => {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
-}
-
-.source-count {
-  min-width: 1.25rem;
-  padding: 0 0.3rem;
-  border-radius: 999px;
-  background: var(--accent);
-  color: white;
-  font-size: 0.75rem;
-  text-align: center;
 }
 
 .source-menu {

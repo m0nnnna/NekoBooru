@@ -247,20 +247,31 @@ describe('HomeView with booru search switched on', () => {
   })
 
   it('opens booru posts in the viewer without a referrer and steps through the section', async () => {
-    const { wrapper } = await mountHome({ canBrowseBoorus: true, sources: ['nekobooru', 'danbooru'] })
-    await wrapper.findAll('.remote-card')[0].trigger('click')
+    const { wrapper } = await mountHome({ canBrowseBoorus: true, sources: ['nekobooru', 'danbooru', 'sankaku'] })
+    const sankakuCards = () => wrapper.findAll('.remote-section')[1].findAll('.remote-card')
+    await sankakuCards()[0].trigger('click')
     await flushPromises()
     const viewer = () => document.body.querySelector('.remote-viewer')
     expect(viewer()).not.toBeNull()
     const img = () => viewer().querySelector('.media-viewer img')
-    expect(img().getAttribute('src')).toBe('https://cdn.danbooru.example/original/7.png')
+    expect(img().getAttribute('src')).toBe('https://cdn.sankaku.example/original/AbC.png')
     expect(img().getAttribute('referrerpolicy')).toBe('no-referrer')
     expect(viewer().textContent).toContain('miyu (blue archive)')
     expect(viewer().querySelector('.viewer-nav.prev')).toBeNull()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
     await flushPromises()
-    expect(img().getAttribute('src')).toBe('https://cdn.danbooru.example/original/8.png')
+    expect(img().getAttribute('src')).toBe('https://cdn.sankaku.example/original/XyZ.png')
+    expect(viewer().querySelector('.viewer-nav.prev')).not.toBeNull()
+    expect(viewer().querySelector('.viewer-nav.next')).toBeNull()
+
+    // Danbooru's CDN wants a Referer: the viewer leaves the default policy.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    await wrapper.findAll('.remote-section')[0].findAll('.remote-card')[0].trigger('click')
+    await flushPromises()
+    expect(img().getAttribute('src')).toBe('https://cdn.danbooru.example/original/7.png')
+    expect(img().hasAttribute('referrerpolicy')).toBe(false)
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()

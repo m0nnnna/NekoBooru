@@ -86,7 +86,7 @@ describe('SourcePicker', () => {
     expect(store.sources).toEqual(['nekobooru', 'danbooru'])
     expect(JSON.parse(localStorage.getItem('nekobooru.remoteSources'))).toEqual(['nekobooru', 'danbooru'])
     expect(mocks.router.currentRoute.value.query).toEqual({ sources: 'nekobooru,danbooru' })
-    expect(wrapper.get('.source-count').text()).toBe('2')
+    expect(wrapper.get('.source-label').text()).toBe('NekoBooru +1')
 
     await wrapper.get('input[value="interleaved"]').trigger('change')
     expect(store.layout).toBe('interleaved')
