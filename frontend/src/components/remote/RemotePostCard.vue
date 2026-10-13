@@ -22,7 +22,7 @@
         :referrerpolicy="referrerPolicy"
         loading="lazy"
         draggable="false"
-        @error="failed = true"
+        @error="onThumbError"
       />
       <div v-else class="thumb-placeholder">
         <span class="placeholder-site">{{ siteLabel }}</span>
@@ -49,6 +49,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { adapterFor } from '../../remote/adapters/index.js'
 import { imageReferrerPolicy, siteById } from '../../remote/types.js'
 
 // One booru post in the home grid. Same hold/shift/pointer contract as
@@ -79,6 +80,31 @@ const siteShort = computed(() => SHORT_LABELS[props.post.site] || props.post.sit
 const unavailableText = computed(() => UNAVAILABLE_TEXT[props.post.unavailable] || 'Unavailable')
 
 watch(() => props.post.thumbUrl, () => { failed.value = false })
+
+// Sankaku's signed previews expire (~8 h): the first failure of an expired
+// one asks the adapter for a fresh URL and swaps it into the post; anything
+// else, or a second failure, shows the placeholder.
+let thumbRefreshed = false
+watch(() => props.post.key, () => { thumbRefreshed = false })
+
+async function onThumbError() {
+  const post = props.post
+  const adapter = adapterFor(post.site)
+  if (!thumbRefreshed && adapter?.thumbExpired?.(post) && typeof adapter.refreshThumb === 'function') {
+    thumbRefreshed = true
+    let fresh = null
+    try {
+      fresh = await adapter.refreshThumb(post)
+    } catch {
+      fresh = null
+    }
+    if (fresh && fresh !== post.thumbUrl && props.post === post) {
+      post.thumbUrl = fresh
+      return
+    }
+  }
+  failed.value = true
+}
 
 let holdTimer = null
 let holdTriggered = false

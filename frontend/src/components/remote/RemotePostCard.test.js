@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
-import { mount, RouterLinkStub } from '@vue/test-utils'
+import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { reactive } from 'vue'
+
+const thumbHooks = vi.hoisted(() => ({ thumbExpired: vi.fn(() => false), refreshThumb: vi.fn(async () => null) }))
+vi.mock('../../remote/adapters/index.js', () => ({
+  adapterFor: (site) => (site === 'sankaku' ? thumbHooks : { id: site }),
+}))
+
 import RemotePostCard from './RemotePostCard.vue'
 
 const POST = {
@@ -106,5 +113,44 @@ describe('RemotePostCard', () => {
     expect(video.find('.video-badge').exists()).toBe(true)
     const gone = mountCard({ post: { ...POST, fileUrl: null, unavailable: 'deleted' } })
     expect(gone.get('.unavailable-overlay').text()).toBe('Deleted')
+  })
+
+  it('fetches a fresh Sankaku preview once when the signed one has expired', async () => {
+    const sankaku = reactive({ ...POST, key: 'sankaku:AbC', site: 'sankaku', id: 'AbC', thumbUrl: 'https://s.sankakucomplex.com/old.jpg?expires=1' })
+    thumbHooks.thumbExpired.mockReturnValue(true)
+    thumbHooks.refreshThumb.mockResolvedValue('https://s.sankakucomplex.com/fresh.jpg?expires=9999999999')
+    const wrapper = mountCard({ post: sankaku })
+    await wrapper.get('img').trigger('error')
+    await flushPromises()
+    expect(thumbHooks.refreshThumb).toHaveBeenCalledTimes(1)
+    expect(thumbHooks.refreshThumb.mock.calls[0][0]).toBe(sankaku)
+    expect(sankaku.thumbUrl).toBe('https://s.sankakucomplex.com/fresh.jpg?expires=9999999999')
+    expect(wrapper.get('img').attributes('src')).toBe(sankaku.thumbUrl)
+
+    // The fresh one failing too is final: no second refresh, the placeholder shows.
+    await wrapper.get('img').trigger('error')
+    await flushPromises()
+    expect(thumbHooks.refreshThumb).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('img').exists()).toBe(false)
+    expect(wrapper.get('.thumb-placeholder').text()).toContain('#AbC')
+  })
+
+  it('shows the placeholder when the preview has not expired or no fresh one comes', async () => {
+    const sankaku = () => reactive({ ...POST, key: 'sankaku:AbC', site: 'sankaku', id: 'AbC' })
+    thumbHooks.refreshThumb.mockClear()
+    thumbHooks.thumbExpired.mockReturnValue(false)
+    const live = mountCard({ post: sankaku() })
+    await live.get('img').trigger('error')
+    await flushPromises()
+    expect(thumbHooks.refreshThumb).not.toHaveBeenCalled()
+    expect(live.find('.thumb-placeholder').exists()).toBe(true)
+
+    thumbHooks.thumbExpired.mockReturnValue(true)
+    thumbHooks.refreshThumb.mockResolvedValue(null)
+    const refused = mountCard({ post: sankaku() })
+    await refused.get('img').trigger('error')
+    await flushPromises()
+    expect(thumbHooks.refreshThumb).toHaveBeenCalledTimes(1)
+    expect(refused.find('.thumb-placeholder').exists()).toBe(true)
   })
 })
