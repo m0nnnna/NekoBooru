@@ -397,7 +397,7 @@ button {
   transition: all 0.2s;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   background: var(--accent-hover);
   transform: translateY(-1px);
 }
@@ -406,13 +406,20 @@ button {
   transform: translateY(0);
 }
 
+/* Greyed out and inert-looking, the same for every button. */
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .btn-secondary {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border: 1px solid var(--border);
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled) {
   background: var(--bg-secondary);
   border-color: var(--accent);
   color: var(--accent);
@@ -422,7 +429,7 @@ button {
   background: var(--coral);
 }
 
-.btn-danger:hover {
+.btn-danger:hover:not(:disabled) {
   background: var(--coral-hover);
 }
 

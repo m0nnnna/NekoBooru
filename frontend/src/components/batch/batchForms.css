@@ -47,12 +47,6 @@
   color: #fff;
 }
 
-.batch-actions-row .btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  transform: none;
-}
-
 .batch-note,
 .batch-check small {
   color: var(--text-secondary);

@@ -115,14 +115,6 @@ function jumpTo(input) {
   color: var(--text-secondary);
 }
 
-/* The global .btn has no disabled look; grey Prev/Next out here so page 1 of
-   1 (and the ends of a range) read as unavailable. */
-.pagination .btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
 .page-jump {
   width: 5.5rem;
   padding: 0.25rem 0.4rem;

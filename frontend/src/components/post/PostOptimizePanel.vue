@@ -592,12 +592,6 @@ const {
   font-size: 0.78rem;
 }
 
-.optimize-action-bar .btn:disabled {
-  opacity: 0.48;
-  cursor: not-allowed;
-  transform: none;
-}
-
 .post-optimize-status {
   display: block;
   color: var(--text-secondary);
