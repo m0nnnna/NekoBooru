@@ -520,7 +520,8 @@ BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
-DANBOORU_MEDIA_USER_AGENT = "NekoBooru/1.0 (original importer)"
+HONEST_MEDIA_USER_AGENT = "NekoBooru/1.0 (original importer)"
+DANBOORU_MEDIA_USER_AGENT = HONEST_MEDIA_USER_AGENT
 
 
 def _is_danbooru_host(host: str | None) -> bool:
@@ -528,12 +529,19 @@ def _is_danbooru_host(host: str | None) -> bool:
     return host == "donmai.us" or host.endswith(".donmai.us")
 
 
+def _is_e621_host(host: str | None) -> bool:
+    host = (host or "").lower()
+    return host in {"e621.net", "e926.net"} or host.endswith((".e621.net", ".e926.net"))
+
+
 def _media_user_agent(host: str | None) -> str:
     # Danbooru's Cloudflare turns away a browser User-Agent that arrives
     # without a browser's TLS fingerprint (403 challenge page), but serves an
     # honest client name - the one every other Danbooru call here sends too.
-    if _is_danbooru_host(host):
-        return DANBOORU_MEDIA_USER_AGENT
+    # e621/e926 ask every client to identify itself rather than pose as a
+    # browser; that covers their static1.* file hosts too.
+    if _is_danbooru_host(host) or _is_e621_host(host):
+        return HONEST_MEDIA_USER_AGENT
     return BROWSER_USER_AGENT
 
 

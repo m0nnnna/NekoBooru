@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from .config import settings, get_bundle_dir
 from .database import init_db
 from .dependencies import get_current_user
-from .routers import uploads, upload_jobs, posts, tags, pools, notes, comments, sync, auto_tags, runtime, updates, site_imports, settings as settings_router, auth as auth_router
+from .routers import uploads, upload_jobs, posts, tags, pools, notes, comments, sync, auto_tags, runtime, updates, site_imports, booru_search, settings as settings_router, auth as auth_router
 
 # Configure logging
 logging.basicConfig(
@@ -77,6 +77,7 @@ app.include_router(auto_tags.router)
 app.include_router(runtime.router)
 app.include_router(updates.router)
 app.include_router(site_imports.router)
+app.include_router(booru_search.router)
 app.include_router(settings_router.router)
 
 
