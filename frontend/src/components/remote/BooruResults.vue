@@ -27,7 +27,7 @@
         :select-mode="selectMode"
         :selected-keys="selectedKeys"
         :in-library-post-id="booru.inLibraryPostId"
-        @load-more="booru.loadMore"
+        @go-to-page="booru.goToPage"
         @retry="booru.retry"
         @toggle="$emit('toggle', $event)"
         @hold-select="$emit('hold-select', $event)"
@@ -44,7 +44,7 @@
         @update:model-value="$emit('page-change', $event)"
       />
 
-      <ul class="source-strip" aria-label="Sources">
+      <ul ref="strip" class="source-strip" aria-label="Sources">
         <li v-for="site in booru.order" :key="site" :class="{ failed: booru.sections[site].error }">
           <strong>{{ booru.sections[site].label }}</strong>
           <span>{{ countLabel(booru.sections[site]) }}</span>
@@ -89,10 +89,13 @@
         {{ booru.anyLoading ? 'Searching the boorus...' : 'No posts found, nyaa~' }}
       </p>
 
-      <footer v-if="anyMore" class="feed-footer">
-        <button type="button" class="btn btn-secondary load-more" :disabled="!canLoadAny" @click="booru.loadMoreAll()">
-          {{ booru.anyLoading ? 'Loading...' : 'Load more' }}
-        </button>
+      <footer v-if="feedPage" class="feed-footer">
+        <Pagination
+          :model-value="feedPage"
+          :has-next="feedHasNext"
+          :disabled="booru.anyLoading"
+          @update:model-value="stepFeed"
+        />
       </footer>
     </template>
 
@@ -111,20 +114,21 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import Pagination from '../Pagination.vue'
 import PostCard from '../PostCard.vue'
 import PostGrid from '../PostGrid.vue'
 import RemotePostCard from './RemotePostCard.vue'
 import RemoteSection from './RemoteSection.vue'
 import RemoteViewer from './RemoteViewer.vue'
-import { canLoadMore, countLabel, errorLabel, ignoredLabel, pageLabel, waitingLabel } from '../../remote/sectionStatus.js'
+import { countLabel, errorLabel, ignoredLabel, pageLabel, waitingLabel } from '../../remote/sectionStatus.js'
 
 // The home grid while booru sources are ticked (section 4.2 of
 // docs/booru-search-plan.md). Grouped: the library block under a
 // "NekoBooru" header, then one RemoteSection per booru. Interleaved: library
 // paging on top, a per-source status strip, one mixed grid (library page
-// first, then the boorus round-robin) and one "Load more" for every source.
+// first, then the boorus round-robin) and one Prev / Next that steps every
+// source a page at a time (each source's own page shows in the strip).
 // Library card events stay numeric (library-*); booru card events carry keys.
 const props = defineProps({
   // useHomeBooruSearch()'s reactive return.
@@ -149,8 +153,17 @@ defineEmits([
   'import',
 ])
 
-const anyMore = computed(() => props.booru.order.some((site) => props.booru.sections[site]?.cursor))
-const canLoadAny = computed(() => props.booru.order.some((site) => canLoadMore(props.booru.sections[site])))
+const sectionList = computed(() => props.booru.order.map((site) => props.booru.sections[site]).filter(Boolean))
+// The feed's page: the furthest any source has stepped to.
+const feedPage = computed(() => Math.max(0, ...sectionList.value.map((section) => section.page || 0)))
+const feedHasNext = computed(() => sectionList.value.some((section) => section.hasNext))
+const strip = ref(null)
+
+async function stepFeed(page) {
+  props.booru.stepAll(page - feedPage.value)
+  await nextTick()
+  strip.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+}
 </script>
 
 <style scoped src="./remoteGrid.css"></style>

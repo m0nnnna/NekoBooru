@@ -240,6 +240,8 @@ export const danbooruAdapter = Object.freeze({
   // Requests use effectiveLimit(); this is the default for callers that ask.
   pageSize: site.defaultLimit,
   pageCap: () => DANBOORU_PAGE_CAP,
+  // Pages by number, so any page up to the cap is one request away.
+  pageCursor: (page) => ({ page }),
   translate,
   search,
   refresh,

@@ -187,7 +187,7 @@ describe('HomeView with booru search switched on', () => {
     expect(globalThis.fetch.mock.calls[0][0]).toContain('&limit=42&')
   })
 
-  it('shows a Danbooru section with page counts, badges and Load more', async () => {
+  it('shows a Danbooru section with page counts, badges and page navigation', async () => {
     const search = vi.spyOn(hoisted.adapters.danbooru, 'search')
     api.lookupInLibrary.mockImplementation(async () => ({ found: { 'danbooru:8': { postId: 77 } } }))
     const { wrapper, router } = await mountHome({ canBrowseBoorus: true, sources: ['nekobooru', 'danbooru'] })
@@ -208,12 +208,22 @@ describe('HomeView with booru search switched on', () => {
     const badges = section.findAll('.library-badge').map((badge) => badge.attributes('href'))
     expect(badges).toEqual(['/post/77', '/post/3'])
 
-    await section.get('.load-more').trigger('click')
+    const nav = () => section.get('.remote-section-footer').findAll('button')
+    expect(nav().map((button) => button.attributes('disabled') !== undefined)).toEqual([true, false])
+    await nav()[1].trigger('click')
     await flushPromises()
     expect(search.mock.calls[1][0]).toMatchObject({ cursor: 2 })
-    expect(remoteKeys(section)).toHaveLength(6)
+    // Page 2 replaces page 1.
+    expect(remoteKeys(section)).toEqual(['Danbooru post 10', 'Danbooru post 11', 'Danbooru post 12'])
     expect(section.get('.section-pages').text()).toBe('· page 2 of 2')
-    expect(section.find('.load-more').exists()).toBe(false)
+    expect(nav().map((button) => button.attributes('disabled') !== undefined)).toEqual([false, true])
+
+    // Back to page 1 from the cache, badges intact.
+    await nav()[0].trigger('click')
+    await flushPromises()
+    expect(search).toHaveBeenCalledTimes(2)
+    expect(remoteKeys(section)).toEqual(['Danbooru post 7', 'Danbooru post 8', 'Danbooru post 9'])
+    expect(section.findAll('.library-badge')).toHaveLength(2)
   })
 
   it('selects library and booru posts together; library tools only see library posts', async () => {
@@ -293,13 +303,15 @@ describe('HomeView with booru search switched on', () => {
     expect(strip).toContain('2 of ~40 posts')
     expect(strip).toContain('page 1 of ~2')
 
-    await wrapper.get('.feed-footer .load-more').trigger('click')
+    const next = () => wrapper.get('.feed-footer').findAll('button')[1]
+    await next().trigger('click')
     await flushPromises()
+    // Every source steps to its page 2, which replaces its page 1.
     expect(remoteKeys(wrapper.get('.mixed-grid'))).toEqual([
-      'Danbooru post 7', 'Danbooru post 8', 'Sankaku post XyZ', 'Sankaku post Q1',
-      'Danbooru post 10', 'Danbooru post 11', 'Danbooru post 12',
+      'Danbooru post 10', 'Sankaku post Q1', 'Danbooru post 11', 'Danbooru post 12',
     ])
-    expect(wrapper.find('.feed-footer').exists()).toBe(false)
+    expect(wrapper.get('.feed-footer').text()).toContain('Page 2')
+    expect(next().attributes('disabled')).toBeDefined()
   })
 
   it('applies a numeric page size to the boorus as well', async () => {

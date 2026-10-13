@@ -150,7 +150,7 @@ describe('useRemoteResults', () => {
     expect(results.order.value).toEqual(['danbooru'])
   })
 
-  it('dedupes per section and applies the rating filter without fetching on', async () => {
+  it('dedupes within a page and applies the rating filter without fetching on', async () => {
     const { adapters, results } = setup(['danbooru'])
     const options = { ...ALL, safety: { safe: true, sketchy: true, unsafe: false } }
     results.search({ query: '', options, sites: ['danbooru'] })
@@ -160,11 +160,12 @@ describe('useRemoteResults', () => {
     expect(results.sections.danbooru.posts.map((p) => p.key)).toEqual(['danbooru:1'])
 
     // A page whose posts are all filtered out does not trigger another request.
-    results.loadMore('danbooru')
-    adapters.danbooru.calls[1].resolve({ ...page('danbooru', []), posts: [post('danbooru', 1), post('danbooru', 3, 'unsafe')] })
+    results.goToPage('danbooru', 2)
+    adapters.danbooru.calls[1].resolve({ ...page('danbooru', []), posts: [post('danbooru', 3, 'unsafe')] })
     await settle()
     expect(adapters.danbooru.search).toHaveBeenCalledTimes(2)
-    expect(results.sections.danbooru).toMatchObject({ fetched: 3, ratingFiltered: 2, cursor: { page: 2 }, exhausted: false })
+    expect(results.sections.danbooru).toMatchObject({ page: 2, fetched: 1, ratingFiltered: 1, cursor: { page: 2 }, exhausted: false })
+    expect(results.sections.danbooru.posts).toEqual([])
   })
 
   it('interleaves round-robin and hides library posts only when NekoBooru is ticked', async () => {
@@ -185,24 +186,66 @@ describe('useRemoteResults', () => {
     expect(results.inLibrary.get('danbooru:2')).toEqual({ postId: 5 })
   })
 
-  it('pages with the cursor, stops when exhausted, and loads every section at once', async () => {
+  it('pages by replacing posts, serves visited pages from the cache, and steps every section', async () => {
     const { adapters, results } = setup(['danbooru', 'gelbooru'])
     results.search({ query: 'cat', options: ALL, sites: ['danbooru', 'gelbooru'] })
-    expect(results.loadMore('danbooru')).toBe(false) // still loading
+    expect(results.goToPage('danbooru', 2)).toBe(false) // still loading page 1
     adapters.danbooru.calls[0].resolve(page('danbooru', [1]))
     adapters.gelbooru.calls[0].resolve(page('gelbooru', [1], { nextCursor: null }))
     await settle()
-    expect(results.sections.gelbooru.exhausted).toBe(true)
+    expect(results.sections.danbooru).toMatchObject({ page: 1, hasPrev: false, hasNext: true })
+    expect(results.sections.gelbooru).toMatchObject({ page: 1, exhausted: true, hasPrev: false, hasNext: false, totalPages: 1 })
 
-    expect(results.loadMoreAll()).toBe(true)
+    expect(results.stepAll(1)).toBe(true)
     expect(adapters.gelbooru.search).toHaveBeenCalledTimes(1)
     expect(adapters.danbooru.calls[1].args.cursor).toEqual({ page: 2 })
     adapters.danbooru.calls[1].resolve(page('danbooru', [2], { nextCursor: null }))
     await settle()
-    expect(results.sections.danbooru).toMatchObject({ page: 2, exhausted: true, cursor: null })
-    expect(results.sections.danbooru.posts.map((p) => p.id)).toEqual(['1', '2'])
-    expect(results.loadMore('danbooru')).toBe(false)
-    expect(results.loadMoreAll()).toBe(false)
+    expect(results.sections.danbooru).toMatchObject({ page: 2, exhausted: true, cursor: null, hasPrev: true, hasNext: false, totalPages: 2 })
+    expect(results.sections.danbooru.posts.map((p) => p.id)).toEqual(['2'])
+    expect(results.goToPage('danbooru', 3)).toBe(false)
+
+    // Back to page 1 without a request; page 2's posts still resolve by key.
+    expect(results.goToPage('danbooru', 1)).toBe(true)
+    expect(adapters.danbooru.search).toHaveBeenCalledTimes(2)
+    expect(results.sections.danbooru).toMatchObject({ page: 1, hasPrev: false, hasNext: true })
+    expect(results.sections.danbooru.posts.map((p) => p.id)).toEqual(['1'])
+    expect(results.postByKey('danbooru:2')).toMatchObject({ id: '2' })
+    expect(results.stepAll(-1)).toBe(false)
+  })
+
+  it('jumps straight to a page on a numbered booru, within the page cap', async () => {
+    const numbered = { pageCursor: (n) => ({ page: n }), pageCap: () => 10 }
+    const { adapters, results } = setup(['danbooru'], { extra: { danbooru: numbered } })
+    results.search({ query: 'cat', options: ALL, sites: ['danbooru'], limit: 20 })
+    adapters.danbooru.calls[0].resolve(page('danbooru', [1], { total: 1000 }))
+    await settle()
+    expect(results.sections.danbooru).toMatchObject({ canJump: true, totalPages: 10 })
+
+    expect(results.goToPage('danbooru', 11)).toBe(false)
+    expect(results.goToPage('danbooru', 7)).toBe(true)
+    expect(adapters.danbooru.calls[1].args.cursor).toEqual({ page: 7 })
+    adapters.danbooru.calls[1].resolve(page('danbooru', [70], { nextCursor: { page: 8 } }))
+    await settle()
+    expect(results.sections.danbooru).toMatchObject({ page: 7, hasPrev: true, hasNext: true })
+    expect(results.goToPage('danbooru', 6)).toBe(true)
+    expect(adapters.danbooru.calls[2].args.cursor).toEqual({ page: 6 })
+  })
+
+  it('walks a cursor-only booru one visited page at a time', async () => {
+    const { adapters, results } = setup(['sankaku'])
+    results.search({ query: 'cat', options: ALL, sites: ['sankaku'] })
+    adapters.sankaku.calls[0].resolve(page('sankaku', ['a'], { nextCursor: 'k2' }))
+    await settle()
+    expect(results.sections.sankaku.canJump).toBe(false)
+    expect(results.goToPage('sankaku', 3)).toBe(false) // no cursor for page 3 yet
+    expect(results.goToPage('sankaku', 2)).toBe(true)
+    expect(adapters.sankaku.calls[1].args.cursor).toBe('k2')
+    adapters.sankaku.calls[1].resolve(page('sankaku', ['b'], { nextCursor: 'k3' }))
+    await settle()
+    expect(results.goToPage('sankaku', 1)).toBe(true)
+    expect(results.goToPage('sankaku', 3)).toBe(true) // its cursor is known now
+    expect(adapters.sankaku.calls[2].args.cursor).toBe('k3')
   })
 
   it('hands every page of new keys to the in-library lookup and marks imports', async () => {
@@ -237,7 +280,7 @@ describe('useRemoteResults', () => {
     results.search({ query: 'cat', options: ALL, sites: ['danbooru'] })
     adapters.danbooru.calls[0].resolve(page('danbooru', [1]))
     await settle()
-    expect(results.loadMore('danbooru')).toBe(true)
+    expect(results.goToPage('danbooru', 2)).toBe(true)
     expect(adapters.danbooru.search).toHaveBeenCalledTimes(1)
     expect(results.sections.danbooru).toMatchObject({ loading: true, waitingMs: 2000 })
     await vi.advanceTimersByTimeAsync(1000)
@@ -283,7 +326,7 @@ describe('useRemoteResults', () => {
     expect(results.retry('danbooru')).toBe(false)
     adapters.danbooru.calls[0].resolve(page('danbooru', [1]))
     await settle()
-    results.loadMore('danbooru')
+    results.goToPage('danbooru', 2)
     adapters.danbooru.calls[1].reject(new Error('boom'))
     await settle()
     expect(results.sections.danbooru.error).toBeInstanceOf(RemoteSearchError)
@@ -328,7 +371,7 @@ describe('useRemoteResults page counts', () => {
     expect(count.mock.calls[0][0]).toBe('cat')
     expect(count.mock.calls[0][2].signal).toBe(adapters.danbooru.calls[0].args.signal)
     expect(results.sections.danbooru).toMatchObject({ total: 95, totalPages: 5, totalIsEstimate: false })
-    results.loadMore('danbooru')
+    results.goToPage('danbooru', 2)
     adapters.danbooru.calls[1].resolve(page('danbooru', [2]))
     await settle()
     expect(count).toHaveBeenCalledTimes(1)
@@ -361,7 +404,7 @@ describe('useRemoteResults page counts', () => {
     expect(results.sections.e621).toMatchObject({ total: 1000, totalPages: 10, totalIsEstimate: true })
     expect(results.sections.sankaku).toMatchObject({ total: 250, totalPages: 3, totalIsEstimate: true })
 
-    results.loadMore('sankaku')
+    results.goToPage('sankaku', 2)
     adapters.sankaku.calls[1].resolve(page('sankaku', ['cD2'], { nextCursor: null, total: 250, totalIsEstimate: true }))
     await settle()
     expect(results.sections.sankaku).toMatchObject({ page: 2, totalPages: 2, total: 2, totalIsEstimate: false })

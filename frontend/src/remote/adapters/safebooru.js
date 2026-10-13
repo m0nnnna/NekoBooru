@@ -156,6 +156,7 @@ export const safebooruAdapter = Object.freeze({
   transport: SITE_ENTRY.transport,
   pageSize: SITE_ENTRY.defaultLimit,
   pageCap: () => SAFEBOORU_MAX_PAGE,
+  pageCursor: (page) => ({ page }),
 
   translate(query, options) {
     return translateQuery(SITE, query, options)

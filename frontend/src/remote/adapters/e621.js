@@ -183,6 +183,7 @@ export const e621Adapter = Object.freeze({
   transport: 'browser',
   // The last page anonymous paging reaches (see the page-count cap in useRemoteResults).
   pageCap: () => E621_PAGE_CAP,
+  pageCursor: (page) => ({ page }),
   // The booru's own page size; search() takes `limit` (the home per-page
   // choice) and resolves it with effectiveLimit().
   pageSize: siteById(SITE).defaultLimit,

@@ -1,5 +1,5 @@
 <template>
-  <section class="remote-section" :aria-label="`${section.label} results`">
+  <section ref="root" class="remote-section" :aria-label="`${section.label} results`">
     <header class="remote-section-header">
       <div class="section-title">
         <h2>{{ section.label }}</h2>
@@ -36,25 +36,30 @@
       />
     </div>
     <p v-else-if="section.loading" class="section-empty">Searching {{ section.label }}...</p>
-    <p v-else-if="!section.error" class="section-empty">No posts found on {{ section.label }}.</p>
+    <p v-else-if="!section.error" class="section-empty">
+      {{ section.page > 1 ? `No posts on page ${section.page}.` : `No posts found on ${section.label}.` }}
+    </p>
 
-    <footer v-if="section.cursor" class="remote-section-footer">
-      <button
-        type="button"
-        class="btn btn-secondary load-more"
-        :disabled="!canLoadMore(section)"
-        @click="$emit('load-more', section.site)"
-      >
-        {{ section.loading ? 'Loading...' : 'Load more' }}
-      </button>
+    <footer v-if="section.page" class="remote-section-footer">
+      <Pagination
+        class="remote-pagination"
+        :model-value="section.page"
+        :pages="section.totalPages"
+        :has-next="section.hasNext"
+        :estimate="section.totalIsEstimate && !section.exhausted"
+        :jump="section.canJump"
+        :disabled="section.loading"
+        @update:model-value="changePage"
+      />
     </footer>
   </section>
 </template>
 
 <script setup>
+import { nextTick, ref } from 'vue'
+import Pagination from '../Pagination.vue'
 import RemotePostCard from './RemotePostCard.vue'
 import {
-  canLoadMore,
   countLabel,
   errorLabel,
   filteredLabel,
@@ -64,8 +69,9 @@ import {
 } from '../../remote/sectionStatus.js'
 
 // One booru's results in grouped mode: header (count, pages, notes, error
-// with Retry, rate-limit wait), the card grid, and "Load more".
-defineProps({
+// with Retry, rate-limit wait), the card grid, and Prev / page / Next, which
+// replaces the shown page (a page-number box where the booru pages by number).
+const props = defineProps({
   site: { type: String, required: true },
   section: { type: Object, required: true },
   selectMode: { type: Boolean, default: false },
@@ -73,7 +79,15 @@ defineProps({
   inLibraryPostId: { type: Function, default: () => null },
 })
 
-defineEmits(['load-more', 'retry', 'toggle', 'hold-select', 'hover-post', 'open'])
+const emit = defineEmits(['go-to-page', 'retry', 'toggle', 'hold-select', 'hover-post', 'open'])
+const root = ref(null)
+
+// A new page replaces the grid, so bring the section's header back into view.
+async function changePage(page) {
+  emit('go-to-page', props.section.site, page)
+  await nextTick()
+  root.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+}
 </script>
 
 <style scoped src="./remoteGrid.css"></style>
@@ -144,5 +158,9 @@ defineEmits(['load-more', 'retry', 'toggle', 'hold-select', 'hover-post', 'open'
 .remote-section-footer {
   display: flex;
   justify-content: center;
+}
+
+.remote-pagination {
+  padding: 0.25rem;
 }
 </style>

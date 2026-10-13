@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { RemoteSearchError } from './types.js'
-import { canLoadMore, countLabel, errorLabel, filteredLabel, ignoredLabel, pageLabel, waitingLabel } from './sectionStatus.js'
+import { countLabel, errorLabel, filteredLabel, ignoredLabel, pageLabel, waitingLabel } from './sectionStatus.js'
 
 function section(overrides = {}) {
   return {
@@ -52,12 +52,5 @@ describe('sectionStatus', () => {
       .toBe('Gelbooru needs an API key in Settings.')
     expect(errorLabel(failed('query', 'Bad tag'))).toBe('Bad tag')
     expect(errorLabel(section())).toBe('')
-  })
-
-  it('offers Load more only for an idle section with a cursor', () => {
-    expect(canLoadMore(section())).toBe(true)
-    expect(canLoadMore(section({ cursor: null }))).toBe(false)
-    expect(canLoadMore(section({ loading: true }))).toBe(false)
-    expect(canLoadMore(section({ error: new Error('x') }))).toBe(false)
   })
 })

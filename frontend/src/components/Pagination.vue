@@ -1,19 +1,34 @@
 <template>
-  <div class="pagination" v-if="pages > 1">
+  <div class="pagination" v-if="visible">
     <button
       class="btn btn-secondary"
-      :disabled="modelValue <= 1"
-      @click="$emit('update:modelValue', modelValue - 1)"
+      :disabled="disabled || modelValue <= 1"
+      @click="go(modelValue - 1)"
     >
       &#x276E; Prev
     </button>
     <div class="page-info">
-      &#x1F43E; Page {{ modelValue }} of {{ pages }} &#x1F43E;
+      &#x1F43E; Page
+      <input
+        v-if="jumpable"
+        class="page-jump"
+        type="number"
+        min="1"
+        :max="pages"
+        :value="modelValue"
+        :disabled="disabled"
+        aria-label="Go to page"
+        @change="jumpTo($event.target)"
+        @keydown.enter.prevent="jumpTo($event.target)"
+      />
+      <template v-else>{{ format(modelValue) }}</template>
+      <template v-if="pagesKnown"> of {{ estimate ? '~' : '' }}{{ format(pages) }}</template>
+      &#x1F43E;
     </div>
     <button
       class="btn btn-secondary"
-      :disabled="modelValue >= pages"
-      @click="$emit('update:modelValue', modelValue + 1)"
+      :disabled="disabled || !canNext"
+      @click="go(modelValue + 1)"
     >
       Next &#x276F;
     </button>
@@ -21,18 +36,67 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+
+// Prev / "Page N of M" / Next. The library passes modelValue and pages only.
+// Booru sections add: `pages: null` when the count is unknown, `hasNext` when
+// the next page's existence is known apart from the count, `estimate` for a
+// "~" count, `jump` for a page-number box (numbered paging only) and
+// `disabled` while a page loads.
+const props = defineProps({
   modelValue: {
     type: Number,
     required: true,
   },
   pages: {
     type: Number,
-    required: true,
+    default: null,
+  },
+  hasNext: {
+    type: Boolean,
+    default: null,
+  },
+  estimate: {
+    type: Boolean,
+    default: false,
+  },
+  jump: {
+    type: Boolean,
+    default: false,
+  },
+  disabled: {
+    type: Boolean,
+    default: false,
   },
 })
 
-defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue'])
+
+const pagesKnown = computed(() => Number.isFinite(props.pages) && props.pages > 0)
+const canNext = computed(() => (props.hasNext === null ? props.modelValue < props.pages : props.hasNext))
+const visible = computed(() => (props.hasNext === null
+  ? props.pages > 1
+  : props.modelValue > 1 || props.hasNext || props.pages > 1))
+const jumpable = computed(() => props.jump && pagesKnown.value && props.pages > 1)
+
+function format(value) {
+  return Number(value).toLocaleString('en-US')
+}
+
+function go(page) {
+  if (page !== props.modelValue) emit('update:modelValue', page)
+}
+
+function jumpTo(input) {
+  const page = Math.floor(Number(input.value))
+  if (!Number.isFinite(page)) {
+    input.value = props.modelValue
+    return
+  }
+  const clamped = Math.min(Math.max(1, page), props.pages)
+  input.value = clamped
+  go(clamped)
+}
 </script>
 
 <style scoped>
@@ -46,6 +110,12 @@ defineEmits(['update:modelValue'])
 
 .page-info {
   color: var(--text-secondary);
+}
+
+.page-jump {
+  width: 5.5rem;
+  padding: 0.25rem 0.4rem;
+  text-align: center;
 }
 
 @media (max-width: 480px) {

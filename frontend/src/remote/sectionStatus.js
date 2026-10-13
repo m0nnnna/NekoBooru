@@ -60,8 +60,3 @@ export function errorLabel(section) {
       return error.message || `${label} request failed.`
   }
 }
-
-// Whether "Load more" makes sense for the section right now.
-export function canLoadMore(section) {
-  return Boolean(section.cursor) && !section.loading && !section.error
-}
