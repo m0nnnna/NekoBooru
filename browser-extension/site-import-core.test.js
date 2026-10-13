@@ -121,6 +121,16 @@ const escapedSafebooruJob = core.safebooruImportJob(
 assert.deepEqual(escapedSafebooruJob.media[0].tags, ["girls'_frontline", '>_<', 'tom_&_jerry', "'quoted'", '&bogus;', 'a&b', 'safebooru_56'])
 assert.equal(escapedSafebooruJob.media[0].tagCategories["girls'_frontline"], 'general')
 assert.equal(escapedSafebooruJob.media[0].safety, 'sketchy')
+// NekoBooru flattens girls'_frontline; the display name keeps its real spelling,
+// as the Danbooru and Gelbooru-search imports already do.
+assert.equal(escapedSafebooruJob.media[0].tagDisplayNames["girls'_frontline"], "girls' frontline")
+assert.equal(escapedSafebooruJob.media[0].tagDisplayNames['tom_&_jerry'], 'tom & jerry')
+assert.equal(escapedSafebooruJob.media[0].tagDisplayNames.safebooru_56, undefined)
+const sanitizedEscapedSafebooru = core.sanitizeSafebooruImportJob(
+  { ...escapedSafebooruJob, media: [{ ...escapedSafebooruJob.media[0], url: 'https://safebooru.org/images/1/a.png' }] },
+  'https://safebooru.org/index.php?page=post&s=view&id=56',
+)
+assert.equal(sanitizedEscapedSafebooru.media[0].tagDisplayNames["girls'_frontline"], "girls' frontline")
 
 const sanitizedSafebooru = core.sanitizeSafebooruImportJob(
   safebooruJob,

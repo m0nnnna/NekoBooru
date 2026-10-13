@@ -389,7 +389,7 @@
         source: canonicalUrl,
         tags,
         tagCategories,
-        tagDisplayNames: {},
+        tagDisplayNames: booruDisplayNames(tags),
         safety: booruImportSafety(post.rating || scraped?.rating),
       }],
     }
@@ -425,7 +425,7 @@
         source: canonicalUrl,
         tags,
         tagCategories,
-        tagDisplayNames: {},
+        tagDisplayNames: booruDisplayNames(tags),
         safety: ['safe', 'sketchy', 'unsafe'].includes(item?.safety) ? item.safety : 'safe',
       }],
     }
