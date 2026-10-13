@@ -1,0 +1,280 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`HomeView with booru search switched off > renders the same batch panel DOM as before booru search 1`] = `
+"<div data-v-b4e148ca="" class="home-view">
+  <div data-v-b4e148ca="" class="toolbar">
+    <div data-v-b4e148ca="" class="result-count"><span data-v-b4e148ca="" class="">3 posts found</span></div>
+    <div data-v-b4e148ca="" class="toolbar-controls"><button data-v-b4e148ca="" type="button" class="btn select-toggle btn-primary">Done</button>
+      <div data-v-b4e148ca="" class="safety-filter"><label data-v-b4e148ca="" class="safety-checkbox safe active" title="Safe"><input data-v-b4e148ca="" type="checkbox"></label><label data-v-b4e148ca="" class="safety-checkbox sketchy active" title="Sketchy"><input data-v-b4e148ca="" type="checkbox"></label><label data-v-b4e148ca="" class="safety-checkbox unsafe active" title="Unsafe"><input data-v-b4e148ca="" type="checkbox"></label></div>
+      <div data-v-b4e148ca="" class="sort-controls"><select data-v-b4e148ca="" aria-label="Posts per page">
+          <option data-v-b4e148ca="" value="24">24 per page </option>
+          <option data-v-b4e148ca="" value="42">42 per page </option>
+          <option data-v-b4e148ca="" value="60">60 per page </option>
+          <option data-v-b4e148ca="" value="100">100 per page </option>
+          <option data-v-b4e148ca="" value="200">200 per page </option>
+          <option data-v-b4e148ca="" value="500">500 per page </option>
+        </select><select data-v-b4e148ca="">
+          <option data-v-b4e148ca="" value="date">Date</option>
+          <option data-v-b4e148ca="" value="id">ID</option>
+          <option data-v-b4e148ca="" value="size">Size</option>
+        </select><select data-v-b4e148ca="">
+          <option data-v-b4e148ca="" value="desc">Newest first</option>
+          <option data-v-b4e148ca="" value="asc">Oldest first</option>
+        </select></div>
+    </div>
+  </div>
+  <!--v-if-->
+  <div data-v-5d924abb="" data-v-b4e148ca="" class="post-grid"><a data-v-a46cdd76="" data-v-5d924abb="" class="post-card selectable selected">
+      <div data-v-a46cdd76="" class="thumb-container"><img data-v-a46cdd76="" src="/thumb/1.webp" loading="lazy">
+        <!--v-if-->
+        <!--v-if-->
+        <!--v-if-->
+        <div data-v-a46cdd76="" class="select-check on" aria-hidden="true"><span data-v-a46cdd76="">✓</span></div>
+      </div>
+    </a><a data-v-a46cdd76="" data-v-5d924abb="" class="post-card selectable selected">
+      <div data-v-a46cdd76="" class="thumb-container"><img data-v-a46cdd76="" src="/thumb/2.webp" loading="lazy">
+        <!--v-if-->
+        <!--v-if-->
+        <!--v-if-->
+        <div data-v-a46cdd76="" class="select-check on" aria-hidden="true"><span data-v-a46cdd76="">✓</span></div>
+      </div>
+    </a><a data-v-a46cdd76="" data-v-5d924abb="" class="post-card selectable selected">
+      <div data-v-a46cdd76="" class="thumb-container"><img data-v-a46cdd76="" src="/thumb/3.webp" loading="lazy">
+        <!--v-if-->
+        <!--v-if-->
+        <!--v-if-->
+        <div data-v-a46cdd76="" class="select-check on" aria-hidden="true"><span data-v-a46cdd76="">✓</span></div>
+      </div>
+    </a>
+    <!--v-if-->
+    <!--v-if-->
+    <!--v-if-->
+  </div>
+  <!--v-if-->
+  <section data-v-da05f0a3="" data-v-b4e148ca="" class="batch-panel dock-bottom" style="max-height: 420px;" aria-label="Batch edit">
+    <div data-v-da05f0a3="" class="batch-resize-handle resize-bottom" title="Drag to resize panel height"></div>
+    <header data-v-da05f0a3="" class="batch-header">
+      <div data-v-da05f0a3="" class="batch-heading">
+        <h2 data-v-da05f0a3="" class="batch-title"><span data-v-da05f0a3="" class="batch-count">3</span><span data-v-da05f0a3="">selected</span></h2><span data-v-da05f0a3="" class="batch-hint" title="Hold a post to enter edit mode. Shift-click selects a visible range.">Hold a post to enter edit mode. Shift-click selects a visible range.</span>
+      </div>
+      <div data-v-da05f0a3="" class="batch-toolbar">
+        <div data-v-da05f0a3="" class="batch-toolbar-group" role="group" aria-label="Selection"><button data-v-da05f0a3="" type="button" class="tb-btn tb-ghost" title="Add every post on this page to the selection"> Select page </button><button data-v-da05f0a3="" type="button" class="tb-btn tb-ghost" title="Deselect everything"> Clear </button></div><span data-v-da05f0a3="" class="tb-divider" aria-hidden="true"></span>
+        <div data-v-da05f0a3="" class="dock-toggle" role="group" aria-label="Batch panel dock position"><button data-v-da05f0a3="" type="button" class="active" aria-pressed="true" aria-label="Dock at the bottom" title="Dock batch tools at the bottom"><svg data-v-da05f0a3="" viewBox="0 0 24 24" aria-hidden="true">
+              <rect data-v-da05f0a3="" x="3" y="4" width="18" height="16" rx="2"></rect>
+              <path data-v-da05f0a3="" d="M3 14h18"></path>
+            </svg></button><button data-v-da05f0a3="" type="button" class="" aria-pressed="false" aria-label="Dock on the right" title="Dock batch tools on the right"><svg data-v-da05f0a3="" viewBox="0 0 24 24" aria-hidden="true">
+              <rect data-v-da05f0a3="" x="3" y="4" width="18" height="16" rx="2"></rect>
+              <path data-v-da05f0a3="" d="M14 4v16"></path>
+            </svg></button></div>
+        <div data-v-da05f0a3="" class="batch-toolbar-group batch-toolbar-end"><button data-v-da05f0a3="" type="button" class="tb-btn tb-danger" title="Delete the 3 selected post(s)"><svg data-v-da05f0a3="" viewBox="0 0 24 24" aria-hidden="true">
+              <path data-v-da05f0a3="" d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"></path>
+            </svg> Delete </button><button data-v-da05f0a3="" type="button" class="tb-btn tb-primary" title="Leave edit mode"> Done </button></div>
+      </div>
+    </header>
+    <div data-v-da05f0a3="" class="batch-body">
+      <!--v-if-->
+      <!-- Batch cards (AI tagging, inspector, tag edits, ...) slot in here. -->
+      <div data-v-da05f0a3="" class="batch-grid">
+        <details data-v-26a30555="" data-v-bc79e9aa="" data-v-b4e148ca="" class="batch-card ai-batch-card" open="">
+          <summary data-v-26a30555="" class="batch-card-header"><span data-v-26a30555="" class="batch-card-heading"><span data-v-26a30555="" class="batch-card-title">AI Tag Selected</span><span data-v-26a30555="" class="batch-card-desc" title="Run a profile or custom model stack on only the selected posts.">Run a profile or custom model stack on only the selected posts.</span></span><svg data-v-26a30555="" class="batch-card-chevron" viewBox="0 0 24 24" aria-hidden="true">
+              <path data-v-26a30555="" d="M6 9l6 6 6-6"></path>
+            </svg></summary>
+          <div data-v-26a30555="" class="batch-card-body">
+            <div data-v-bc79e9aa="" data-v-26a30555-s="" class="profile-buttons"><button data-v-bc79e9aa="" data-v-26a30555-s="" type="button" class="profile-button active" title="Uses the model checkboxes, thresholds, safety behavior, and prompt saved in Settings."><strong data-v-bc79e9aa="" data-v-26a30555-s="">Default</strong><span data-v-bc79e9aa="" data-v-26a30555-s="">Saved settings</span></button><button data-v-bc79e9aa="" data-v-26a30555-s="" type="button" class="profile-button" title="Uses the Anime / Booru model stack saved in Settings."><strong data-v-bc79e9aa="" data-v-26a30555-s="">Anime</strong><span data-v-bc79e9aa="" data-v-26a30555-s="">PixAI + Camie + OCR + audio</span></button><button data-v-bc79e9aa="" data-v-26a30555-s="" type="button" class="profile-button" title="Uses the Realistic model stack saved in Settings."><strong data-v-bc79e9aa="" data-v-26a30555-s="">Realistic</strong><span data-v-bc79e9aa="" data-v-26a30555-s="">WD + OCR + audio</span></button><button data-v-bc79e9aa="" data-v-26a30555-s="" type="button" class="profile-button" title="Starts from the Custom model stack saved in Settings, then uses any edits shown in this batch panel."><strong data-v-bc79e9aa="" data-v-26a30555-s="">Custom</strong><span data-v-bc79e9aa="" data-v-26a30555-s="">WD</span></button></div>
+            <!--v-if-->
+            <div data-v-bc79e9aa="" data-v-26a30555-s="" class="batch-actions-row"><button data-v-bc79e9aa="" data-v-26a30555-s="" type="button" class="btn btn-secondary"> Preview Job </button><button data-v-bc79e9aa="" data-v-26a30555-s="" type="button" class="btn btn-primary"> Run &amp; Apply </button></div>
+            <p data-v-bc79e9aa="" data-v-26a30555-s="" class="batch-note"> Preview Job stores suggestions for review. Run &amp; Apply writes tags and safety as each selected post finishes. </p>
+          </div>
+        </details>
+        <details data-v-26a30555="" data-v-1daddfbd="" data-v-b4e148ca="" class="batch-card batch-inspector" open="">
+          <summary data-v-26a30555="" class="batch-card-header"><span data-v-26a30555="" class="batch-card-heading"><span data-v-26a30555="" class="batch-card-title">Hovered Post Details</span><span data-v-26a30555="" class="batch-card-desc" title="Inspect tags and metadata before chaining another batch operation.">Inspect tags and metadata before chaining another batch operation.</span></span><svg data-v-26a30555="" class="batch-card-chevron" viewBox="0 0 24 24" aria-hidden="true">
+              <path data-v-26a30555="" d="M6 9l6 6 6-6"></path>
+            </svg></summary>
+          <div data-v-26a30555="" class="batch-card-body">
+            <div data-v-1daddfbd="" data-v-26a30555-s="" class="inspector-body"><img data-v-1daddfbd="" data-v-26a30555-s="" src="/thumb/3.webp" class="inspector-thumb">
+              <div data-v-1daddfbd="" data-v-26a30555-s="" class="inspector-meta">
+                <div data-v-1daddfbd="" data-v-26a30555-s="" class="inspector-id-row"><a data-v-1daddfbd="" data-v-26a30555-s="" class="inspector-id" href="/post/3" target="_blank" rel="noopener" title="Open this post in a new tab">#3</a><span data-v-1daddfbd="" data-v-26a30555-s="" class="safety-pill safe">safe</span></div>
+                <dl data-v-1daddfbd="" data-v-26a30555-s="" class="inspector-props">
+                  <div data-v-1daddfbd="" data-v-26a30555-s="">
+                    <dt data-v-1daddfbd="" data-v-26a30555-s="">Type</dt>
+                    <dd data-v-1daddfbd="" data-v-26a30555-s="">.png</dd>
+                  </div>
+                  <div data-v-1daddfbd="" data-v-26a30555-s="">
+                    <dt data-v-1daddfbd="" data-v-26a30555-s="">Size</dt>
+                    <dd data-v-1daddfbd="" data-v-26a30555-s="">100 × 100</dd>
+                  </div>
+                  <div data-v-1daddfbd="" data-v-26a30555-s="">
+                    <dt data-v-1daddfbd="" data-v-26a30555-s="">File</dt>
+                    <dd data-v-1daddfbd="" data-v-26a30555-s="">2.0 KB</dd>
+                  </div>
+                  <!--v-if-->
+                  <!--v-if-->
+                </dl>
+              </div>
+              <!--v-if-->
+              <section data-v-1daddfbd="" data-v-26a30555-s="" class="inspector-section">
+                <header data-v-1daddfbd="" data-v-26a30555-s="">
+                  <h4 data-v-1daddfbd="" data-v-26a30555-s="">Tags <span data-v-1daddfbd="" data-v-26a30555-s="" class="inspector-count">1</span></h4><small data-v-1daddfbd="" data-v-26a30555-s="">Hover another post to inspect it.</small>
+                </header>
+                <div data-v-1daddfbd="" data-v-26a30555-s="" class="inspector-tag-list"><span data-v-1daddfbd="" data-v-26a30555-s="">cat</span></div>
+              </section>
+            </div>
+          </div>
+        </details>
+        <details data-v-26a30555="" data-v-e66e945c="" data-v-b4e148ca="" class="batch-card" open="">
+          <summary data-v-26a30555="" class="batch-card-header"><span data-v-26a30555="" class="batch-card-heading"><span data-v-26a30555="" class="batch-card-title">Tags &amp; Rating</span><span data-v-26a30555="" class="batch-card-desc" title="Add, remove, replace, clear tags, or set safety across selected posts.">Add, remove, replace, clear tags, or set safety across selected posts.</span></span><svg data-v-26a30555="" class="batch-card-chevron" viewBox="0 0 24 24" aria-hidden="true">
+              <path data-v-26a30555="" d="M6 9l6 6 6-6"></path>
+            </svg></summary>
+          <div data-v-26a30555="" class="batch-card-body">
+            <div data-v-e66e945c="" data-v-26a30555-s="" class="batch-field-grid compact"><label data-v-e66e945c="" data-v-26a30555-s=""> Tag operation <select data-v-e66e945c="" data-v-26a30555-s="">
+                  <option data-v-e66e945c="" data-v-26a30555-s="" value="add">Add tags</option>
+                  <option data-v-e66e945c="" data-v-26a30555-s="" value="remove">Remove tags</option>
+                  <option data-v-e66e945c="" data-v-26a30555-s="" value="replace">Replace all tags</option>
+                  <option data-v-e66e945c="" data-v-26a30555-s="" value="clear">Clear all tags</option>
+                </select></label><label data-v-e66e945c="" data-v-26a30555-s=""> Safety <select data-v-e66e945c="" data-v-26a30555-s="">
+                  <option data-v-e66e945c="" data-v-26a30555-s="" value="">No change</option>
+                  <option data-v-e66e945c="" data-v-26a30555-s="" value="safe">Safe</option>
+                  <option data-v-e66e945c="" data-v-26a30555-s="" value="sketchy">Sketchy</option>
+                  <option data-v-e66e945c="" data-v-26a30555-s="" value="unsafe">Unsafe / NSFW</option>
+                </select></label></div>
+            <!-- The same tag box as Edit Tags: autocomplete, and multi-word tags
+         like "call of the night" stay one tag instead of splitting on spaces. -->
+            <div data-v-e66e945c="" data-v-26a30555-s="" class="batch-textarea-label"> Tags <div data-v-d3f9ba31="" data-v-e66e945c="" data-v-26a30555-s="" class="tag-input">
+                <!--v-if-->
+                <div data-v-d3f9ba31="" class="input-wrapper"><input data-v-d3f9ba31="" type="text" placeholder="Type a tag, then Enter or comma...">
+                  <!--v-if-->
+                </div>
+                <div data-v-d3f9ba31="" class="hint">Separate tags with commas or press Enter</div>
+              </div>
+            </div>
+            <div data-v-e66e945c="" data-v-26a30555-s="" class="batch-actions-row"><button data-v-e66e945c="" data-v-26a30555-s="" type="button" class="btn btn-secondary"> Apply Tag / Rating Changes </button><button data-v-e66e945c="" data-v-26a30555-s="" type="button" class="btn btn-danger"> Clear Tags </button></div>
+          </div>
+        </details>
+        <details data-v-26a30555="" data-v-b71e1210="" data-v-b4e148ca="" class="batch-card media-optimize-card" open="">
+          <summary data-v-26a30555="" class="batch-card-header"><span data-v-26a30555="" class="batch-card-heading"><span data-v-26a30555="" class="batch-card-title">Media Optimizer</span><span data-v-26a30555="" class="batch-card-desc" title="Preview quality-controlled outputs, inspect impact, then replace originals.">Preview quality-controlled outputs, inspect impact, then replace originals.</span></span><svg data-v-26a30555="" class="batch-card-chevron" viewBox="0 0 24 24" aria-hidden="true">
+              <path data-v-26a30555="" d="M6 9l6 6 6-6"></path>
+            </svg></summary>
+          <div data-v-26a30555="" class="batch-card-body">
+            <div data-v-b71e1210="" data-v-26a30555-s="" class="batch-optimize-body">
+              <div data-v-b71e1210="" data-v-26a30555-s="" class="batch-optimize-topline">
+                <div data-v-b71e1210="" data-v-26a30555-s=""><strong data-v-b71e1210="" data-v-26a30555-s="">Optimization profile</strong><small data-v-b71e1210="" data-v-26a30555-s="">Balanced settings</small></div><span data-v-b71e1210="" data-v-26a30555-s="" class="batch-optimize-state idle">Protected workflow</span>
+              </div>
+              <div data-v-6fc96323="" data-v-b71e1210="" data-v-26a30555-s="" class="media-optimize-profiles" role="radiogroup" aria-label="Optimization profile"><button data-v-6fc96323="" type="button" class="media-optimize-profile" aria-checked="false" role="radio"><span data-v-6fc96323="" class="media-optimize-profile-head"><strong data-v-6fc96323="">Fidelity</strong><small data-v-6fc96323="">Best quality</small></span><span data-v-6fc96323="">Retains source dimensions and gives motion-heavy video a generous bitrate budget.</span></button><button data-v-6fc96323="" type="button" class="media-optimize-profile active" aria-checked="true" role="radio"><span data-v-6fc96323="" class="media-optimize-profile-head"><strong data-v-6fc96323="">Balanced</strong><small data-v-6fc96323="">Recommended</small></span><span data-v-6fc96323="">High visual quality with practical storage savings for everyday library use.</span></button><button data-v-6fc96323="" type="button" class="media-optimize-profile" aria-checked="false" role="radio"><span data-v-6fc96323="" class="media-optimize-profile-head"><strong data-v-6fc96323="">Compact</strong><small data-v-6fc96323="">Maximum savings</small></span><span data-v-6fc96323="">Smaller delivery files for previews, mobile access, and constrained storage.</span></button><button data-v-6fc96323="" type="button" class="media-optimize-profile" aria-checked="false" role="radio"><span data-v-6fc96323="" class="media-optimize-profile-head"><strong data-v-6fc96323="">Social / X</strong><small data-v-6fc96323="">Compatible MP4</small></span><span data-v-6fc96323="">Keeps source dimensions when accepted and creates an H.264/AAC MP4 for social uploads.</span></button></div>
+              <div data-v-b71e1210="" data-v-26a30555-s="" class="batch-optimize-inventory">
+                <div data-v-b71e1210="" data-v-26a30555-s=""><span data-v-b71e1210="" data-v-26a30555-s="">Selected</span><strong data-v-b71e1210="" data-v-26a30555-s="">3</strong></div>
+                <div data-v-b71e1210="" data-v-26a30555-s=""><span data-v-b71e1210="" data-v-26a30555-s="">Images</span><strong data-v-b71e1210="" data-v-26a30555-s="">3</strong></div>
+                <div data-v-b71e1210="" data-v-26a30555-s=""><span data-v-b71e1210="" data-v-26a30555-s="">Videos</span><strong data-v-b71e1210="" data-v-26a30555-s="">0</strong></div>
+                <div data-v-b71e1210="" data-v-26a30555-s=""><span data-v-b71e1210="" data-v-26a30555-s="">Source storage</span><strong data-v-b71e1210="" data-v-26a30555-s="">6.0 KB</strong></div>
+              </div>
+              <div data-v-b71e1210="" data-v-26a30555-s="" class="batch-optimize-policy">
+                <div data-v-b71e1210="" data-v-26a30555-s=""><span data-v-b71e1210="" data-v-26a30555-s="">Image policy</span><strong data-v-b71e1210="" data-v-26a30555-s="">100px · quality 88</strong></div>
+                <div data-v-b71e1210="" data-v-26a30555-s=""><span data-v-b71e1210="" data-v-26a30555-s="">Video policy</span><strong data-v-b71e1210="" data-v-26a30555-s="">1,080px · 6,000 kbps</strong></div>
+              </div>
+              <details data-v-b71e1210="" data-v-26a30555-s="" class="batch-optimize-advanced">
+                <summary data-v-b71e1210="" data-v-26a30555-s=""><span data-v-b71e1210="" data-v-26a30555-s="">Advanced controls</span><small data-v-b71e1210="" data-v-26a30555-s="">Override dimensions and quality budgets</small></summary>
+                <div data-v-b71e1210="" data-v-26a30555-s="" class="batch-field-grid compact"><label data-v-b71e1210="" data-v-26a30555-s=""> Image target <select data-v-b71e1210="" data-v-26a30555-s="">
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="100">Current images max (100px)</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="custom">Custom</option>
+                    </select></label><label data-v-b71e1210="" data-v-26a30555-s=""> Image quality <input data-v-b71e1210="" data-v-26a30555-s="" type="number" min="1" max="100" step="1"></label><label data-v-b71e1210="" data-v-26a30555-s=""> Video target <select data-v-b71e1210="" data-v-26a30555-s="">
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="2160">2160px max side</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="1440">1440px max side</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="1080">1080px max side</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="720">720px max side</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="480">480px max side</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="custom">Custom</option>
+                    </select></label><label data-v-b71e1210="" data-v-26a30555-s=""> Video quality budget <select data-v-b71e1210="" data-v-26a30555-s="">
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="8000">8000 kbps</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="6000">6000 kbps</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="4000">4000 kbps</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="2500">2500 kbps</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="1500">1500 kbps</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="1000">1000 kbps</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="750">750 kbps</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="500">500 kbps</option>
+                      <option data-v-b71e1210="" data-v-26a30555-s="" value="custom">Custom</option>
+                    </select></label><label data-v-b71e1210="" data-v-26a30555-s=""> Custom image max side <input data-v-b71e1210="" data-v-26a30555-s="" type="number" min="64" max="8192" step="16"></label><label data-v-b71e1210="" data-v-26a30555-s=""> Custom video max side <input data-v-b71e1210="" data-v-26a30555-s="" type="number" min="64" max="8192" step="16"></label><label data-v-b71e1210="" data-v-26a30555-s=""> Custom video budget (kbps) <input data-v-b71e1210="" data-v-26a30555-s="" type="number" min="64" max="50000" step="64"></label></div>
+              </details>
+              <div data-v-b71e1210="" data-v-26a30555-s="" class="batch-optimize-guardrail"><strong data-v-b71e1210="" data-v-26a30555-s="">Protected replacement workflow</strong><span data-v-b71e1210="" data-v-26a30555-s=""> Quality-first encodes may burst during complex scenes. Originals are changed only when the output is valid, unique, and smaller than the current file. </span></div>
+              <!--v-if-->
+              <div data-v-b71e1210="" data-v-26a30555-s="" class="batch-actions-row batch-optimize-actions"><button data-v-b71e1210="" data-v-26a30555-s="" type="button" class="btn">Preview</button><button data-v-b71e1210="" data-v-26a30555-s="" type="button" class="btn btn-danger" disabled="" title="Preview valid results before setting them"> Set </button></div>
+            </div>
+          </div>
+        </details>
+        <details data-v-26a30555="" data-v-68c830e2="" data-v-b4e148ca="" class="batch-card">
+          <summary data-v-26a30555="" class="batch-card-header"><span data-v-26a30555="" class="batch-card-heading"><span data-v-26a30555="" class="batch-card-title">Organize &amp; Cleanup</span><span data-v-26a30555="" class="batch-card-desc" title="Pool selected posts or remove bad imports.">Pool selected posts or remove bad imports.</span></span><svg data-v-26a30555="" class="batch-card-chevron" viewBox="0 0 24 24" aria-hidden="true">
+              <path data-v-26a30555="" d="M6 9l6 6 6-6"></path>
+            </svg></summary>
+          <div data-v-26a30555="" class="batch-card-body">
+            <div data-v-68c830e2="" data-v-26a30555-s="" class="batch-actions-row"><button data-v-68c830e2="" data-v-26a30555-s="" type="button" class="btn btn-secondary"> Add to pool </button><button data-v-68c830e2="" data-v-26a30555-s="" type="button" class="btn btn-danger"> Delete selected </button></div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </section>
+  <!--v-if-->
+  <!--v-if-->
+  <!--v-if-->
+  <!--teleport start-->
+  <!--teleport end-->
+</div>"
+`;
+
+exports[`HomeView with booru search switched off > renders the same home view DOM as before booru search 1`] = `
+"<div data-v-b4e148ca="" class="home-view">
+  <div data-v-b4e148ca="" class="toolbar">
+    <div data-v-b4e148ca="" class="result-count"><span data-v-b4e148ca="" class="">3 posts found</span></div>
+    <div data-v-b4e148ca="" class="toolbar-controls"><button data-v-b4e148ca="" type="button" class="btn select-toggle btn-secondary">Select</button>
+      <div data-v-b4e148ca="" class="safety-filter"><label data-v-b4e148ca="" class="safety-checkbox safe active" title="Safe"><input data-v-b4e148ca="" type="checkbox"></label><label data-v-b4e148ca="" class="safety-checkbox sketchy active" title="Sketchy"><input data-v-b4e148ca="" type="checkbox"></label><label data-v-b4e148ca="" class="safety-checkbox unsafe active" title="Unsafe"><input data-v-b4e148ca="" type="checkbox"></label></div>
+      <div data-v-b4e148ca="" class="sort-controls"><select data-v-b4e148ca="" aria-label="Posts per page">
+          <option data-v-b4e148ca="" value="24">24 per page </option>
+          <option data-v-b4e148ca="" value="42">42 per page </option>
+          <option data-v-b4e148ca="" value="60">60 per page </option>
+          <option data-v-b4e148ca="" value="100">100 per page </option>
+          <option data-v-b4e148ca="" value="200">200 per page </option>
+          <option data-v-b4e148ca="" value="500">500 per page </option>
+        </select><select data-v-b4e148ca="">
+          <option data-v-b4e148ca="" value="date">Date</option>
+          <option data-v-b4e148ca="" value="id">ID</option>
+          <option data-v-b4e148ca="" value="size">Size</option>
+        </select><select data-v-b4e148ca="">
+          <option data-v-b4e148ca="" value="desc">Newest first</option>
+          <option data-v-b4e148ca="" value="asc">Oldest first</option>
+        </select></div>
+    </div>
+  </div>
+  <!--v-if-->
+  <div data-v-5d924abb="" data-v-b4e148ca="" class="post-grid"><a data-v-a46cdd76="" data-v-5d924abb="" href="/post/1" class="post-card">
+      <div data-v-a46cdd76="" class="thumb-container"><img data-v-a46cdd76="" src="/thumb/1.webp" loading="lazy">
+        <!--v-if-->
+        <!--v-if-->
+        <!--v-if-->
+        <!--v-if-->
+      </div>
+    </a><a data-v-a46cdd76="" data-v-5d924abb="" href="/post/2" class="post-card">
+      <div data-v-a46cdd76="" class="thumb-container"><img data-v-a46cdd76="" src="/thumb/2.webp" loading="lazy">
+        <!--v-if-->
+        <!--v-if-->
+        <!--v-if-->
+        <!--v-if-->
+      </div>
+    </a><a data-v-a46cdd76="" data-v-5d924abb="" href="/post/3" class="post-card">
+      <div data-v-a46cdd76="" class="thumb-container"><img data-v-a46cdd76="" src="/thumb/3.webp" loading="lazy">
+        <!--v-if-->
+        <!--v-if-->
+        <!--v-if-->
+        <!--v-if-->
+      </div>
+    </a>
+    <!--v-if-->
+    <!--v-if-->
+    <!--v-if-->
+  </div>
+  <!--v-if-->
+  <!--v-if-->
+  <!--v-if-->
+  <!--v-if-->
+  <!--v-if-->
+  <!--teleport start-->
+  <!--teleport end-->
+</div>"
+`;
