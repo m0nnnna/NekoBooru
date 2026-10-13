@@ -151,6 +151,11 @@ tests/               backend unittest suite
 data/ config/ logs/ models/   gitignored runtime dirs
 ```
 
+Booru plumbing has single owners; change the rule there, not in a client:
+
+- **Booru import rules** (post body, duplicate merge, display names, progress text, pacing/back-off): [browser-extension/booru-import-rules.js](browser-extension/booru-import-rules.js), loaded by the extension and imported by the web app through `frontend/src/remote/importRules.js`. Both suites run `browser-extension/booru-import-rules.fixture.json`.
+- **Tag-name mapping between boorus**: Danbooru → e621 in [backend/app/services/e621_names.py](backend/app/services/e621_names.py) (also owns the name-order swap the import direction uses in `site_imports._danbooru_spellings`) and, browser-side for the aggregated search, `frontend/src/remote/e621Names.js`. Danbooru → Sankaku stays in `site_imports.sankaku_name_for`.
+
 ---
 
 ## The auto-tagging system
