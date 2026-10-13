@@ -1,4 +1,5 @@
 import { normalizeTagName } from '../../utils/booruSearchTag.js'
+import { decodeEntities } from '../htmlEntities.js'
 import { translateQuery } from '../queryTranslation.js'
 import {
   RemoteSearchError,
@@ -24,17 +25,6 @@ const MAX_OFFSET = 20000
 const MONTHS = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' }
 // 'Mon Oct 13 04:49:19 -0500 2026', Gelbooru's created_at.
 const GELBOORU_DATE = /^[a-z]{3} ([a-z]{3}) (\d{1,2}) (\d{2}:\d{2}:\d{2}) ([+-])(\d{2})(\d{2}) (\d{4})$/i
-const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
-
-// Gelbooru's JSON HTML-escapes text fields ("girls&#039;_frontline").
-function decodeEntities(text) {
-  return String(text ?? '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, body) => {
-    if (body[0] !== '#') return ENTITIES[body.toLowerCase()] ?? match
-    const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10)
-    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match
-  })
-}
-
 function httpUrl(value) {
   const url = String(value ?? '').trim()
   if (url.startsWith('//')) return `https:${url}`

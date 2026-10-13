@@ -8,6 +8,7 @@
 // here, and the import queue resolves them through Danbooru at import time
 // (P7, remote/danbooruCategories.js).
 import { normalizeTagName } from '../../utils/booruSearchTag.js'
+import { decodeEntities } from '../htmlEntities.js'
 import { translateQuery } from '../queryTranslation.js'
 import { RemoteSearchError, booruDisplayNames, effectiveLimit, makeKey, mediaTypeFromExt, siteById } from '../types.js'
 
@@ -27,20 +28,6 @@ const SAFETY_BY_RATING = {
 // booruImportSafety; the site only hosts safe-ish content anyway.
 export function safebooruSafety(rawRating) {
   return SAFETY_BY_RATING[String(rawRating ?? '').trim().toLowerCase()] || 'safe'
-}
-
-const NAMED_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
-
-// The dapi JSON HTML-escapes tag strings and sources ('&gt;_&lt;',
-// 'angel&#039;s_24_uniform_(blue_archive)', '?a=1&amp;b=2').
-export function decodeEntities(text) {
-  return String(text ?? '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, body) => {
-    if (body[0] === '#') {
-      const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10)
-      return Number.isInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match
-    }
-    return NAMED_ENTITIES[body.toLowerCase()] ?? match
-  })
 }
 
 // An https URL on any host, or null. Protocol-relative and root-relative

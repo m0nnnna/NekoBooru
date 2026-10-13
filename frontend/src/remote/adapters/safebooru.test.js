@@ -4,7 +4,6 @@ import { ApiError } from '../../api/request.js'
 import { RemoteSearchError } from '../types.js'
 import {
   SAFEBOORU_MAX_PAGE,
-  decodeEntities,
   normalizeSafebooruPost,
   safebooruAdapter,
   safebooruSafety,
@@ -205,7 +204,6 @@ describe('URL building', () => {
   })
 
   it('decodes HTML entities in sources', () => {
-    expect(decodeEntities('a?x=1&amp;y=&#x32;&#039;&bogus;')).toBe("a?x=1&y=2'&bogus;")
     expect(normalizeSafebooruPost({ ...fixture.posts[0], source: 'https://e.com/?a=1&amp;b=2' }).source).toBe('https://e.com/?a=1&b=2')
   })
 })
