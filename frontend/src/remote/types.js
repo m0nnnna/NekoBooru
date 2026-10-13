@@ -1,4 +1,5 @@
 import { normalizeTagName } from '../utils/booruSearchTag.js'
+import { booruDisplayNames as sharedDisplayNames, stricterSafety as sharedStricterSafety } from './importRules.js'
 
 // The boorus the home search can aggregate, in display order. `transport`
 // says who talks to the booru: the browser directly (the API sends CORS
@@ -117,27 +118,19 @@ export function libraryIdFromKey(key) {
 // so a Sankaku id comes out lower-cased exactly as the backend stores it.
 export function idTagFor(post) { return normalizeTagName(`${post.site}_${post.id}`) }
 
-// Same as the extension's stricterSafety (browser-extension/site-import.js):
-// the stricter of two ratings, unknown values counting as 'safe'.
+// The stricter of two ratings, unknown values counting as 'safe'
+// (browser-extension/booru-import-rules.js owns the rule).
 export function stricterSafety(a, b) {
-  return SAFETY_ORDER[Math.max(SAFETY_ORDER.indexOf(a), SAFETY_ORDER.indexOf(b), 0)]
+  return sharedStricterSafety(a, b)
 }
 
 // Display names for booru tags whose spelling does not survive flattening
-// ('miyu_(blue_archive)' -> 'miyu (blue archive)'). Same test as
-// booruDisplayNames in browser-extension/site-import-core.js; the result is
-// keyed by the flattened name (the RemotePost shape), which is also what the
-// backend turns the extension's raw keys into.
+// ('miyu_(blue_archive)' -> 'miyu (blue archive)'), by the rule in
+// browser-extension/booru-import-rules.js, keyed by the flattened name (the
+// RemotePost shape), which is also what the backend turns the extension's
+// raw keys into.
 export function booruDisplayNames(rawTags) {
-  const names = {}
-  for (const raw of rawTags || []) {
-    const tag = String(raw ?? '').trim()
-    // All-symbol tags ("?", "@_@") flatten to nothing and are dropped anyway.
-    if (!/[^\p{L}\p{N}_:.-]/u.test(tag) || !/[\p{L}\p{N}]/u.test(tag)) continue
-    const flat = normalizeTagName(tag)
-    if (flat && !(flat in names)) names[flat] = tag.replace(/_/g, ' ')
-  }
-  return names
+  return sharedDisplayNames(rawTags, normalizeTagName)
 }
 
 // The RemotePost.mediaType rule shared by every adapter (section 3.2).

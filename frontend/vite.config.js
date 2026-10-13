@@ -1,4 +1,5 @@
-import { defineConfig, loadEnv } from 'vite'
+import { fileURLToPath } from 'node:url'
+import { defineConfig, loadEnv, searchForWorkspaceRoot } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig(({ mode }) => {
@@ -17,6 +18,14 @@ export default defineConfig(({ mode }) => {
       assetsDir: 'assets',
     },
     server: {
+      // src/remote/importRules.js imports browser-extension/booru-import-rules.js,
+      // the one copy of the booru import rules both clients load.
+      fs: {
+        allow: [
+          searchForWorkspaceRoot(process.cwd()),
+          fileURLToPath(new URL('../browser-extension/booru-import-rules.js', import.meta.url)),
+        ],
+      },
       port: frontendPort,
       strictPort: true,
       proxy: {

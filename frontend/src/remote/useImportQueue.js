@@ -1,25 +1,34 @@
 import { computed, reactive, ref } from 'vue'
 import { booruSearchTag, normalizeTagName } from '../utils/booruSearchTag'
 import { resolveDanbooruCategories } from './danbooruCategories.js'
-import { CATEGORIES, SAFETY_ORDER, booruDisplayNames, idTagFor, stricterSafety } from './types.js'
+import {
+  DOWNLOAD_GAP_MS,
+  downloadProgressText,
+  duplicateTarget,
+  importPostBody as sharedImportPostBody,
+  isDuplicatePost as sharedIsDuplicatePost,
+  mergePostBody as sharedMergePostBody,
+  slowDownText,
+  throttleDelayMs,
+} from './importRules.js'
+import { CATEGORIES, SAFETY_ORDER, booruDisplayNames, idTagFor } from './types.js'
 
 // Imports selected remote posts into the library one at a time, the way the
 // browser extension's search-page import does (browser-extension/site-import.js
 // importAll): a pause between downloads, a growing back-off when a site says
 // "slow down", and posts already in the library merged instead of downloaded.
-// `api` and `adapters` are injected so the queue can be tested with fakes.
+// The post body, merge, progress text, pacing and back-off are the
+// extension's own rules (browser-extension/booru-import-rules.js, through
+// importRules.js). `api` and `adapters` are injected so the queue can be
+// tested with fakes.
 
+export { DOWNLOAD_GAP_MS, RETRY_DELAYS_MS, downloadProgressText } from './importRules.js'
 export const NEW_POOL = '__new__'
 export const IMPORT_PROFILE = 'booru_search'
-export const DOWNLOAD_GAP_MS = 1500
-export const RETRY_DELAYS_MS = [10000, 30000, 60000]
 export const BUSY_RETRY_MS = 5000
 export const PROGRESS_POLL_MS = 1000
 const LOOKUP_CHUNK = 500
 const FINISHED = new Set(['done', 'skipped', 'failed', 'cancelled'])
-// A server-suggested wait (Retry-After) is honoured up to this long, the
-// same cap as the search budget's cooldown (remote/budget.js).
-const MAX_THROTTLE_WAIT_MS = 900000
 // Sites whose character/copyright spellings are converted to Danbooru's.
 const RENAMED_SITES = new Set(['sankaku', 'e621'])
 // Sites whose search results carry no tag categories, so imports look them
@@ -41,21 +50,6 @@ const UNAVAILABLE_REASONS = {
 
 class ImportCancelled extends Error {}
 
-// "Downloading original… 12.3 / 36.0 MB (34%) · 180 KB/s · 70s", the
-// extension's downloadProgressText (browser-extension/site-import-core.js).
-export function downloadProgressText(progress, elapsedMs) {
-  const received = Math.max(0, Number(progress?.received) || 0)
-  const total = Math.max(0, Number(progress?.total) || 0)
-  const seconds = Math.max(0, Math.round((Number(elapsedMs) || 0) / 1000))
-  const megabytes = (bytes) => (bytes / 1048576).toFixed(1)
-  const parts = [total
-    ? `${megabytes(received)} / ${megabytes(total)} MB (${Math.min(100, Math.floor((received * 100) / total))}%)`
-    : `${megabytes(received)} MB`]
-  if (seconds > 0 && received > 0) parts.push(`${Math.round(received / 1024 / seconds)} KB/s`)
-  parts.push(`${seconds}s`)
-  return `Downloading original… ${parts.join(' · ')}`
-}
-
 // The booru's own spelling of a flattened tag (miyu_blue_archive ->
 // miyu_(blue_archive)), recovered from its display name. Lookups that talk to
 // a booru need this form; the flattened one would not be found.
@@ -71,27 +65,10 @@ function errorMessage(error) {
   return error?.message || String(error || 'Unknown error')
 }
 
-// A site (or its CDN, via the backend) asking to slow down. The backend's
-// from-url error carries the upstream status in its text, which is what the
-// extension matches; a relay answers 429 itself (an ApiError with that
-// `status`); adapters' RemoteSearchError says so in `kind`.
-function isThrottled(error) {
-  return /HTTP (429|503)\b/.test(errorMessage(error)) || error?.kind === 'throttled'
-    || error?.status === 429 || error?.status === 503
-}
-
-// The scheduled back-off, or longer when the error says how long to wait:
-// `retryAfterMs` on both the api client's ApiError (Retry-After or the
-// relay's detail.retryAfter) and RemoteSearchError.
-function throttleWaitMs(error, scheduledMs) {
-  const hinted = Number.isFinite(Number(error?.retryAfterMs)) ? Math.max(0, Number(error.retryAfterMs)) : 0
-  return Math.max(scheduledMs, Math.min(hinted, MAX_THROTTLE_WAIT_MS))
-}
-
+// The api client's ApiError carries the 409 duplicate_post detail.
 function isDuplicatePost(error) {
-  return error?.status === 409 && error?.detail?.code === 'duplicate_post'
+  return sharedIsDuplicatePost(error?.status, error?.detail)
 }
-
 function unavailableMessage(post) {
   const reason = UNAVAILABLE_REASONS[post?.unavailable]
   return reason ? `No original file · ${reason}` : 'No original file'
@@ -157,31 +134,30 @@ export function prepareImport(post, run, options) {
   }
 }
 
-// siteImportPostBody(job, item, token) from site-import-core.js, with autoTag
-// driven by the Import card's switch.
-export function importPostBody(post, prepared, options, contentToken) {
+function importedFields(prepared, post) {
   return {
-    contentToken,
     safety: prepared.safety,
     tags: prepared.tags,
     tagCategories: prepared.tagCategories,
     tagDisplayNames: prepared.tagDisplayNames,
-    source: post.postUrl,
-    autoTag: options?.autoTag === true,
-    autoTagProfile: IMPORT_PROFILE,
+    source: post?.postUrl,
   }
 }
 
-// The PUT body of the extension's mergeDuplicate: the library's tags first,
-// then the import's, and the stricter of the two ratings.
+// The shared post body, with autoTag driven by the Import card's switch.
+export function importPostBody(post, prepared, options, contentToken) {
+  return sharedImportPostBody({
+    ...importedFields(prepared, post),
+    contentToken,
+    autoTag: options?.autoTag === true,
+    autoTagProfile: IMPORT_PROFILE,
+  })
+}
+
+// The shared merge body: the library's tags first, then the import's, and
+// the stricter of the two ratings.
 export function mergePostBody(existing, prepared, post) {
-  return {
-    tags: unique([...(existing?.tags || []), ...prepared.tags]),
-    safety: stricterSafety(existing?.safety, prepared.safety),
-    source: existing?.source || post.postUrl || null,
-    tagCategories: prepared.tagCategories,
-    tagDisplayNames: prepared.tagDisplayNames,
-  }
+  return sharedMergePostBody(existing, importedFields(prepared, post))
 }
 
 function newRun() {
@@ -408,13 +384,12 @@ export function useImportQueue({
           stop()
         }
       } catch (error) {
-        const scheduled = RETRY_DELAYS_MS[attempt]
-        if (isThrottled(error) && scheduled !== undefined) {
-          const delay = throttleWaitMs(error, scheduled)
+        const delay = throttleDelayMs(error, attempt)
+        if (delay !== null) {
           attempt += 1
           item.attempt = attempt
           item.retryAt = Date.now() + delay
-          setStatus(item, 'retrying', `${label} asked to slow down · retrying in ${Math.round(delay / 1000)} s…`)
+          setStatus(item, 'retrying', slowDownText(label, delay))
           await pause(delay, generation)
           continue
         }
@@ -438,10 +413,8 @@ export function useImportQueue({
   // The 409 duplicate_post path of POST /api/posts: restore a soft-deleted
   // copy first, then merge, exactly like the extension's mergeDuplicate.
   async function mergeDuplicate(detail, prepared, post) {
-    let existing = detail?.post || {}
-    const postId = Number(detail?.postId || existing.id)
-    if (!postId) throw new Error('The original already exists, but NekoBooru did not return its post ID.')
-    if (detail?.deleted || existing.deletedAt) existing = await api.restorePost(postId)
+    const { postId, post: found, deleted } = duplicateTarget(detail)
+    const existing = deleted ? await api.restorePost(postId) : found
     return { postId, post: await mergeInto(existing, postId, prepared, post) }
   }
 
