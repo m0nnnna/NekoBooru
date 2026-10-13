@@ -18,6 +18,10 @@
 
 const BOORU_CATEGORY_NAMES = ['general', 'artist', 'copyright', 'character', 'meta']
 
+// Gelbooru-engine and Moebooru JSON HTML-escape tag text ('girls&#039;_frontline');
+// html-entities.js, loaded before this file, owns the decoder.
+const booruDecodeEntities = (globalThis.NekoBooruEntities || require('./html-entities.js')).decodeHtmlEntities
+
 // Danbooru's numeric tag categories, which every clone in this file reuses:
 // 0 general, 1 artist, 2 (unused/deprecated), 3 copyright, 4 character,
 // 5 meta. Gelbooru-family boards put the same numbers in `type`.
@@ -246,7 +250,7 @@ function parseMoebooruJson(payload, context) {
   // Moebooru's post.json carries no per-tag category; the caller enriches
   // these from /tag.json when it can, and plain general tags are still a
   // better import than nothing.
-  String(post.tags || '').split(/\s+/).forEach((name) => addBooruTag(collected, name, 'general'))
+  booruDecodeEntities(post.tags).split(/\s+/).forEach((name) => addBooruTag(collected, name, 'general'))
   if (!Object.keys(collected).length) return null
   return booruResult(collected, { ...context, rating: post.rating, source: post.source })
 }
@@ -256,7 +260,7 @@ function parseGelbooruJson(payload, context) {
   const post = Array.isArray(posts) ? posts[0] : posts
   if (!post || typeof post !== 'object') return null
   const collected = {}
-  String(post.tags || '').split(/\s+/).forEach((name) => addBooruTag(collected, name, 'general'))
+  booruDecodeEntities(post.tags).split(/\s+/).forEach((name) => addBooruTag(collected, name, 'general'))
   if (!Object.keys(collected).length) return null
   return booruResult(collected, { ...context, rating: post.rating, source: post.source })
 }
@@ -303,7 +307,7 @@ function applyGelbooruTagTypes(result, payload) {
   if (!result || !payload) return result
   const rows = Array.isArray(payload) ? payload : payload.tag || []
   rows.forEach((row) => {
-    const name = cleanBooruTagName(row && (row.name || row.tag))
+    const name = cleanBooruTagName(booruDecodeEntities(row && (row.name || row.tag)))
     const category = BOORU_TYPE_TO_CATEGORY[Number(row && row.type)]
     if (name && category && name in result.categories) result.categories[name] = category
   })
