@@ -28,7 +28,7 @@ Instead:
 - **Backend runtime locations** — always go through [backend/app/runtime_paths.py](backend/app/runtime_paths.py) / `settings` from [backend/app/config.py](backend/app/config.py): `settings.data_dir`, `settings.config_dir`, `settings.config_file`, `settings.models_dir`, `settings.logs_dir`, `settings.cache_dir`, `settings.runtimes_dir`. These already resolve correctly for source checkouts, frozen PyInstaller builds, and portable mode, and each honors a `NEKO_*` env override.
 - **Locating files relative to code** — `Path(__file__).resolve().parents[N] / "..."`, never a literal root.
 - **Scripts** — use the script's own directory (`%~dp0` in batch, `$PSScriptRoot` in PowerShell, `$(dirname "$0")` in sh) and relative paths from there.
-- **Tests** — build temp dirs with `tempfile.TemporaryDirectory()` and point the `NEKO_*` env vars at them (see `setUpClass` in [tests/test_auto_tags.py](tests/test_auto_tags.py) for the established pattern).
+- **Tests** — build temp dirs with `tempfile.TemporaryDirectory()` and point the `NEKO_*` env vars at them (see `AutoTagApiTestCase.setUpClass` in [tests/auto_tag_support.py](tests/auto_tag_support.py) for the established pattern).
 - **Docs and comments** — refer to repo-relative paths (`backend/app/services/auto_tagger/dispatch.py`), never absolute ones.
 - **Model files** — resolve through `model_cache_status(model_id)` and the `_cached_file*` helpers, never by constructing a snapshot path by hand.
 
@@ -146,7 +146,7 @@ frontend/src/
   stores/            Pinia
   api/client.js      API client
 frontend/dist/       COMMITTED build output
-browser-extension/   MV3 extension (has its own copy of AI model default logic)
+browser-extension/   MV3 extension (fetches the AI model registry; ships a fallback copy)
 tests/               backend unittest suite
 data/ config/ logs/ models/   gitignored runtime dirs
 ```
@@ -157,9 +157,9 @@ data/ config/ logs/ models/   gitignored runtime dirs
 
 Everything lives in the [backend/app/services/auto_tagger/](backend/app/services/auto_tagger/) package and is exposed by [backend/app/routers/auto_tags.py](backend/app/routers/auto_tags.py) under `/api/auto-tags`.
 
-The package's `__init__` re-exports every name, so `from app.services.auto_tagger import X` and `mock.patch("app.services.auto_tagger.X")` keep working; state that is rebound at runtime (`_download_job`, `_load_job`, CUDA flags) lives in `__init__` and the parts read it as `_at.<name>`. Parts, in import order (each imports only earlier ones):
+The package's `__init__` re-exports every name, so `from app.services.auto_tagger import X` keeps working. A part looks up what it imported in its own globals, so a test patches the part that makes the call (`mock.patch("app.services.auto_tagger.dispatch.runtime_available")`); patching the package path only reaches callers outside the package. State that is rebound at runtime (`_download_job`, `_load_job`, CUDA flags) lives in `__init__` and the parts read it as `_at.<name>`. Parts, in import order (each imports only earlier ones):
 
-- `core` — constants, `MODEL_REGISTRY`, `AutoTagOptions` / `AutoTagResult`, `_gpu_work_lock`, `normalize_tag`, `safety_from_rating`
+- `core` — constants, `MODEL_REGISTRY`, `AutoTagOptions` / `AutoTagResult`, `_gpu_work_lock`, `normalize_tag`, `safety_from_rating`, and the UI registry (`MODEL_FLAGS`, `PROFILE_MODEL_DEFAULTS`, `model_registry_payload`)
 - `runtime` — torch / ONNX / llama.cpp detection, `_prepare_onnx_cuda_runtime`, `_create_onnx_session`
 - `semantic` — prompts, semantic parsing, `merge_with_existing`, tag filters
 - `options` — `load_options` / `validate_options`, tokens
@@ -209,19 +209,14 @@ Backend ([backend/app/services/auto_tagger/](backend/app/services/auto_tagger/))
 6. `dispatch.py`: `_optional_image_results()` — run it when the flag is set; add to the `visual_enrichers` condition in `_tag_video_with_enrichers()` if it should also see sampled video frames.
 7. `models.py`: `_new_load_job()` load-time estimate.
 
-Backend router ([backend/app/routers/settings.py](backend/app/routers/settings.py)):
-8. Add the new flag to the key tuple in `_normalize_ai_model_default_stack()`.
+The model registry (one owner, served at `GET /api/auto-tags/registry` by `model_registry_payload()`):
+8. `core.py`: the model's `_MODEL_PIPELINE` row (its `AutoTagOptions` flag key, pipeline label and description, runtime packages). A new flag also gets a `MODEL_FLAGS` row, and a value in each `PROFILE_MODEL_DEFAULTS` stack. Nothing else reads a hand-copied model list: `settings.py`'s `_normalize_ai_model_default_stack()` uses `MODEL_FLAG_KEYS`; the Settings, post, upload and batch views derive everything from [useAiModelRegistry.js](frontend/src/composables/useAiModelRegistry.js); the extension's [upload-ai-models.js](browser-extension/upload-ai-models.js) fetches the registry.
+9. Regenerate the two copies the clients ship, which `test_model_registry_is_served_once_for_every_surface` compares with the server: [aiModelRegistry.fixture.json](frontend/src/composables/aiModelRegistry.fixture.json) (the web tests' mock) and the `/* registry:start */ ... /* registry:end */` fallback in `upload-ai-models.js` (used when the server is unreachable). Both are `json.dumps(model_registry_payload(), indent=2)`.
+10. Only for a semantic backend: its wording in `semanticBackendDescription()` in [useSettingsAiModels.js](frontend/src/composables/useSettingsAiModels.js).
+11. Rebuild `frontend/dist`.
 
-Frontend (four surfaces keep their own copy of the model-key lists — keep them in sync):
-9. [useSettingsAiModels.js](frontend/src/composables/useSettingsAiModels.js) (Settings' model lists, split out of SettingsView) — `aiDefaultModels`, the model-key array near the top of the AI section, `modelSettingKey()`, `modelPipelineLabel()`, `modelPipelineDescription()`, and the profile-default builders.
-10. [useBatchAiTagging.js](frontend/src/composables/useBatchAiTagging.js) (the home view's batch AI tagging, split out of HomeView) — `aiModelDefaultKeys`, the model toggle list, and the `anime` / `realistic` profile defaults.
-11. [usePostPageAiModels.js](frontend/src/composables/usePostPageAiModels.js) (split out of PostView) — the model list, `modelSettingKey` map, profile defaults, and the runtime-requirement helper.
-12. [useUploadAiProfiles.js](frontend/src/composables/useUploadAiProfiles.js) (split out of UploadView) — the model-key loop and profile defaults.
-13. [browser-extension/upload-ai-models.js](browser-extension/upload-ai-models.js) — profile defaults, the model-key array, the id→flag map, and the runtime-requirement helper.
-14. Rebuild `frontend/dist`.
-
-Tests ([tests/test_auto_tags.py](tests/test_auto_tags.py)):
-15. Add the id to the model-listing / download-all assertions and add a tagging test mirroring the existing `pixai` / `camie` cases.
+Tests (`tests/test_auto_tags_*.py`, split by area; the API classes share `AutoTagApiTestCase` from [tests/auto_tag_support.py](tests/auto_tag_support.py)):
+12. Add the id to the model-listing / download-all assertions in `test_auto_tags_api_models.py` and add a tagging test to `test_auto_tags_runtime.py` mirroring the existing `pixai` / `cl` cases.
 
 Docs: mention the model in [README.md](README.md)'s auto-tagging section.
 
