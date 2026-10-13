@@ -23,7 +23,7 @@
     },
     {
       "matches": ["*://pixiv.net/*", "*://*.pixiv.net/*", "*://gelbooru.com/*", "*://*.gelbooru.com/*", "*://safebooru.org/*", "*://*.safebooru.org/*", "*://donmai.us/*", "*://*.donmai.us/*", "*://sankaku.app/*", "*://www.sankaku.app/*", "*://chan.sankakucomplex.com/*", "*://sankakucomplex.com/*", "*://www.sankakucomplex.com/*"],
-      "js": ["html-entities.js", "booru-tags.js", "site-import-core.js", "site-import-buttons.js"],
+      "js": ["html-entities.js", "booru-tags.js", "site-import-shared.js", "site-import-sankaku.js", "site-import-controls.js", "site-import-core.js", "site-import-buttons.js"],
       "run_at": "document_idle"
     },
     {
@@ -33,7 +33,7 @@
     },
     {
       "matches": ["*://saucenao.com/*", "*://*.saucenao.com/*"],
-      "js": ["html-entities.js", "site-import-core.js", "saucenao-links.js"],
+      "js": ["html-entities.js", "site-import-shared.js", "site-import-sankaku.js", "site-import-controls.js", "site-import-core.js", "saucenao-links.js"],
       "run_at": "document_idle"
     }
   ],
