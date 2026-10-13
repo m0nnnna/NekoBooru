@@ -196,7 +196,8 @@ describe('useRemoteResults', () => {
     expect(results.sections.danbooru).toMatchObject({ page: 1, hasPrev: false, hasNext: true })
     expect(results.sections.gelbooru).toMatchObject({ page: 1, exhausted: true, hasPrev: false, hasNext: false, totalPages: 1 })
 
-    expect(results.stepAll(1)).toBe(true)
+    expect(results.goToPage('danbooru', 2)).toBe(true)
+    expect(results.goToPage('gelbooru', 2)).toBe(false) // exhausted on page 1
     expect(adapters.gelbooru.search).toHaveBeenCalledTimes(1)
     expect(adapters.danbooru.calls[1].args.cursor).toEqual({ page: 2 })
     adapters.danbooru.calls[1].resolve(page('danbooru', [2], { nextCursor: null }))
@@ -211,7 +212,7 @@ describe('useRemoteResults', () => {
     expect(results.sections.danbooru).toMatchObject({ page: 1, hasPrev: false, hasNext: true })
     expect(results.sections.danbooru.posts.map((p) => p.id)).toEqual(['1'])
     expect(results.postByKey('danbooru:2')).toMatchObject({ id: '2' })
-    expect(results.stepAll(-1)).toBe(false)
+    expect(results.goToPage('danbooru', 0)).toBe(false)
   })
 
   it('jumps straight to a page on a numbered booru, within the page cap', async () => {

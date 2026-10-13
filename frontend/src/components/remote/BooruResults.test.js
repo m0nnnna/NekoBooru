@@ -25,7 +25,6 @@ function setup({ libraryPage = 1, libraryPages = 1, danbooru = {}, e621 = {} } =
     feed: [post('danbooru', 1), post('e621', 1)],
     inLibraryPostId: () => null,
     goToPage: vi.fn(() => true),
-    stepAll: vi.fn(),
     retry: vi.fn(),
     openPost: vi.fn(),
   })

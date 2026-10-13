@@ -226,7 +226,6 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
     resultCountLabel,
     inLibraryPostId,
     goToPage: (site, page) => results.goToPage(site, page),
-    stepAll: (delta) => results.stepAll(delta),
     retry: (site) => results.retry(site),
     postByKey: (key) => results.postByKey(key),
     markImported: (key, postId) => results.markImported(key, postId),

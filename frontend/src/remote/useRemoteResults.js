@@ -469,13 +469,6 @@ export function useRemoteResults(config = {}) {
     return true
   }
 
-  // Interleaved mode's Prev/Next: every section steps by `delta` where it can.
-  function stepAll(delta) {
-    return order.value
-      .map((site) => goToPage(site, (sections[site].page || 1) + delta))
-      .some(Boolean)
-  }
-
   // Re-run the last request of a failed section, skipping any cooldown wait
   // for the budget (which still defers it while the site cools down).
   function retry(site) {
@@ -516,7 +509,6 @@ export function useRemoteResults(config = {}) {
     scheduleSearch,
     cancelScheduledSearch,
     goToPage,
-    stepAll,
     postByKey,
     markImported,
     retry,
