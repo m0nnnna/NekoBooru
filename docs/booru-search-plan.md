@@ -1412,6 +1412,16 @@ in item 1, used at import time only (like Gelbooru's), with tests. Item 5:
 "pool" is NekoBooru's existing Pools feature (ordered post collections); the
 Import card's optional pool field is chosen per import run.
 
+**Page size (owner decision, overrides the flat default 40 in item 2):**
+each remote source uses its booru's own default page size - Danbooru 20,
+e621 75, Sankaku 20, Gelbooru 42, Safebooru 42 (verified live) - recorded as
+`defaultLimit`/`maxLimit` in the `types.js` site registry with an
+`effectiveLimit(site, requested)` helper. The home per-page dropdown
+(`PER_PAGE_OPTIONS` in `composables/usePostBrowser.js`) gains a "Default"
+option, selected out of the box: each source then uses its own default
+(NekoBooru keeps 42). Picking a number applies it to every ticked source,
+capped at each site's max (P3a/P3b). The relays' `limit` defaults to 42.
+
 ### Original questions and defaults
 
 1. **Safebooru tag categories** - default: general-only, as the draft said.
