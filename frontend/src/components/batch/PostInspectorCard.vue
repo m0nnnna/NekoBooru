@@ -4,52 +4,63 @@
     title="Hovered Post Details"
     description="Inspect tags and metadata before chaining another batch operation."
   >
-    <div v-if="post" class="inspector-body">
-      <img :src="post.thumbUrl" :alt="post.filename" class="inspector-thumb" />
+    <div v-if="view" class="inspector-body">
+      <img :src="view.thumbUrl" :alt="view.alt" :referrerpolicy="view.referrerPolicy" class="inspector-thumb" />
       <div class="inspector-meta">
-        <div class="inspector-id-row">
+        <div v-if="view.remote" class="inspector-id-row">
           <a
             class="inspector-id"
-            :href="`/post/${post.id}`"
+            :href="view.href"
+            target="_blank"
+            rel="noopener noreferrer"
+            :title="view.linkTitle"
+          >#{{ view.id }}</a>
+          <span class="inspector-site">{{ view.siteLabel }}</span>
+          <span class="safety-pill" :class="view.safety">{{ view.safety }}</span>
+        </div>
+        <div v-else class="inspector-id-row">
+          <a
+            class="inspector-id"
+            :href="view.href"
             target="_blank"
             rel="noopener"
-            title="Open this post in a new tab"
-          >#{{ post.id }}</a>
-          <span class="safety-pill" :class="post.safety">{{ post.safety }}</span>
+            :title="view.linkTitle"
+          >#{{ view.id }}</a>
+          <span class="safety-pill" :class="view.safety">{{ view.safety }}</span>
         </div>
         <dl class="inspector-props">
           <div>
             <dt>Type</dt>
-            <dd>{{ post.extension || 'unknown' }}</dd>
+            <dd>{{ view.extension || 'unknown' }}</dd>
           </div>
           <div>
             <dt>Size</dt>
-            <dd>{{ post.width || '?' }} × {{ post.height || '?' }}</dd>
+            <dd>{{ view.width || '?' }} × {{ view.height || '?' }}</dd>
           </div>
           <div>
             <dt>File</dt>
-            <dd>{{ formatFileSize(post.fileSize) }}</dd>
+            <dd>{{ formatFileSize(view.fileSize) }}</dd>
           </div>
-          <div v-if="post.filename">
+          <div v-if="view.filename">
             <dt>Name</dt>
-            <dd :title="post.filename">{{ post.filename }}</dd>
+            <dd :title="view.filename">{{ view.filename }}</dd>
           </div>
-          <div v-if="post.source">
+          <div v-if="view.source">
             <dt>Source</dt>
-            <dd :title="post.source">
+            <dd :title="view.source">
               <a
-                v-if="isLink(post.source)"
-                :href="post.source"
+                v-if="isLink(view.source)"
+                :href="view.source"
                 target="_blank"
                 rel="noopener noreferrer"
-              >{{ post.source }}</a>
-              <template v-else>{{ post.source }}</template>
+              >{{ view.source }}</a>
+              <template v-else>{{ view.source }}</template>
             </dd>
           </div>
         </dl>
       </div>
 
-      <section v-if="semanticLoading || semanticAnalysis" class="inspector-section">
+      <section v-if="!view.remote && (semanticLoading || semanticAnalysis)" class="inspector-section">
         <header>
           <h4>Semantic description</h4>
           <small v-if="semanticAnalysis">
@@ -65,11 +76,11 @@
 
       <section class="inspector-section">
         <header>
-          <h4>Tags <span class="inspector-count">{{ post.tags?.length || 0 }}</span></h4>
+          <h4>Tags <span class="inspector-count">{{ view.tags.length }}</span></h4>
           <small>Hover another post to inspect it.</small>
         </header>
-        <div v-if="post.tags?.length" class="inspector-tag-list">
-          <span v-for="tag in post.tags" :key="tag">{{ tag }}</span>
+        <div v-if="view.tags.length" class="inspector-tag-list">
+          <span v-for="tag in view.tags" :key="tag">{{ tag }}</span>
         </div>
         <p v-else class="batch-note">No tags on this post.</p>
       </section>
@@ -79,11 +90,18 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import BatchCard from './BatchCard.vue'
 import { formatFileSize } from '../../utils/format'
+import { imageReferrerPolicy, siteById } from '../../remote/types.js'
 
-defineProps({
+const props = defineProps({
+  // A library post, or a hovered booru card's RemotePost (remote/types.js).
   post: {
+    type: Object,
+    default: null,
+  },
+  remotePost: {
     type: Object,
     default: null,
   },
@@ -95,6 +113,52 @@ defineProps({
     type: Boolean,
     default: false,
   },
+})
+
+// One display shape for both kinds of post.
+const view = computed(() => {
+  const remote = props.remotePost
+  if (remote) {
+    const label = siteById(remote.site)?.label || remote.site
+    return {
+      remote: true,
+      id: remote.id,
+      href: remote.postUrl,
+      linkTitle: `Open this post on ${label}`,
+      siteLabel: label,
+      thumbUrl: remote.thumbUrl,
+      alt: `${label} post ${remote.id}`,
+      referrerPolicy: imageReferrerPolicy(remote.site),
+      safety: remote.safety,
+      extension: remote.fileExt,
+      width: remote.width,
+      height: remote.height,
+      fileSize: remote.fileSize,
+      filename: null,
+      source: remote.source,
+      tags: remote.tags || [],
+    }
+  }
+  const post = props.post
+  if (!post) return null
+  return {
+    remote: false,
+    id: post.id,
+    href: `/post/${post.id}`,
+    linkTitle: 'Open this post in a new tab',
+    siteLabel: null,
+    thumbUrl: post.thumbUrl,
+    alt: post.filename,
+    referrerPolicy: undefined,
+    safety: post.safety,
+    extension: post.extension,
+    width: post.width,
+    height: post.height,
+    fileSize: post.fileSize,
+    filename: post.filename,
+    source: post.source,
+    tags: post.tags || [],
+  }
 })
 
 function isLink(value) {
@@ -139,6 +203,15 @@ function isLink(value) {
 }
 
 .inspector-id:hover {
+  color: var(--accent);
+}
+
+.inspector-site {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
   color: var(--accent);
 }
 

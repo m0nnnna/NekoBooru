@@ -119,6 +119,7 @@
       <AiTagCard :ai="ai" :selected-count="selectedLibraryIds.length" :busy="busy" />
       <PostInspectorCard
         :post="inspectedLibraryPost"
+        :remote-post="inspectedRemotePost"
         :semantic-analysis="inspectedSemanticAnalysis"
         :semantic-loading="inspectedSemanticLoading"
       />
@@ -211,6 +212,7 @@ const {
   selectedRemotePosts,
   counts,
   inspectedLibraryPost,
+  inspectedRemotePost,
   librarySelection,
   toggleSelectMode,
   onLibraryToggle,
