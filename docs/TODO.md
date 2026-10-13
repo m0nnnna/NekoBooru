@@ -16,6 +16,10 @@ claiming and landing rows are in [CLAUDE.md](../CLAUDE.md) ("Work tracking").
 
 ## Active programs
 
-| Program | Plan (holds its own stages and work packages) |
+None. Follow-ups from finished programs live in the queues above.
+
+## Shipped programs (plans kept for reference)
+
+| Program | Plan |
 |---|---|
-| Aggregated booru search with hold-to-select importing | [booru-search-plan.md](booru-search-plan.md) |
+| Aggregated booru search with hold-to-select importing (P0-P7, landed 2026-10-13) | [booru-search-plan.md](booru-search-plan.md) |
