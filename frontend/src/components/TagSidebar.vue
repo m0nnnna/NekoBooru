@@ -16,6 +16,7 @@
             :label="displayName(tag)"
             :display-name="displayName(tag)"
             :sankaku-name="tag.sankakuName || ''"
+            :e621-name="tag.e621Name || ''"
             :title="tag.name"
             :color="group.color"
           />
@@ -46,7 +47,7 @@ const CATEGORY_ORDER = [
 const FALLBACK_COLOR = '#0075f8'
 
 const props = defineProps({
-  // [{ name, category, categoryColor, usageCount }] - post.tagDetails
+  // [{ name, category, categoryColor, usageCount, sankakuName, e621Name }] - post.tagDetails
   tags: {
     type: Array,
     default: () => [],

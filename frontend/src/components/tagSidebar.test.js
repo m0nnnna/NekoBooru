@@ -52,6 +52,18 @@ describe('TagSidebar', () => {
     expect(names[0].attributes('title')).toBe('miyu_blue_archive')
   })
 
+  it('hands each tag its stored Sankaku and e621 names for the search menu', () => {
+    const wrapper = mountSidebar([
+      { name: 'hirasawa_yui', category: 'character', sankakuName: 'hirasawa_yui_(k-on!)', e621Name: 'yui_hirasawa' },
+      { name: 'guitar', category: 'general' },
+    ])
+    const menus = wrapper.findAllComponents({ name: 'TagSearchMenu' })
+    expect(menus.map((menu) => [menu.props('tag'), menu.props('sankakuName'), menu.props('e621Name')])).toEqual([
+      ['hirasawa_yui', 'hirasawa_yui_(k-on!)', 'yui_hirasawa'],
+      ['guitar', '', ''],
+    ])
+  })
+
   it('abbreviates large counts', () => {
     const counts = mountSidebar(SAMPLE).findAll('.tag-count').map((el) => el.text())
     expect(counts).toContain('6')

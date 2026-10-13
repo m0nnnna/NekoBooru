@@ -18,6 +18,7 @@ def _tag_detail(tag) -> dict:
         tag.name,
         tag.display_name,
         tag.sankaku_name,
+        tag.e621_name,
         tag.usage_count,
         category.name if category else None,
         category.color if category else None,
@@ -28,6 +29,7 @@ def tag_detail_dict(
     name: str,
     display_name: str | None,
     sankaku_name: str | None,
+    e621_name: str | None,
     usage_count: int | None,
     category_name: str | None = None,
     category_color: str | None = None,
@@ -39,6 +41,7 @@ def tag_detail_dict(
         # otherwise the flattened name made readable.
         "displayName": display_name or name.replace("_", " "),
         "sankakuName": sankaku_name,
+        "e621Name": e621_name,
         "category": category_name if category_name is not None else "general",
         "categoryColor": category_color if category_name is not None else "#808080",
         "usageCount": usage_count or 0,

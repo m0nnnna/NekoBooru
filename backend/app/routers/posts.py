@@ -297,7 +297,7 @@ async def _serialize_post_page(db: AsyncSession, posts: list[Post], current_user
     details: dict[int, list[dict]] = {post_id: [] for post_id in ids}
     rows = await db.execute(
         select(
-            PostTag.c.post_id, Tag.name, Tag.display_name, Tag.sankaku_name, Tag.usage_count,
+            PostTag.c.post_id, Tag.name, Tag.display_name, Tag.sankaku_name, Tag.e621_name, Tag.usage_count,
             TagCategory.name, TagCategory.color,
         )
         .select_from(PostTag)

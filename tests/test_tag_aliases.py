@@ -350,6 +350,20 @@ class TagAliasMergeTests(unittest.TestCase):
         lookup.assert_awaited_once_with("hirasawa_yui")
         self.assertEqual(self._tag("hirasawa_yui")["e621Name"], "yui_hirasawa")
 
+    def test_post_tag_details_carry_the_stored_e621_name(self):
+        post = self._post(["kotobuki_tsumugi", "piano"], {"kotobuki_tsumugi": "character"})
+        with patch("app.services.e621_names.lookup_e621_name", AsyncMock(return_value="tsumugi_kotobuki")):
+            self.client.post("/api/tags/kotobuki_tsumugi/e621-name")
+
+        def e621_names(details):
+            return {tag["name"]: tag["e621Name"] for tag in details if tag["name"] in ("kotobuki_tsumugi", "piano")}
+
+        detail = self.client.get(f"/api/posts/{post['id']}").json()["tagDetails"]
+        self.assertEqual(e621_names(detail), {"kotobuki_tsumugi": "tsumugi_kotobuki", "piano": None})
+        page = self.client.get("/api/posts", params={"q": "kotobuki_tsumugi"}).json()["results"]
+        listed = next(row for row in page if row["id"] == post["id"])
+        self.assertEqual(e621_names(listed["tagDetails"]), {"kotobuki_tsumugi": "tsumugi_kotobuki", "piano": None})
+
     def test_e621_name_lookup_misses_and_failures_store_nothing(self):
         import httpx
         from app.services.site_imports import SourceThrottled
