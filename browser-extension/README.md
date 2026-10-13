@@ -92,7 +92,9 @@ post pages, **NekoBooru** appears as a native-style text link directly to the
 right of the Favorite/Unfavorite action. On Safebooru it appears on the right
 side of the post action row, after **Edit | Respond**. It imports
 the site's original `file_url` plus its tag categories, with AI tagging
-disabled. On Danbooru post pages, **NekoBooru** sits right of **Comments |
+disabled. Safebooru's API has no categories, so tags its page leaves general
+are looked up on Danbooru, whose vocabulary it mirrors (80 names a request,
+cached a day; a failed lookup just leaves them general). On Danbooru post pages, **NekoBooru** sits right of **Comments |
 Recommended** under the post, as one more item of that menu (pages without it
 get **Import to NekoBooru** in the sidebar's **Options** list). It reads the
 post's own `/posts/<id>.json` from the page, so no API key is needed and your
@@ -238,6 +240,7 @@ the extension needs to be signed/packaged.
 | `options.html` / `options.js` | Settings page (instance URL). |
 | `trace-moe-buttons.js` | trace.moe content script: the result player's NekoBooru button. |
 | `trace-moe-core.js` | trace.moe helpers: filename parsing, scene description, Danbooru series lookup. |
+| `danbooru-categories.js` | Danbooru tag-category lookup for Safebooru imports (loaded by `site-import.html`). |
 | `saucenao-links.js` | SauceNAO content script: rewrites dead old-format Sankaku links (`/post/show/<id>`) to `/posts/similar?id=<id>`. |
 | `native-host/` | Optional native messaging helper for starting the local app. |
 | `icons/` | Toolbar / store icons. |

@@ -344,7 +344,7 @@ describe('useImportQueue', () => {
         })
       }),
     })
-    const queue = useImportQueue({ api, inLibrary: notInLibrary() })
+    const queue = useImportQueue({ api, inLibrary: notInLibrary(), danbooruCategories: async () => ({}) })
     queue.enqueue([remotePost('safebooru', 3)])
     await queue.start()
 

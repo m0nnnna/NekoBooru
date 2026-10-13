@@ -5,7 +5,8 @@
 // those rows into RemotePosts happens here and nowhere else.
 //
 // Safebooru gives no tag categories (section 1.6): every tag is 'general'
-// until the Danbooru-backed lookup (P7) lands, and that runs at import time.
+// here, and the import queue resolves them through Danbooru at import time
+// (P7, remote/danbooruCategories.js).
 import { normalizeTagName } from '../../utils/booruSearchTag.js'
 import { retryAfterSeconds } from '../budget.js'
 import { translateQuery } from '../queryTranslation.js'

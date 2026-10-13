@@ -46,6 +46,9 @@ async function init() {
     const resolved = job.kind === 'gelbooru'
       ? await resolveGelbooru(job)
       : (job.kind === 'gelbooru_search' ? await resolveGelbooruSearch(job) : job)
+    // Safebooru's API has no tag categories: Danbooru's fill in what the page left general.
+    if (resolved.kind === 'safebooru') setStatus('Looking up tag categories…', 'working')
+    await globalThis.NekoBooruDanbooruCategories?.applyDanbooruCategories(resolved)
     const renames = await useDanbooruNames(resolved)
     await importAll(resolved)
     await aliasSourceNames(renames)

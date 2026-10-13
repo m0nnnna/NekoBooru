@@ -1,5 +1,6 @@
 import { computed, reactive, ref } from 'vue'
 import { booruSearchTag, normalizeTagName } from '../utils/booruSearchTag'
+import { resolveDanbooruCategories } from './danbooruCategories.js'
 import { CATEGORIES, SAFETY_ORDER, booruDisplayNames, idTagFor, stricterSafety } from './types.js'
 
 // Imports selected remote posts into the library one at a time, the way the
@@ -21,6 +22,10 @@ const FINISHED = new Set(['done', 'skipped', 'failed', 'cancelled'])
 const MAX_THROTTLE_WAIT_MS = 900000
 // Sites whose character/copyright spellings are converted to Danbooru's.
 const RENAMED_SITES = new Set(['sankaku', 'e621'])
+// Sites whose search results carry no tag categories, so imports look them
+// up once per run: Gelbooru through the backend, Safebooru through Danbooru.
+const CATEGORY_SITES = new Set(['gelbooru', 'safebooru'])
+const categoryKey = (site, tag) => `${site}:${tag}`
 const SITE_LABELS = {
   danbooru: 'Danbooru',
   e621: 'e621',
@@ -99,8 +104,9 @@ function newProgressId() {
 
 /**
  * The tags, categories and display names one post is imported with, after the
- * run's Gelbooru categories and Danbooru spellings are applied.
- * `run.categories`: Map<flatTag, category>; `run.renames`: Map<flatTag, {from, to, flatTo}>.
+ * run's looked-up categories and Danbooru spellings are applied.
+ * `run.categories`: Map<categoryKey(site, flatTag), category>;
+ * `run.renames`: Map<flatTag, {from, to, flatTo}>.
  */
 export function prepareImport(post, run, options) {
   const tagCategories = { ...(post.tagCategories || {}) }
@@ -108,9 +114,9 @@ export function prepareImport(post, run, options) {
   const aliases = []
   let tags = Array.isArray(post.tags) ? [...post.tags] : []
 
-  if (post.site === 'gelbooru') {
+  if (CATEGORY_SITES.has(post.site)) {
     for (const tag of tags) {
-      const category = run.categories.get(tag)
+      const category = run.categories.get(categoryKey(post.site, tag))
       if (category) tagCategories[tag] = category
     }
   }
@@ -189,7 +195,15 @@ function newRun() {
   }
 }
 
-export function useImportQueue({ api, adapters = {}, inLibrary = null, onImported = null } = {}) {
+// `danbooruCategories(rawNames, { signal })` -> { raw: category } resolves
+// Safebooru's categories; injectable so tests never reach Danbooru.
+export function useImportQueue({
+  api,
+  adapters = {},
+  inLibrary = null,
+  onImported = null,
+  danbooruCategories = resolveDanbooruCategories,
+} = {}) {
   const items = reactive([])
   const running = ref(false)
   const poolResult = ref(null)
@@ -212,6 +226,8 @@ export function useImportQueue({ api, adapters = {}, inLibrary = null, onImporte
   let cancelGeneration = 0
   const wakers = new Set()
   let runPromise = null
+  // Aborted by cancel() so a slow category lookup does not hold the queue.
+  let lookupAbort = null
 
   const setStatus = (item, status, message) => Object.assign(item, { status, message })
 
@@ -254,29 +270,41 @@ export function useImportQueue({ api, adapters = {}, inLibrary = null, onImporte
     return added
   }
 
-  // The two batched lookups, done before the first item for everything queued
+  // The batched lookups, done before the first item for everything queued
   // and again only for posts queued later in the same run.
   async function prepareLookups(run) {
     const queued = items.filter((item) => item.status === 'queued').map((item) => item.post)
-    await lookupGelbooruCategories(run, queued.filter((post) => post.site === 'gelbooru'))
-    await lookupDanbooruNames(run, queued.filter((post) => RENAMED_SITES.has(post.site)))
+    lookupAbort = new AbortController()
+    const { signal } = lookupAbort
+    try {
+      await lookupCategories(run, 'gelbooru', queued, async (chunk) => (await api.gelbooruTagCategories(chunk))?.categories)
+      await lookupCategories(run, 'safebooru', queued, (chunk) => danbooruCategories(chunk, { signal }))
+      await lookupDanbooruNames(run, queued.filter((post) => RENAMED_SITES.has(post.site)))
+    } finally {
+      lookupAbort = null
+    }
   }
 
-  async function lookupGelbooruCategories(run, posts) {
+  // `fetchChunk(rawNames)` -> { raw: category }. Only tags the site left
+  // general are asked about, each once per run.
+  async function lookupCategories(run, site, posts, fetchChunk) {
     const flatByRaw = new Map()
     for (const post of posts) {
+      if (post.site !== site) continue
       for (const tag of post.tags || []) {
-        if (run.askedCategories.has(tag)) continue
-        run.askedCategories.add(tag)
+        const key = categoryKey(site, tag)
+        const current = post.tagCategories?.[tag]
+        if (run.askedCategories.has(key) || (current && current !== 'general')) continue
+        run.askedCategories.add(key)
         flatByRaw.set(rawSpelling(post, tag), tag)
       }
     }
     for (const chunk of chunked([...flatByRaw.keys()], LOOKUP_CHUNK)) {
       try {
-        const data = await api.gelbooruTagCategories(chunk)
-        for (const [raw, category] of Object.entries(data?.categories || {})) {
+        const categories = await fetchChunk(chunk)
+        for (const [raw, category] of Object.entries(categories || {})) {
           const flat = flatByRaw.get(raw)
-          if (flat && CATEGORIES.has(category)) run.categories.set(flat, category)
+          if (flat && CATEGORIES.has(category)) run.categories.set(categoryKey(site, flat), category)
         }
       } catch {
         // Categories are a courtesy: the tags import as general.
@@ -557,6 +585,7 @@ export function useImportQueue({ api, adapters = {}, inLibrary = null, onImporte
   // everything still queued is cancelled.
   function cancel() {
     cancelGeneration += 1
+    lookupAbort?.abort()
     for (const item of items) {
       if (item.status === 'queued') setStatus(item, 'cancelled', 'Cancelled')
     }

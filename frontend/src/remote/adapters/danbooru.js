@@ -243,6 +243,9 @@ async function refresh(post, { signal, fetch } = {}) {
   return fresh
 }
 
+// Shared with remote/danbooruCategories.js, the import-time tag category lookup.
+export { BASE as DANBOORU_ORIGIN, FETCH_OPTIONS as DANBOORU_FETCH_OPTIONS, readJson, timeoutSignal }
+
 const site = siteById(SITE)
 
 export const danbooruAdapter = Object.freeze({
