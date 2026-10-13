@@ -2,6 +2,7 @@ import { onUnmounted, watch } from 'vue'
 import { api as defaultApi } from '../api/client'
 import { ADAPTERS } from '../remote/adapters/index.js'
 import { useImportQueue } from '../remote/useImportQueue.js'
+import { useBooruPostContextStore } from '../stores/booruPostContext'
 import { isAutoJobRunning } from './useBatchOperations'
 import { libraryKey } from '../remote/types.js'
 
@@ -73,8 +74,14 @@ export function useHomeImport({ booru, selection, operations = null, api = defau
 
   const importQueue = { ...queue, enqueue: enqueueSelected }
 
+  // The booru post page imports through this same queue while home is alive.
+  const postContext = useBooruPostContextStore()
+  const shared = { queue, enqueue: enqueueSelected }
+  postContext.setImporter(shared)
+
   onUnmounted(() => {
     disposed = true
+    postContext.clearImporter(shared)
     queue.cancel()
   })
 

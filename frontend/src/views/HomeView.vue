@@ -147,7 +147,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, toRef } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, onMounted, toRef } from 'vue'
 import PostGrid from '../components/PostGrid.vue'
 import Pagination from '../components/Pagination.vue'
 import BooruResults from '../components/remote/BooruResults.vue'
@@ -248,6 +248,18 @@ const { inspectedSemanticAnalysis, inspectedSemanticLoading } = usePostSemanticA
 
 // Booru imports from the Import card, section 4.4.
 const importer = useHomeImport({ booru, selection, operations })
+
+// Kept alive behind a booru post opened from here (KeptRouterView): come back
+// to the same scroll position.
+let keptScrollTop = 0
+onDeactivated(() => {
+  keptScrollTop = window.scrollY
+})
+onActivated(async () => {
+  if (!keptScrollTop) return
+  await nextTick()
+  window.scrollTo({ top: keptScrollTop, behavior: 'auto' })
+})
 
 onMounted(() => {
   browser.applyInitialRoute()

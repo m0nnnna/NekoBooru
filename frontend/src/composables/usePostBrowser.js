@@ -64,6 +64,11 @@ function onlyForeignKeysChanged(next = {}, previous = {}) {
   return foreign
 }
 
+function queryChanged(next = {}, previous = {}) {
+  const keys = new Set([...Object.keys(next), ...Object.keys(previous)])
+  return [...keys].some((key) => String(next[key] ?? '') !== String(previous[key] ?? ''))
+}
+
 // `offerDefaultPerPage` (ref or boolean): whether the dropdown lists
 // "Default". Without it the dropdown reads exactly as it always has.
 export function usePostBrowser({ offerDefaultPerPage = false } = {}) {
@@ -211,10 +216,18 @@ export function usePostBrowser({ offerDefaultPerPage = false } = {}) {
     }
   }
 
+  // The home view stays alive behind a booru post page (KeptRouterView), so
+  // only this route's own queries count, compared with the last one handled:
+  // leaving for another page and coming back to the same query is no change.
+  const ownRouteName = route.name
+  let handledQuery = { ...route.query }
   watch(
     () => route.query,
-    (newQuery, oldQuery) => {
-      if (onlyForeignKeysChanged(newQuery, oldQuery)) return
+    (newQuery) => {
+      if (route.name !== ownRouteName) return
+      const previous = handledQuery
+      handledQuery = { ...newQuery }
+      if (onlyForeignKeysChanged(newQuery, previous) || !queryChanged(newQuery, previous)) return
       if (newQuery.q !== postsStore.query) {
         postsStore.setQuery(newQuery.q || '')
       }

@@ -5,8 +5,10 @@ import { createInLibraryLookup } from '../remote/inLibrary.js'
 import { useImportQueue } from '../remote/useImportQueue.js'
 
 // The booru post page's "Import to NekoBooru" (section 4.4 of
-// docs/booru-search-plan.md): the same import queue the home Import card
-// runs, for one post at a time. Knows whether the shown post is in the
+// docs/booru-search-plan.md). Opened from home, it imports through the home
+// view's own queue (kept alive behind this page), so the import shows on the
+// Import card and swaps the post in the home selection; opened from its URL
+// alone, it runs a queue of its own. Knows whether the shown post is in the
 // library (the context's answer first, then the backend's), and turns into
 // the library post's id once an import or merge lands.
 const FINISHED = new Set(['done', 'skipped', 'failed', 'cancelled'])
@@ -21,17 +23,10 @@ export function useBooruPostImport({ post, context = null, api = defaultApi, ada
   const libraryPostId = ref(null)
   const result = ref(null)
 
-  const queue = useImportQueue({
-    api,
-    adapters,
-    inLibrary: lookup,
-    onImported(key, postId) {
-      const id = Number(postId)
-      if (!(id > 0)) return
-      context?.markImported(key, id)
-      if (key === post.value?.key) libraryPostId.value = id
-    },
-  })
+  const shared = context?.importer || null
+  const ownQueue = shared ? null : useImportQueue({ api, adapters, inLibrary: lookup })
+  const queue = shared?.queue || ownQueue
+  const enqueue = shared ? shared.enqueue : (posts) => ownQueue.enqueue(posts)
 
   const item = computed(() => queue.items.find((entry) => entry.key === post.value?.key) || null)
   const importing = computed(() => Boolean(item.value && !FINISHED.has(item.value.status)))
@@ -41,6 +36,17 @@ export function useBooruPostImport({ post, context = null, api = defaultApi, ada
     if (result.value?.key === post.value?.key) return result.value
     return null
   })
+
+  // An import or merge of the shown post landed (from here or the Import card).
+  watch(
+    () => [item.value?.key, item.value?.postId],
+    ([key, postId]) => {
+      const id = Number(postId)
+      if (!key || !(id > 0)) return
+      context?.markImported(key, id)
+      if (key === post.value?.key) libraryPostId.value = id
+    },
+  )
 
   watch(
     () => post.value?.key,
@@ -61,7 +67,7 @@ export function useBooruPostImport({ post, context = null, api = defaultApi, ada
     const target = post.value
     if (!target?.key || importing.value) return
     result.value = null
-    const [added] = queue.enqueue([target])
+    const [added] = enqueue([target])
     if (!added) return
     if (added.status === 'failed') {
       result.value = { key: target.key, text: added.message, kind: 'error' }
@@ -74,7 +80,7 @@ export function useBooruPostImport({ post, context = null, api = defaultApi, ada
   }
 
   onUnmounted(() => {
-    queue.cancel()
+    ownQueue?.cancel()
     lookup.dispose()
   })
 

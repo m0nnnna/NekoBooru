@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { installHomeKeepAlive } from './homeKeepAlive'
 
 const routes = [
   {
@@ -95,5 +96,7 @@ router.beforeEach(async (to) => {
 
   return true
 })
+
+installHomeKeepAlive(router)
 
 export default router

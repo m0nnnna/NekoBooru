@@ -52,7 +52,7 @@
 
     <BackendStatus v-if="!route.meta.public" />
     <main class="app-main">
-      <router-view />
+      <KeptRouterView />
     </main>
     <footer class="neko-footer" v-if="!route.meta.public">
       <span class="paw-trail">&#x1F43E; &#x1F43E; &#x1F43E;</span>
@@ -66,6 +66,7 @@ import { useRoute, useRouter } from 'vue-router'
 import SearchBar from './components/SearchBar.vue'
 import SourcePicker from './components/remote/SourcePicker.vue'
 import BackendStatus from './components/BackendStatus.vue'
+import KeptRouterView from './components/KeptRouterView.vue'
 import { useAuthStore } from './stores/auth'
 
 const isDarkMode = ref(true)

@@ -9,6 +9,17 @@ import { makeKey } from '../remote/types.js'
 export const useBooruPostContextStore = defineStore('booruPostContext', () => {
   const posts = shallowRef([])
   const libraryIds = shallowRef(new Map())
+  // The home view's import queue while it is alive ({ queue, enqueue }), so
+  // an import started on the booru post page joins the Import card's queue.
+  const importer = shallowRef(null)
+
+  function setImporter(value) {
+    importer.value = value
+  }
+
+  function clearImporter(value) {
+    if (importer.value === value) importer.value = null
+  }
 
   // `inLibraryPostId(post)` -> the library post id, or null.
   function open(list, inLibraryPostId = () => null) {
@@ -49,5 +60,5 @@ export const useBooruPostContextStore = defineStore('booruPostContext', () => {
     libraryIds.value = new Map()
   }
 
-  return { posts, open, postFor, neighbours, libraryIdFor, markImported, clear }
+  return { posts, importer, open, postFor, neighbours, libraryIdFor, markImported, clear, setImporter, clearImporter }
 })

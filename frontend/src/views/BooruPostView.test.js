@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { reactive } from 'vue'
 
 const hoisted = vi.hoisted(() => ({ inLibrary: {} }))
 
@@ -58,7 +59,7 @@ const SECTION = [
   remotePost('sankaku', 'Ab3'),
 ]
 
-async function mountPage(path, { context = SECTION, canBrowseBoorus = true } = {}) {
+async function mountPage(path, { context = SECTION, canBrowseBoorus = true, importer = null } = {}) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -72,6 +73,7 @@ async function mountPage(path, { context = SECTION, canBrowseBoorus = true } = {
   setActivePinia(pinia)
   useAuthStore().user = { id: 1, username: 'neko', canBrowseBoorus }
   if (context) useBooruPostContextStore().open(context)
+  if (importer) useBooruPostContextStore().setImporter(importer)
   router.push(path)
   await router.isReady()
   const wrapper = mount({ template: '<router-view />' }, { global: { plugins: [pinia, router] }, attachTo: document.body })
@@ -142,6 +144,27 @@ describe('BooruPostView', () => {
     expect(link.attributes('href')).toBe('/post/42')
     expect(wrapper.get('.booru-status').text()).toContain('#42')
     expect(useBooruPostContextStore().libraryIdFor('danbooru:2')).toBe(42)
+  })
+
+  it('imports through the queue of the home view kept alive behind the page', async () => {
+    const items = reactive([])
+    const importer = {
+      queue: {
+        items,
+        start: vi.fn(async () => Object.assign(items[0], { status: 'done', postId: 55, message: 'Imported · #55' })),
+      },
+      enqueue: vi.fn((posts) => {
+        items.push({ key: posts[0].key, post: posts[0], status: 'queued', message: 'Waiting', postId: null })
+        return [items[items.length - 1]]
+      }),
+    }
+    const { wrapper } = await mountPage('/booru/danbooru/2', { importer })
+    await wrapper.get('.booru-import').trigger('click')
+    await flushPromises()
+    expect(importer.enqueue).toHaveBeenCalledWith([SECTION[1]])
+    expect(importer.queue.start).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('.booru-library-link').attributes('href')).toBe('/post/55')
+    expect(useBooruPostContextStore().libraryIdFor('danbooru:2')).toBe(55)
   })
 
   it('links a post the library already has from the start', async () => {
