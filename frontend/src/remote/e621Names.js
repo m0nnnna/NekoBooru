@@ -1,3 +1,4 @@
+import { booruSearchTag } from '../utils/booruSearchTag.js'
 import { parseQuery } from './queryTranslation.js'
 
 // Library tag spelling -> another booru's, in the browser, for the
@@ -165,24 +166,55 @@ function plainTerms(query) {
   )
 }
 
+// The library stores tags flattened (honoka_(doa) as honoka_doa); the booru
+// spelling survives only in the tag's display name. One resolver per api
+// client, each tag asked once per session: a tag the library does not have
+// (404) keeps its spelling, any other failure is asked again next time.
+const spellingResolvers = new WeakMap()
+
+/** api -> async (term) -> the term as the boorus spell it; null without api.getTag. */
+export function librarySpellingResolver(api) {
+  if (typeof api?.getTag !== 'function') return null
+  if (!spellingResolvers.has(api)) {
+    const known = new Map()
+    spellingResolvers.set(api, (term) => {
+      if (!known.has(term)) {
+        const pending = Promise.resolve()
+          .then(() => api.getTag(term))
+          .then((tag) => booruSearchTag(term, tag?.displayName || ''), (error) => {
+            if (error?.status !== 404) known.delete(term)
+            return term
+          })
+        known.set(term, pending)
+      }
+      return known.get(term)
+    })
+  }
+  return spellingResolvers.get(api)
+}
+
 /**
  * Maps the plain tag terms of a translated query through `resolve`.
  * -> { terms, mapped: [[from, to]], note: string|null }
- * `label` names the site in the note.
+ * `label` names the site in the note. `deps.librarySpelling(term)`, when
+ * given, first turns a flattened library tag back into its booru spelling
+ * (librarySpellingResolver), so qualified names map as typed in the library.
  */
 export async function mapPlainTerms(query, terms, resolve, label, deps = {}) {
   const plain = plainTerms(query)
   const mapped = []
   const out = []
+  const { librarySpelling = null, ...resolveDeps } = deps
   for (const term of terms) {
     if (!plain.has(term)) {
       out.push(term)
       continue
     }
-    const spelling = term.toLowerCase()
-    const name = await resolve(spelling, deps)
-    if (name && name !== spelling) mapped.push([term, name])
-    out.push(name || term)
+    const typed = term.toLowerCase()
+    const spelling = (librarySpelling && (await librarySpelling(typed))) || typed
+    const name = (await resolve(spelling, resolveDeps)) || spelling
+    if (name !== typed) mapped.push([term, name])
+    out.push(name === typed ? term : name)
   }
   const note = mapped.length ? `Searched ${label} as ${mapped.map(([from, to]) => `${from} → ${to}`).join(', ')}` : null
   return { terms: out, mapped, note }

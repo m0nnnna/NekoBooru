@@ -1,6 +1,6 @@
 import { normalizeTagName } from '../../utils/booruSearchTag.js'
 import { retryAfterSeconds } from '../budget.js'
-import { joinNotes, mapPlainTerms, resolveE621Name } from '../e621Names.js'
+import { joinNotes, librarySpellingResolver, mapPlainTerms, resolveE621Name } from '../e621Names.js'
 import { singlePlainTag, translateQuery } from '../queryTranslation.js'
 import { timeoutSignal } from '../timeoutSignal.js'
 import {
@@ -200,12 +200,12 @@ export const e621Adapter = Object.freeze({
    * through `resolveName` (default: the cached e621 name resolver; null
    * skips it), so the library's hirasawa_yui searches yui_hirasawa.
    */
-  async search({ query = '', options = {}, cursor = null, signal, limit = null, fetch, resolveName = resolveE621Name } = {}) {
+  async search({ query = '', options = {}, cursor = null, signal, api = null, limit = null, fetch, resolveName = resolveE621Name } = {}) {
     const translation = translateQuery(SITE, query, options)
     let terms = translation.terms
     let mappingNote = null
     if (resolveName) {
-      const mapping = await mapPlainTerms(query, terms, resolveName, 'e621', { fetch, signal })
+      const mapping = await mapPlainTerms(query, terms, resolveName, 'e621', { fetch, signal, librarySpelling: librarySpellingResolver(api) })
       terms = mapping.terms
       mappingNote = mapping.note
     }

@@ -3,6 +3,7 @@ import {
   NAME_CACHE_MS,
   cachedNameResolver,
   e621Candidates,
+  librarySpellingResolver,
   lookupE621Name,
   mapPlainTerms,
   swappedName,
@@ -122,5 +123,46 @@ describe('mapPlainTerms', () => {
     expect(result.terms).toEqual(['yui_hirasawa', 'guitar', '-akiyama_mio', 'fox*'])
     expect(result.note).toBe('Searched e621 as hirasawa_yui → yui_hirasawa')
     expect(resolve.mock.calls.map(([name]) => name)).toEqual(['hirasawa_yui', 'guitar'])
+  })
+
+  it('un-flattens a library tag through its display spelling before resolving it', async () => {
+    const resolve = vi.fn(async (name) => (name === 'honoka_(doa)' ? 'honoka_(dead_or_alive)' : name))
+    const librarySpelling = vi.fn(async (name) => (name === 'honoka_doa' ? 'honoka_(doa)' : name))
+    const result = await mapPlainTerms('honoka_doa beach', ['honoka_doa', 'beach'], resolve, 'Sankaku', { librarySpelling })
+    expect(resolve.mock.calls.map(([name]) => name)).toEqual(['honoka_(doa)', 'beach'])
+    expect(result.terms).toEqual(['honoka_(dead_or_alive)', 'beach'])
+    expect(result.note).toBe('Searched Sankaku as honoka_doa → honoka_(dead_or_alive)')
+  })
+
+  it('searches the un-flattened spelling when the booru has no other name for it', async () => {
+    const librarySpelling = async (name) => (name === 'miyu_blue_archive' ? 'miyu_(blue_archive)' : name)
+    const result = await mapPlainTerms('miyu_blue_archive', ['miyu_blue_archive'], async (name) => name, 'e621', { librarySpelling })
+    expect(result.terms).toEqual(['miyu_(blue_archive)'])
+  })
+})
+
+describe('librarySpellingResolver', () => {
+  it("spells a stored tag as the boorus do, from the library's display name, once per tag", async () => {
+    const api = { getTag: vi.fn(async (name) => ({ name, displayName: name === 'honoka_doa' ? 'honoka (doa)' : 'Something Else' })) }
+    const spell = librarySpellingResolver(api)
+    expect(await spell('honoka_doa')).toBe('honoka_(doa)')
+    expect(await spell('honoka_doa')).toBe('honoka_(doa)')
+    // A display name that does not flatten back to the tag changes nothing.
+    expect(await spell('beach')).toBe('beach')
+    expect(api.getTag).toHaveBeenCalledTimes(2)
+    expect(librarySpellingResolver(api)).toBe(spell)
+  })
+
+  it('keeps a tag the library does not have, and asks again after a failure', async () => {
+    const missing = Object.assign(new Error('Tag not found'), { status: 404 })
+    const offline = new TypeError('offline')
+    const api = { getTag: vi.fn().mockRejectedValueOnce(missing).mockRejectedValueOnce(offline).mockResolvedValue({ displayName: 'a (b)' }) }
+    const spell = librarySpellingResolver(api)
+    expect(await spell('x_y')).toBe('x_y')
+    expect(await spell('x_y')).toBe('x_y')
+    expect(await spell('a_b')).toBe('a_b')
+    expect(await spell('a_b')).toBe('a_(b)')
+    expect(api.getTag).toHaveBeenCalledTimes(3)
+    expect(librarySpellingResolver({})).toBeNull()
   })
 })

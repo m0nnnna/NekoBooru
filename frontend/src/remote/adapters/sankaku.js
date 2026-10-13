@@ -1,6 +1,6 @@
 import { normalizeTagName } from '../../utils/booruSearchTag.js'
 import { retryAfterSeconds } from '../budget.js'
-import { cachedNameResolver, danbooruExpansions, joinNotes, mapPlainTerms, qualifierOf, qualifierVariants } from '../e621Names.js'
+import { cachedNameResolver, danbooruExpansions, joinNotes, librarySpellingResolver, mapPlainTerms, qualifierOf, qualifierVariants } from '../e621Names.js'
 import { singlePlainTag, translateQuery } from '../queryTranslation.js'
 import { RemoteSearchError, booruDisplayNames, effectiveLimit, makeKey, mediaTypeFromExt, siteById } from '../types.js'
 
@@ -248,13 +248,13 @@ function translate(query, options) {
  * capped at 100); `fetch` is injectable for tests. `api` is unused: Sankaku is
  * browser-direct.
  */
-async function search({ query = '', options = {}, cursor = null, limit = null, signal, fetch: fetchImpl = defaultFetch, resolveName = resolveSankakuName } = {}) {
+async function search({ query = '', options = {}, cursor = null, limit = null, signal, api = null, fetch: fetchImpl = defaultFetch, resolveName = resolveSankakuName } = {}) {
   const translated = translate(query, options)
   let terms = translated.terms
   let mappingNote = null
   let tag = singlePlainTag(query)
   if (resolveName) {
-    const mapping = await mapPlainTerms(query, terms, resolveName, 'Sankaku', { fetch: fetchImpl, signal })
+    const mapping = await mapPlainTerms(query, terms, resolveName, 'Sankaku', { fetch: fetchImpl, signal, librarySpelling: librarySpellingResolver(api) })
     terms = mapping.terms
     mappingNote = mapping.note
     if (tag) tag = mapping.mapped.find(([from]) => from.toLowerCase() === tag)?.[1] || tag

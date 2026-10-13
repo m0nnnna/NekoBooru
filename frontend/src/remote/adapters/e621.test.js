@@ -324,6 +324,14 @@ describe('e621Adapter name mapping', () => {
     expect(result.note).toBe('Searched e621 as hirasawa_yui → yui_hirasawa')
   })
 
+  it('maps a qualified tag typed the way the library stores it (flattened)', async () => {
+    const fetch = stubFetch(jsonResponse(fixture))
+    const resolveName = vi.fn(async (name) => (name === 'honoka_(doa)' ? 'honoka_(dead_or_alive)' : name))
+    const api = { getTag: vi.fn(async (name) => ({ name, displayName: name === 'honoka_doa' ? 'honoka (doa)' : '' })) }
+    await e621Adapter.search({ query: 'honoka_doa', options: ALL_RATINGS, fetch, resolveName, api })
+    expect(requestedUrl(fetch).searchParams.get('tags')).toBe('honoka_(dead_or_alive)')
+  })
+
   it('maps by default through the cached browser resolver', async () => {
     const urls = []
     const fetch = vi.fn(async (input) => {
