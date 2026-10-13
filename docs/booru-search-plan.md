@@ -1119,6 +1119,31 @@ If Stage 0 shipped the home view as several files each under 800 lines, P3b
 and P4b keep every file under 800 by putting new logic in the new files of
 section 3 and only wiring in the Stage 0 files.
 
+#### 4.6.1 What Stage 0 actually shipped (merged at `c128641`)
+
+- `frontend/src/views/HomeView.vue` (382 lines) - page toolbar, grid,
+  pagination; wires the composables and slots the cards into the panel.
+- `frontend/src/composables/usePostBrowser.js` - search, safety filter, sort,
+  pagination, route sync (item 1 above).
+- `frontend/src/composables/useSelection.js` - `useSelection(items, { keyOf })`:
+  select mode, toggle, shift-range, hold, select page, clear, hover. It makes
+  no numeric assumptions; `useSelection.test.js` already covers keys like
+  `"danbooru:7"` (item 3).
+- `frontend/src/composables/useBatchDock.js`, `useBatchOperations.js`,
+  `useBatchAiTagging.js`, `useBatchPostEdits.js`, `useBatchMediaOptimize.js`,
+  `usePostSemanticAnalysis.js` - the batch tools (item 3: they must act on
+  `selectedLibraryIds`).
+- `frontend/src/components/batch/BatchPanel.vue` - dock/resize shell, header
+  toolbar (item 4), status, and a card grid fed through a default slot: a new
+  card is added in `HomeView.vue` inside `<BatchPanel>` wrapped in
+  `BatchCard.vue` (item 5).
+- `frontend/src/components/batch/PostInspectorCard.vue` - hovered post details
+  (item 5: accept a `RemotePost`).
+- `frontend/src/components/batch/MediaOptimizeDialogs.vue` - the Teleport +
+  `MediaViewer` overlays (item 6).
+- `frontend/src/views/HomeView.test.js` - mount test for Select, Select page,
+  dock, Done and header Delete (item 8).
+
 ---
 
 ## 5. Work packages
