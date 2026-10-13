@@ -165,9 +165,10 @@ class BooruSearchTests(unittest.TestCase):
         return asyncio.run(_seed())
 
     def setUp(self):
-        from app.services import site_imports
+        from app.services import booru_search, site_imports
 
         site_imports._tag_category_cache.clear()
+        booru_search._safebooru_count_cache.clear()
         self._switch(True)
 
     def _switch(self, enabled: bool):
@@ -303,7 +304,7 @@ class BooruSearchTests(unittest.TestCase):
         fetch = AsyncMock(return_value=[])
         with patch.object(booru_search, "gelbooru_credentials", return_value=CREDENTIALS), patch.object(
             booru_search, "_fetch_json", fetch
-        ):
+        ), patch.object(booru_search, "_safebooru_total", AsyncMock(return_value=None)):
             for query in ("page=0", "page=501", "limit=0", "limit=101", f"tags={'a' * 501}"):
                 for site in ("gelbooru", "safebooru"):
                     resp = self.member.get(f"/api/booru-search/{site}?{query}")
@@ -318,6 +319,9 @@ class BooruSearchTests(unittest.TestCase):
 
         rows = [{"id": 7, "hash": "abc", "tags": "1girl solo"}]
         fetch = AsyncMock(return_value=rows)
+        count = patch.object(booru_search, "_safebooru_total", AsyncMock(return_value=None))
+        count.start()
+        self.addCleanup(count.stop)
         with patch.object(booru_search, "_fetch_json", fetch):
             resp = self.member.get("/api/booru-search/safebooru", params={"tags": "1girl  solo", "page": 2, "limit": 42})
         self.assertEqual(resp.json(), {"site": "safebooru", "page": 2, "limit": 42, "total": None, "posts": rows})
@@ -335,6 +339,59 @@ class BooruSearchTests(unittest.TestCase):
             # Both dapi sites default to their own 42-post page.
             self.assertEqual((body["page"], body["limit"]), (1, 42))
             self.assertEqual((fetch.await_args.args[0]["pid"], fetch.await_args.args[0]["limit"]), (0, 42))
+
+    def test_safebooru_total_comes_from_the_cached_xml_count(self):
+        from app.services import booru_search
+
+        xml = b'<?xml version="1.0" encoding="UTF-8"?><posts count="8243" offset="0"></posts>'
+        client = FakeClient(FakeResponse(200, body=xml))
+        page = AsyncMock(return_value=[{"id": 1}])
+        with patch.object(booru_search, "_fetch_json", page), patch.object(booru_search.httpx, "AsyncClient", client):
+            first = self.member.get("/api/booru-search/safebooru", params={"tags": " cat_ears  solo "}).json()
+            second = self.member.get("/api/booru-search/safebooru", params={"tags": "cat_ears solo", "page": 2}).json()
+            self.assertEqual((first["total"], second["total"]), (8243, 8243))
+            self.assertEqual(len(client.calls), 1)  # paging reuses the cached count
+            url, params = client.calls[0]
+            self.assertEqual(url, "https://safebooru.org/index.php")
+            self.assertEqual(params, {"page": "dapi", "s": "post", "q": "index", "tags": "cat_ears solo", "limit": 0})
+            self.assertEqual(client.headers["User-Agent"], "NekoBooru/1.0 (booru search relay)")
+
+            self.member.get("/api/booru-search/safebooru", params={"tags": "dog"})
+            self.assertEqual(len(client.calls), 2)  # cached per tag string
+            stamp, total = booru_search._safebooru_count_cache["cat_ears solo"]
+            booru_search._safebooru_count_cache["cat_ears solo"] = (stamp - booru_search.SAFEBOORU_COUNT_TTL, total)
+            self.member.get("/api/booru-search/safebooru", params={"tags": "cat_ears solo"})
+            self.assertEqual(len(client.calls), 3)  # expired after ten minutes
+
+    def test_safebooru_count_failure_leaves_total_null(self):
+        import httpx
+        from app.services import booru_search
+
+        page = AsyncMock(return_value=[{"id": 1}])
+        failures = [
+            FakeClient(FakeResponse(429, {}, headers={"Retry-After": "5"})),
+            FakeClient(FakeResponse(503, {})),
+            FakeClient(FakeResponse(500, {})),
+            FakeClient(error=httpx.ConnectError("down")),
+            FakeClient(FakeResponse(200, body=b"<html>not xml</html>")),
+            FakeClient(FakeResponse(200, body=b"")),
+        ]
+        for client in failures:
+            with patch.object(booru_search, "_fetch_json", page), patch.object(booru_search.httpx, "AsyncClient", client):
+                resp = self.member.get("/api/booru-search/safebooru", params={"tags": "solo"})
+            self.assertEqual(resp.status_code, 200, resp.text)
+            self.assertEqual(resp.json()["total"], None)
+            self.assertEqual(resp.json()["posts"], [{"id": 1}])
+            self.assertEqual(len(client.calls), 1)
+        self.assertEqual(booru_search._safebooru_count_cache, {})  # failures are not remembered
+
+        # A failed page never asks for the count.
+        count = AsyncMock(return_value=5)
+        throttled = AsyncMock(side_effect=booru_search.UpstreamThrottled("Safebooru is rate limiting requests (HTTP 429)"))
+        with patch.object(booru_search, "_fetch_json", throttled), patch.object(booru_search, "_safebooru_total", count):
+            resp = self.member.get("/api/booru-search/safebooru", params={"tags": "solo"})
+        self._assert_coded(resp, 429, "upstream_throttled")
+        count.assert_not_awaited()
 
     def test_fetch_maps_upstream_answers(self):
         import httpx

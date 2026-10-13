@@ -86,7 +86,7 @@ def _retry_after(value: str | None) -> float | None:
     return max(0.0, seconds)
 
 
-async def _fetch_json(params: dict[str, str | int], timeout: float, *, site: str = "gelbooru"):
+async def _request(params: dict[str, str | int], timeout: float, site: str) -> httpx.Response:
     # Credentials travel only inside httpx params - never formatted into a URL
     # string by this service - and booru_suggest's httpx log filter redacts
     # api_key from the request line httpx logs.
@@ -110,12 +110,18 @@ async def _fetch_json(params: dict[str, str | int], timeout: float, *, site: str
         )
     if status >= 400:
         raise UpstreamError(f"{label} returned HTTP {status}", status)
+    return response
+
+
+async def _fetch_json(params: dict[str, str | int], timeout: float, *, site: str = "gelbooru"):
+    response = await _request(params, timeout, site)
     if not response.content.strip():
         return None
     try:
         return response.json()
     except ValueError as exc:
-        raise UpstreamError(f"{label} returned an invalid response (HTTP {status})", status) from exc
+        status = response.status_code
+        raise UpstreamError(f"{UPSTREAMS[site][0]} returned an invalid response (HTTP {status})", status) from exc
 
 
 def _clean_query(tags: str) -> str:
@@ -167,11 +173,45 @@ async def gelbooru_search_page(tags: str, page: int, limit: int, *, timeout: flo
     }
 
 
+# Safebooru's JSON carries no count, but its XML answer does: one limit=0
+# request per tag string, remembered for a while so paging never repeats it.
+SAFEBOORU_COUNT_TTL = 10 * 60
+MAX_COUNT_CACHE = 256
+_POSTS_COUNT = re.compile(rb"<posts\b[^>]*?\bcount=[\"'](\d{1,12})[\"']")
+_safebooru_count_cache: dict[str, tuple[float, int]] = {}
+
+
+async def _safebooru_total(query: str, timeout: float) -> int | None:
+    now = time.monotonic()
+    cached = _safebooru_count_cache.get(query)
+    if cached and now - cached[0] < SAFEBOORU_COUNT_TTL:
+        return cached[1]
+    params = {"page": "dapi", "s": "post", "q": "index", "tags": query, "limit": 0}
+    try:
+        response = await _request(params, timeout, "safebooru")
+    except RuntimeError:
+        return None  # a missing count never fails the search
+    match = _POSTS_COUNT.search(response.content or b"")
+    if not match:
+        return None
+    if len(_safebooru_count_cache) >= MAX_COUNT_CACHE:
+        for key, (stamp, _) in list(_safebooru_count_cache.items()):
+            if now - stamp >= SAFEBOORU_COUNT_TTL:
+                del _safebooru_count_cache[key]
+        if len(_safebooru_count_cache) >= MAX_COUNT_CACHE:
+            _safebooru_count_cache.clear()
+    total = int(match.group(1))
+    _safebooru_count_cache[query] = (now, total)
+    return total
+
+
 async def safebooru_search_page(tags: str, page: int, limit: int, *, timeout: float = DEFAULT_TIMEOUT) -> dict:
     params = _dapi_params(tags, page, limit)
     payload = await _fetch_json(params, timeout, site="safebooru")
     posts = [row for row in payload if isinstance(row, dict)] if isinstance(payload, list) else []
-    return {"site": "safebooru", "page": int(page), "limit": int(limit), "total": None, "posts": posts}
+    # Asked only after the page succeeded, so a throttled site gets no extra request.
+    total = await _safebooru_total(str(params["tags"]), timeout)
+    return {"site": "safebooru", "page": int(page), "limit": int(limit), "total": total, "posts": posts}
 
 
 def parse_key(key: str) -> tuple[str, str] | None:

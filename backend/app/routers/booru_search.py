@@ -80,7 +80,10 @@ async def search_safebooru(
     limit: int = booru_search.DAPI_PAGE_SIZE,
     current_user: User = Depends(require_booru_search),
 ):
-    """One Safebooru results page, relayed raw (Safebooru sends no CORS header)."""
+    """One Safebooru results page, relayed raw (Safebooru sends no CORS header).
+
+    ``total`` comes from Safebooru's XML count, cached per query; null when it fails.
+    """
     return await _upstream(booru_search.safebooru_search_page(tags, page, limit))
 
 
