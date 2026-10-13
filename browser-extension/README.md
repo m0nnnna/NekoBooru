@@ -246,6 +246,7 @@ the extension needs to be signed/packaged.
 | `trace-moe-buttons.js` | trace.moe content script: the result player's NekoBooru button. |
 | `trace-moe-core.js` | trace.moe helpers: filename parsing, scene description, Danbooru series lookup. |
 | `site-import-core.js` | One-click site-import jobs (Pixiv, Danbooru, Gelbooru, Safebooru); assembles `globalThis.NekoBooruSiteImport` from `site-import-shared.js` (host/tag helpers), `site-import-sankaku.js` (Sankaku jobs) and `site-import-controls.js` (button placement, progress text), which load before it. |
+| `booru-import-rules.js` | The booru import rules shared with the web app's import queue (it imports this file): post and merge bodies, display names, progress text, pacing and back-off; loads before `site-import-shared.js`. Both sides run `booru-import-rules.fixture.json`. |
 | `html-entities.js` | The one HTML-entity decoder for Gelbooru-family text; loads before `booru-tags.js` and the site-import scripts. |
 | `danbooru-categories.js` | Danbooru tag-category lookup for Safebooru imports (loaded by `site-import.html`). |
 | `saucenao-links.js` | SauceNAO content script: rewrites dead old-format Sankaku links (`/post/show/<id>`) to `/posts/similar?id=<id>`. |
