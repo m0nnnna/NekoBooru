@@ -73,8 +73,11 @@ so").
 - **DESIGN**: a lane cannot decide it (an owner choice, an external
   limit). One line of verdict for the owner; the row stays.
 
-Pure code moves (splits) are their own commits, separate from behaviour
-changes, so a reviewer can skim the move and read the change. A defect the
+One concern per commit (CLAUDE.md rule 7): two fixes are two commits, and
+pure code moves (splits) are their own commits, separate from behaviour
+changes, so a reviewer can skim the move and read the change. A landing's
+own incidental fixes (a build script, a doc pointer) get their own commits
+too, not a ride on the queue-bookkeeping commit. A defect the
 lane introduced is fixed in-lane, never filed as a row.
 
 Findings outside the batch are filed as they are found: lanes in worktrees

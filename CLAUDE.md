@@ -82,6 +82,10 @@ Python: `from __future__ import annotations`, dataclasses, `pathlib`, type hints
 
 No source file may exceed 800 lines. New modules aim for 200-800 lines, grouped by real functionality (a small composable or helper is fine when it is genuinely self-contained; don't shatter code into fragments to hit a number). A change that would push a file past 800 splits it first. The files already over the ceiling are rows in [docs/queues/repo-hygiene.md](docs/queues/repo-hygiene.md); the template for splitting a view is the HomeView split (`25571e4`): components under `frontend/src/components/<area>/`, composables under `frontend/src/composables/`, behaviour-preserving, with a mount test.
 
+### 7. One concern per commit
+
+Every commit carries exactly one change a reviewer could accept or revert on its own: one fix, one feature, one move, one doc update. Two fixes found together are two commits; a build-script tweak noticed while landing is its own commit, not part of the landing's queue edits. A code move (split, rename) never shares a commit with a behaviour change. `frontend/dist/` is always its own "Rebuild frontend assets" commit. Queue edits ride the commit that does the work (the landing commit deletes its row), or go alone when they are pure bookkeeping.
+
 ---
 
 ## Work tracking: the TODO queues
