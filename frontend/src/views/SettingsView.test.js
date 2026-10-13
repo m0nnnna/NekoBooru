@@ -1,0 +1,102 @@
+// @vitest-environment jsdom
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const MODELS = [
+  { id: 'wd', name: 'WD Tagger', repoId: 'SmilingWolf/wd', purpose: 'Booru tags', downloaded: true, loaded: false, runtimeAvailable: true, status: 'tagging_ready' },
+  { id: 'qwen', name: 'Qwen2.5-VL', repoId: 'Qwen/Qwen2.5-VL', purpose: 'Semantic', role: 'semantic', downloaded: false, loaded: false, runtimeAvailable: false, status: 'tagging_ready' },
+]
+
+vi.mock('../api/client', () => {
+  const api = {
+    getSettings: vi.fn(async () => ({ data_dir: '/srv/neko', host: '127.0.0.1', port: 8000, database_path: '/srv/neko/db.sqlite' })),
+    getExtensionSettings: vi.fn(async () => ({ saveTweetTag: true })),
+    updateExtensionSettings: vi.fn(async (value) => value),
+    getAutoTagSettings: vi.fn(async () => ({ enabled: true, semanticModelId: 'qwen' })),
+    getAutoTagStatus: vi.fn(async () => ({ enabled: true, dependencies: { onnxruntime: true }, torch: {} })),
+    getCurrentAutoTagJob: vi.fn(async () => null),
+    getAutoTagModels: vi.fn(async () => ({ models: MODELS, downloadJob: null })),
+    getYtdlpStatus: vi.fn(async () => ({ installed: true, version: '2026.01.01', updatePolicy: 'manual' })),
+    getRuntimeStatus: vi.fn(async () => ({ app: { packaged: false, version: '4.1.0' } })),
+    getAiRuntimeProfiles: vi.fn(async () => ({ profiles: [] })),
+    getUpdateStatus: vi.fn(async () => ({ currentVersion: '4.1.0', settings: {} })),
+    getAiModelDefaults: vi.fn(async () => ({ modelDefaults: {} })),
+    getDirectory: vi.fn(async () => ['alice']),
+    getShares: vi.fn(async () => ({ sharedByMe: [] })),
+    getMe: vi.fn(async () => ({ sharedWithMe: [] })),
+    getApiTokens: vi.fn(async () => [{ id: 1, label: 'Browser Extension', createdAt: '2026-01-02T00:00:00Z' }]),
+  }
+  return { api, default: api }
+})
+
+import SettingsView from './SettingsView.vue'
+
+async function mountSettings() {
+  const wrapper = mount(SettingsView, { global: { plugins: [createPinia()] } })
+  await flushPromises()
+  return wrapper
+}
+
+const SECTION_TITLES = [
+  'Data Storage',
+  'Search',
+  'AI Model Defaults',
+  'Browser Extension',
+  'Server',
+  'Video Downloads (yt-dlp)',
+  'Directory Information',
+  'Runtime & Packaging',
+  'App Updates',
+  'Auto Tagging',
+  'Restart',
+  'Account & Sharing',
+]
+
+describe('SettingsView', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('renders every section with its loaded content', async () => {
+    const wrapper = await mountSettings()
+    expect(wrapper.findAll('.settings-section h2').map((h) => h.text())).toEqual(SECTION_TITLES)
+    expect(wrapper.get('.settings-header-count').text()).toBe('0 of 12 open')
+
+    await wrapper.findAll('.settings-header-actions button').find((b) => b.text() === 'Expand all').trigger('click')
+    expect(wrapper.get('.settings-header-count').text()).toBe('12 of 12 open')
+    expect(JSON.parse(localStorage.getItem('nekobooru.settingsSectionsOpen'))['account-sharing']).toBe(true)
+
+    expect(wrapper.get('.path-input').element.value).toBe('/srv/neko')
+    expect(wrapper.text()).toContain('Packaged URL: http://127.0.0.1:8000')
+    expect(wrapper.findAll('.profile-default-card')).toHaveLength(3)
+    expect(wrapper.get('.ytdlp-status-grid').text()).toContain('Ready')
+    expect(wrapper.get('.info-grid').text()).toContain('/srv/neko/db.sqlite')
+    expect(wrapper.get('.pipeline-grid').text()).toContain('1 / 2')
+    expect(wrapper.findAll('.compact-model-row').map((row) => row.get('.model-title strong').text())).toEqual(['WD Tagger'])
+    expect(wrapper.get('.semantic-model-card').text()).toContain('Qwen2.5-VL')
+    expect(wrapper.get('.bulk-defaults-note').text()).toContain('WD Tagger')
+    expect(wrapper.get('.users-table').text()).toContain('Browser Extension')
+    expect(wrapper.find('.preview-modal').exists()).toBe(false)
+  })
+
+  it('saves the browser extension defaults', async () => {
+    const { api } = await import('../api/client')
+    const wrapper = await mountSettings()
+    const save = wrapper.findAll('button').find((b) => b.text() === 'Save Extension Defaults')
+    await save.trigger('click')
+    await flushPromises()
+    expect(api.updateExtensionSettings).toHaveBeenCalledWith({
+      saveTweetTag: true,
+      saveTweetUsername: false,
+      saveSourcePageUrl: true,
+      saveMediaUrl: false,
+      saveSemanticAnalysis: false,
+    })
+    expect(wrapper.text()).toContain('Extension defaults saved.')
+  })
+})
