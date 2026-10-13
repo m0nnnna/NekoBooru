@@ -115,6 +115,7 @@
           </small>
         </span>
       </label>
+      <BooruSearchAdminCard v-if="authStore.isAdmin" />
     </CollapsibleSection>
 
     <CollapsibleSection
@@ -1582,6 +1583,10 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import api from '../api/client'
 import CollapsibleSection from '../components/CollapsibleSection.vue'
+import BooruSearchAdminCard from '../components/BooruSearchAdminCard.vue'
+import { useAuthStore } from '../stores/auth'
+
+const authStore = useAuthStore()
 
 const currentSettings = ref({})
 const dataDir = ref('')
