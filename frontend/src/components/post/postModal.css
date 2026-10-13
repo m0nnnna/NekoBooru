@@ -19,8 +19,31 @@
   padding: 1.5rem;
   width: 450px;
   max-width: 90vw;
+  /* Never taller than the window: a dialog with long content scrolls. */
+  max-height: 90vh;
+  overflow-y: auto;
   border: 1px solid var(--border);
   box-shadow: 0 20px 40px var(--shadow);
+}
+
+/* A dialog with a .modal-body keeps its title at the top and its actions at
+   the bottom; only the body between them scrolls. */
+.modal.modal-split {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-split > h2,
+.modal-split > .modal-actions {
+  flex: none;
+}
+
+.modal-split > .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .modal h2 {
@@ -39,8 +62,6 @@
   .modal {
     padding: 1.25rem;
     margin: 1rem;
-    max-height: 90vh;
-    overflow-y: auto;
   }
 
   .modal h2 {

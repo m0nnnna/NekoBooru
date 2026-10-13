@@ -1,61 +1,63 @@
 <template>
   <div v-if="showTagEditor" class="modal-overlay" @click.self="showTagEditor = false">
-    <div class="modal">
+    <div class="modal modal-split">
       <h2>Edit Tags</h2>
-      <div class="tag-editor-toolbar">
-        <div class="segmented-control" aria-label="Tag editor mode">
-          <button
-            type="button"
-            :class="{ active: tagEditorMode === 'visual' }"
-            @click="setTagEditorMode('visual')"
-          >
-            Pills
-          </button>
-          <button
-            type="button"
-            :class="{ active: tagEditorMode === 'raw' }"
-            @click="setTagEditorMode('raw')"
-          >
-            Text
-          </button>
+      <div class="modal-body">
+        <div class="tag-editor-toolbar">
+          <div class="segmented-control" aria-label="Tag editor mode">
+            <button
+              type="button"
+              :class="{ active: tagEditorMode === 'visual' }"
+              @click="setTagEditorMode('visual')"
+            >
+              Pills
+            </button>
+            <button
+              type="button"
+              :class="{ active: tagEditorMode === 'raw' }"
+              @click="setTagEditorMode('raw')"
+            >
+              Text
+            </button>
+          </div>
+          <div class="tag-editor-tools">
+            <span class="tag-editor-count">{{ editedTags.length }} tags</span>
+            <button type="button" class="btn btn-secondary clear-tags-btn" @click="clearEditedTags">
+              Clear Tags
+            </button>
+          </div>
         </div>
-        <div class="tag-editor-tools">
-          <span class="tag-editor-count">{{ editedTags.length }} tags</span>
-          <button type="button" class="btn btn-secondary clear-tags-btn" @click="clearEditedTags">
-            Clear Tags
-          </button>
+        <TagInput v-if="tagEditorMode === 'visual'" v-model="editedTags" />
+        <div v-else class="raw-tag-editor">
+          <textarea
+            ref="rawTagTextarea"
+            v-model="rawEditedTags"
+            spellcheck="false"
+            placeholder="One tag per line, comma-separated tags, or a JSON array..."
+            @input="onRawTagInput"
+            @keydown.down.prevent="onRawTagArrowDown"
+            @keydown.up.prevent="onRawTagArrowUp"
+            @keydown.enter="onRawTagEnter"
+            @keydown.esc="hideRawTagSuggestions"
+            @blur="onRawTagBlur"
+          ></textarea>
+          <ul v-if="rawTagSuggestions.length > 0" class="raw-tag-suggestions">
+            <li
+              v-for="(tag, index) in rawTagSuggestions"
+              :key="tag.name"
+              :class="{ selected: index === rawTagSelectedIndex }"
+              :style="{ borderLeftColor: tag.categoryColor }"
+              @mousedown.prevent="selectRawTagSuggestion(tag)"
+              @mouseenter="rawTagSelectedIndex = index"
+            >
+              <span class="tag-name">{{ tag.name }}</span>
+              <span class="tag-count">{{ tag.usageCount }}</span>
+            </li>
+          </ul>
+          <p class="raw-tag-hint">
+            Accepts JSON arrays, {"tags": [...]}, commas, new lines, or spaces. Tags are normalized to lowercase underscores.
+          </p>
         </div>
-      </div>
-      <TagInput v-if="tagEditorMode === 'visual'" v-model="editedTags" />
-      <div v-else class="raw-tag-editor">
-        <textarea
-          ref="rawTagTextarea"
-          v-model="rawEditedTags"
-          spellcheck="false"
-          placeholder="One tag per line, comma-separated tags, or a JSON array..."
-          @input="onRawTagInput"
-          @keydown.down.prevent="onRawTagArrowDown"
-          @keydown.up.prevent="onRawTagArrowUp"
-          @keydown.enter="onRawTagEnter"
-          @keydown.esc="hideRawTagSuggestions"
-          @blur="onRawTagBlur"
-        ></textarea>
-        <ul v-if="rawTagSuggestions.length > 0" class="raw-tag-suggestions">
-          <li
-            v-for="(tag, index) in rawTagSuggestions"
-            :key="tag.name"
-            :class="{ selected: index === rawTagSelectedIndex }"
-            :style="{ borderLeftColor: tag.categoryColor }"
-            @mousedown.prevent="selectRawTagSuggestion(tag)"
-            @mouseenter="rawTagSelectedIndex = index"
-          >
-            <span class="tag-name">{{ tag.name }}</span>
-            <span class="tag-count">{{ tag.usageCount }}</span>
-          </li>
-        </ul>
-        <p class="raw-tag-hint">
-          Accepts JSON arrays, {"tags": [...]}, commas, new lines, or spaces. Tags are normalized to lowercase underscores.
-        </p>
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" @click="showTagEditor = false">Cancel</button>
