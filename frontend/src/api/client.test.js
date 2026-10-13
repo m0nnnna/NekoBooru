@@ -137,7 +137,7 @@ const METHODS = [
   'getShares', 'getSimilarPosts', 'getSimilarityBackfill', 'getStats', 'getTag', 'getTags',
   'getUpdateStatus', 'getUploadJob', 'getUsers', 'getYtdlpStatus', 'installAiRuntime', 'loadAutoTagModelById',
   'login', 'logout', 'lookupInLibrary', 'migrateData', 'previewAutoTags', 'previewUploadAutoTags',
-  'publishUploadJob', 'removePostFromPool', 'renderUploadJob', 'resolveSankakuName', 'restartApp', 'restorePost',
+  'publishUploadJob', 'removePostFromPool', 'renderUploadJob', 'resolveE621Name', 'resolveSankakuName', 'restartApp', 'restorePost',
   'retryUploadJob', 'sampleUploadJob', 'saveGelbooruCredentials', 'saveHuggingFaceToken', 'savePostAiAnalysis', 'saveTaggerWorkerToken',
   'searchGelbooru', 'searchSafebooru', 'setShares', 'startSimilarityBackfill', 'toggleFavorite', 'unloadAutoTagModelById',
   'updateAiModelDefaults', 'updateAutoTagSettings', 'updateBooruSearchSettings', 'updateComment', 'updateDataDir', 'updateExtensionSettings',
