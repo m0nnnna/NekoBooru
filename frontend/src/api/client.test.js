@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import api from './client'
+import api, { api as namedApi } from './client'
+import { authApi } from './auth.js'
+import { autoTagsApi } from './autoTags.js'
+import { booruSearchApi } from './booruSearch.js'
+import { postsApi } from './posts.js'
+import { settingsApi } from './settings.js'
+import { tagsApi } from './tags.js'
+import { uploadsApi } from './uploads.js'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -59,5 +66,43 @@ describe('API request headers', () => {
     const [, config] = fetchMock.mock.calls[0]
     expect(config.body).toBeInstanceOf(FormData)
     expect(config.headers).not.toHaveProperty('Content-Type')
+  })
+})
+
+// Every method the single-file client had before the split by domain.
+const METHODS = [
+  'addPostsToPool', 'applyAutoTagJob', 'applyAutoTags', 'autocomplete', 'bootstrapAdmin', 'bulkDeletePosts',
+  'bulkOptimizePosts', 'bulkUpdatePosts', 'cancelAiRuntimeInstall', 'cancelAutoTagJob', 'cancelAutoTagModelDownloadJob', 'cancelUploadJob',
+  'checkForUpdates', 'checkHealth', 'createAlias', 'createApiToken', 'createAutoTagJob', 'createComment',
+  'createImplication', 'createNote', 'createOptimizeJob', 'createPool', 'createPost', 'createTag',
+  'createUploadJob', 'createUser', 'danbooruNames', 'deleteAlias', 'deleteApiToken', 'deleteAutoTagModelById',
+  'deleteComment', 'deleteGelbooruCredentials', 'deleteHuggingFaceToken', 'deleteImplication', 'deleteNote', 'deletePool',
+  'deletePost', 'deletePostAiAnalysis', 'deleteTag', 'deleteTaggerWorkerToken', 'deleteUploadJob', 'deleteYtdlpCookies',
+  'downloadAllAutoTagModels', 'downloadAutoTagModel', 'downloadAutoTagModelById', 'estimateAutoTagJob', 'fetchFromUrl', 'gelbooruTagCategories',
+  'getAiModelDefaults', 'getAiRuntimeInstallJob', 'getAiRuntimeProfiles', 'getAliases', 'getApiTokens', 'getAuthStatus',
+  'getAutoTagJob', 'getAutoTagJobSuggestions', 'getAutoTagModelDownloadJob', 'getAutoTagModelLoadJob', 'getAutoTagModels', 'getAutoTagSettings',
+  'getAutoTagStatus', 'getBooruSearchSettings', 'getBooruSearchStatus', 'getCategories', 'getComments', 'getCurrentAutoTagJob',
+  'getDashboard', 'getDirectory', 'getDuplicateGroups', 'getExtensionSettings', 'getFromUrlProgress', 'getImplications',
+  'getMe', 'getNotes', 'getOptimizeJob', 'getPool', 'getPools', 'getPost',
+  'getPostAiAnalysis', 'getPostNeighbors', 'getPostOnlineMatches', 'getPosts', 'getRuntimeStatus', 'getSettings',
+  'getShares', 'getSimilarPosts', 'getSimilarityBackfill', 'getStats', 'getTag', 'getTags',
+  'getUpdateStatus', 'getUploadJob', 'getUsers', 'getYtdlpStatus', 'installAiRuntime', 'loadAutoTagModelById',
+  'login', 'logout', 'lookupInLibrary', 'migrateData', 'previewAutoTags', 'previewUploadAutoTags',
+  'publishUploadJob', 'removePostFromPool', 'renderUploadJob', 'resolveSankakuName', 'restartApp', 'restorePost',
+  'retryUploadJob', 'sampleUploadJob', 'saveGelbooruCredentials', 'saveHuggingFaceToken', 'savePostAiAnalysis', 'saveTaggerWorkerToken',
+  'searchGelbooru', 'searchSafebooru', 'setShares', 'startSimilarityBackfill', 'toggleFavorite', 'unloadAutoTagModelById',
+  'updateAiModelDefaults', 'updateAutoTagSettings', 'updateBooruSearchSettings', 'updateComment', 'updateDataDir', 'updateExtensionSettings',
+  'updateNote', 'updatePool', 'updatePost', 'updatePostAiAnalysis', 'updateServerSettings', 'updateTag',
+  'updateUpdateSettings', 'updateUser', 'updateYtdlp', 'updateYtdlpSettings', 'uploadFile', 'uploadFromFediverse',
+  'uploadFromUrl', 'uploadFromYtdlp', 'uploadJobContent', 'uploadYtdlpCookies',
+]
+
+describe('API client facade', () => {
+  it('keeps every method, once, behind both exports', () => {
+    expect(namedApi).toBe(api)
+    expect(Object.keys(api).sort()).toEqual([...METHODS].sort())
+    const modules = [postsApi, uploadsApi, autoTagsApi, tagsApi, settingsApi, authApi, booruSearchApi]
+    const keys = modules.flatMap((module) => Object.keys(module))
+    expect(keys).toHaveLength(new Set(keys).size)
   })
 })
