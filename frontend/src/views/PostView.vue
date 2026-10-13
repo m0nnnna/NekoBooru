@@ -1,82 +1,23 @@
 <template>
-  <div
-    class="post-view"
-    :class="{ 'wide-frame': wideFrame, 'sidebar-hidden': sidebarHidden }"
+  <PostPageFrame
     v-if="post"
+    ref="mediaViewer"
+    :src="post.contentUrl"
+    :alt="post.filename"
+    :type="mediaType"
+    :wide-frame="wideFrame"
+    :sidebar-hidden="sidebarHidden"
+    :zoom-animation="zoomAnimation"
+    :has-prev="prevId != null"
+    :has-next="nextId != null"
+    @close="handleClose"
+    @prev="goToPrev"
+    @next="goToNext"
+    @toggle-zoom-animation="toggleZoomAnimation"
+    @toggle-wide-frame="toggleWideFrame"
+    @toggle-sidebar-hidden="toggleSidebarHidden"
   >
-    <div class="post-content">
-      <div class="media-container">
-        <MediaViewer
-          ref="mediaViewer"
-          :src="post.contentUrl"
-          :alt="post.filename"
-          :type="mediaType"
-          :animate-load="zoomAnimation"
-          @close="handleClose"
-        >
-          <template #controls>
-            <button
-              type="button"
-              class="layout-toggle"
-              :class="{ active: zoomAnimation }"
-              :title="zoomAnimation ? 'Turn off the zoom-in when a post opens' : 'Turn on the zoom-in when a post opens'"
-              :aria-pressed="zoomAnimation"
-              @click="toggleZoomAnimation"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="11" cy="11" r="6" />
-                <path d="M20 20l-4.5-4.5M11 8v6M8 11h6" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              class="layout-toggle"
-              :class="{ active: wideFrame }"
-              :title="wideFrame ? 'Normal width' : 'Widen the frame to the full window'"
-              :aria-pressed="wideFrame"
-              @click="toggleWideFrame"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              class="layout-toggle"
-              :class="{ active: sidebarHidden }"
-              :title="sidebarHidden ? 'Pin the sidebar' : 'Hide the sidebar (hover the right edge to peek)'"
-              :aria-pressed="sidebarHidden"
-              @click="toggleSidebarHidden"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="3" y="4" width="18" height="16" rx="2" />
-                <path d="M15 4v16" />
-              </svg>
-            </button>
-          </template>
-        </MediaViewer>
-        <button
-          v-if="prevId != null"
-          type="button"
-          class="nav-arrow nav-prev"
-          title="Previous post (Left arrow)"
-          aria-label="Previous post"
-          @click="goToPrev"
-        >&#8249;</button>
-        <button
-          v-if="nextId != null"
-          type="button"
-          class="nav-arrow nav-next"
-          title="Next post (Right arrow)"
-          aria-label="Next post"
-          @click="goToNext"
-        >&#8250;</button>
-      </div>
-    </div>
-
-    <!-- With the sidebar hidden, this strip on the right edge brings it back on hover. -->
-    <div v-if="sidebarHidden" class="sidebar-peek" aria-hidden="true"><span></span></div>
-    <aside class="post-sidebar">
+    <template #sidebar>
       <PostInfoSection :post="post" @set-safety="setSafety" />
 
       <PostSemanticDescription :analysis="analysis" />
@@ -118,32 +59,34 @@
       />
 
       <CommentSection :post-id="post.id" />
-    </aside>
+    </template>
 
-    <PostOptimizeDialogs :post="post" :optimize="optimize" />
+    <template #default>
+      <PostOptimizeDialogs :post="post" :optimize="optimize" />
 
-    <!-- Tag Editor Modal -->
-    <PostTagEditorModal :editor="tagEditor" />
+      <!-- Tag Editor Modal -->
+      <PostTagEditorModal :editor="tagEditor" />
 
-    <!-- Pool Modal -->
-    <div v-if="showPoolModal" class="modal-overlay" @click.self="showPoolModal = false">
-      <div class="modal">
-        <h2>Add to Pool</h2>
-        <select v-model="selectedPool" class="pool-select">
-          <option value="">Select a pool...</option>
-          <option v-for="pool in pools" :key="pool.id" :value="pool.id">
-            {{ pool.name }}
-          </option>
-        </select>
-        <div class="modal-actions">
-          <button class="btn btn-secondary" @click="showPoolModal = false">Cancel</button>
-          <button class="btn" @click="addToPool" :disabled="!selectedPool">Add</button>
+      <!-- Pool Modal -->
+      <div v-if="showPoolModal" class="modal-overlay" @click.self="showPoolModal = false">
+        <div class="modal">
+          <h2>Add to Pool</h2>
+          <select v-model="selectedPool" class="pool-select">
+            <option value="">Select a pool...</option>
+            <option v-for="pool in pools" :key="pool.id" :value="pool.id">
+              {{ pool.name }}
+            </option>
+          </select>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" @click="showPoolModal = false">Cancel</button>
+            <button class="btn" @click="addToPool" :disabled="!selectedPool">Add</button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <PostAutoTagModals :auto-tag="autoTag" />
-  </div>
+      <PostAutoTagModals :auto-tag="autoTag" />
+    </template>
+  </PostPageFrame>
   <div v-else-if="loading" class="post-state post-loading">Loading...</div>
   <div v-else class="post-state">Post not found</div>
 </template>
@@ -153,9 +96,9 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api/client'
 import { usePostsStore } from '../stores/posts'
-import MediaViewer from '../components/MediaViewer.vue'
 import TagSidebar from '../components/TagSidebar.vue'
 import CommentSection from '../components/CommentSection.vue'
+import PostPageFrame from '../components/post/PostPageFrame.vue'
 import PostInfoSection from '../components/post/PostInfoSection.vue'
 import PostSemanticDescription from '../components/post/PostSemanticDescription.vue'
 import PostToolsSection from '../components/post/PostToolsSection.vue'
@@ -385,290 +328,20 @@ function handleClose() {
 </script>
 
 <style scoped>
-.post-view {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 1.5rem;
-  height: calc(100vh - 120px);
-}
-
-.post-content {
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.media-container {
-  position: relative;
-  height: 100%;
-  width: 100%;
-  border-radius: 0.75rem;
-  overflow: hidden;
-  background: var(--bg-secondary);
-}
-
-.nav-arrow {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 64px;
-  border: none;
-  border-radius: 0.5rem;
-  background: rgba(0, 0, 0, 0.4);
-  color: #fff;
-  font-size: 2rem;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0.55;
-  transition: opacity 0.15s, background 0.15s;
-  /* The arrow is a text glyph; keep it from being selected or showing a text caret. */
-  user-select: none;
-  -webkit-user-select: none;
-  caret-color: transparent;
-}
-
-.nav-arrow:hover {
-  opacity: 1;
-  background: rgba(0, 0, 0, 0.65);
-}
-
-.nav-prev {
-  left: 0.5rem;
-}
-
-.nav-next {
-  right: 0.5rem;
-}
-
-@media (max-width: 480px) {
-  .nav-arrow {
-    width: 38px;
-    height: 54px;
-    font-size: 1.6rem;
-  }
-}
-
-.post-sidebar {
-  background: var(--bg-secondary);
-  border-radius: 0.75rem;
-  padding: 1.25rem;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  border: 1px solid var(--border);
-}
-
-/* Layout toggles in the viewer's control pill. */
-.layout-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.sidebar-peek {
-  display: none;
-}
-
-@media (min-width: 769px) {
-  .post-view {
-    position: relative;
-  }
-
-  /* Hidden sidebar: the frame takes almost the whole row. A slim gutter of its
-     own sits beside it (never over it, so the next arrow and the close button
-     stay clickable), and hovering that gutter floats the sidebar in. */
-  .post-view.sidebar-hidden {
-    grid-template-columns: minmax(0, 1fr) 56px;
-    gap: 0.5rem;
-  }
-
-  .post-view.sidebar-hidden .post-sidebar {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 30;
-    width: 360px;
-    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
-    opacity: 0;
-    transform: translateX(16px);
-    pointer-events: none;
-    transition: opacity 0.18s ease 0.25s, transform 0.18s ease 0.25s;
-  }
-
-  .post-view.sidebar-hidden .sidebar-peek:hover + .post-sidebar,
-  .post-view.sidebar-hidden .post-sidebar:hover,
-  .post-view.sidebar-hidden .post-sidebar:focus-within {
-    opacity: 1;
-    transform: none;
-    pointer-events: auto;
-    transition-delay: 0s;
-  }
-
-  .sidebar-peek {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 0;
-    border: 1px solid transparent;
-    border-radius: 0.75rem;
-    cursor: w-resize;
-    transition: background 0.15s, border-color 0.15s;
-  }
-
-  .sidebar-peek:hover {
-    background: var(--bg-secondary);
-    border-color: var(--border);
-  }
-
-  .sidebar-peek span {
-    width: 4px;
-    height: 64px;
-    border-radius: 999px;
-    background: var(--accent);
-    opacity: 0.4;
-    transition: opacity 0.15s;
-  }
-
-  .sidebar-peek:hover span {
-    opacity: 0.85;
-  }
-}
-
-@media (max-width: 768px) {
-  .layout-toggle {
-    display: none;
-  }
-}
-
-.sidebar-section h3 {
-  font-size: 0.75rem;
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin-bottom: 0.75rem;
-  font-weight: 600;
-}
-
-/* Long tag lists scroll inside their own box instead of stretching the sidebar. */
-.tag-scroll-box {
-  max-height: min(22rem, 45vh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0.6rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  background: var(--bg-primary);
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
-}
-
-.tag-scroll-box::-webkit-scrollbar {
-  width: 6px;
-}
-
-.tag-scroll-box::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: var(--accent);
-}
-
-.tag-scroll-box::-webkit-scrollbar-track {
-  background: transparent;
-}
-
 .edit-tags-btn {
   margin-top: 0.75rem;
   width: 100%;
-}
-
-.actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
 }
 
 .pool-select {
   width: 100%;
 }
 
-.post-state {
-  text-align: center;
-  padding: 3rem;
-  color: var(--text-secondary);
-}
-
-.post-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-}
-
-/* Mobile responsive styles */
-@media (max-width: 768px) {
-  .post-view {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(300px, 60vh) auto;
-    height: auto;
-    gap: 1rem;
-  }
-
-  .post-content {
-    min-height: 300px;
-  }
-
-  .media-container {
-    border-radius: 0.5rem;
-  }
-
-  .post-sidebar {
-    padding: 1rem;
-    gap: 1rem;
-    border-radius: 0.5rem;
-  }
-
-  .sidebar-section h3 {
-    font-size: 0.7rem;
-    margin-bottom: 0.5rem;
-  }
-
-
-  .actions {
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-
-  .actions .btn {
-    flex: 1;
-    min-width: 100px;
-  }
-
-}
-
 @media (max-width: 480px) {
-  .post-view {
-    grid-template-rows: minmax(250px, 50vh) auto;
-    gap: 0.75rem;
-  }
-
-  .post-sidebar {
-    padding: 0.875rem;
-  }
-
-  .actions .btn {
-    font-size: 0.8rem;
-    padding: 0.5rem 0.75rem;
-  }
-
   .edit-tags-btn {
     font-size: 0.85rem;
   }
 }
 </style>
+<style scoped src="../components/post/postSidebar.css"></style>
 <style scoped src="../components/post/postModal.css"></style>
