@@ -113,8 +113,7 @@ Wait for every lane, then land them together:
    (`git merge --ff-only`). Run the rebase on its own and read its exit
    code before doing anything else; never pipe a rebase, merge or test run
    through `tail`/`head`, which hides its failure.
-2. Run the full suites once on the result. Only the known baseline failures
-   in CLAUDE.md may be red.
+2. Run the full suites once on the result. Every suite must be green.
 3. Queue edits are the union of every lane's outcomes: delete DONE and
    REFUTED rows, append verdicts to DESIGN rows, file new rows verbatim.
 4. Update CLAUDE.md pointers the lanes reported.

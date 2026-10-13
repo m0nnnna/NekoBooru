@@ -29,7 +29,7 @@ Instead:
 - **Locating files relative to code** — `Path(__file__).resolve().parents[N] / "..."`, never a literal root.
 - **Scripts** — use the script's own directory (`%~dp0` in batch, `$PSScriptRoot` in PowerShell, `$(dirname "$0")` in sh) and relative paths from there.
 - **Tests** — build temp dirs with `tempfile.TemporaryDirectory()` and point the `NEKO_*` env vars at them (see `setUpClass` in [tests/test_auto_tags.py](tests/test_auto_tags.py) for the established pattern).
-- **Docs and comments** — refer to repo-relative paths (`backend/app/services/auto_tagger.py`), never absolute ones.
+- **Docs and comments** — refer to repo-relative paths (`backend/app/services/auto_tagger/dispatch.py`), never absolute ones.
 - **Model files** — resolve through `model_cache_status(model_id)` and the `_cached_file*` helpers, never by constructing a snapshot path by hand.
 
 When you need to run a command against the project venv, use a repo-relative invocation (`venv/Scripts/python.exe` on Windows, `venv/bin/python` elsewhere) rather than pasting an absolute one into a committed file. Absolute paths typed into a terminal for a one-off command are fine; absolute paths *written into a file* are not.
@@ -64,7 +64,7 @@ If `--ff-only` is refused, main moved: go back to the worktree, rebase again, re
 
 **Running a wave of lanes efficiently** (few fat lanes, claim-then-dispatch, brief and report shapes, one batched landing): [docs/SUBAGENT_RUNBOOK.md](docs/SUBAGENT_RUNBOOK.md). Read it before orchestrating more than two subagents.
 
-**Serialize the conflict-prone paths.** `frontend/dist/` is committed and built with content-hashed filenames, so two agents that both touch `frontend/src/` produce guaranteed, unmergeable conflicts. Give frontend work to a single agent, or have agents change only `frontend/src/` and rebuild `dist` once at integration time on `main`. The same applies to any single large file several agents want — most of all [backend/app/services/auto_tagger.py](backend/app/services/auto_tagger.py).
+**Serialize the conflict-prone paths.** `frontend/dist/` is committed and built with content-hashed filenames, so two agents that both touch `frontend/src/` produce guaranteed, unmergeable conflicts. Give frontend work to a single agent, or have agents change only `frontend/src/` and rebuild `dist` once at integration time on `main`. The same applies to any single large file several agents want — most of all the [backend/app/services/auto_tagger/](backend/app/services/auto_tagger/) package.
 
 ### 3. Rebuild the frontend when you change it
 
@@ -120,7 +120,7 @@ cd frontend && npm run test
 cd frontend && npm run build
 ```
 
-Known baseline: `test_extension_upload_defaults_can_be_saved` and `test_disabled_preview_preserves_tags_without_provenance` in [tests/test_auto_tags.py](tests/test_auto_tags.py) fail on a clean tree (a repo-hygiene row tracks fixing them). Don't attribute them to your change; everything else should pass.
+Every suite passes on a clean tree: backend, frontend, and each `node browser-extension/*.test.js`. A red test is a real failure.
 
 Env vars: `NEKO_PORT`, `NEKO_HOST`, `NEKO_DEBUG`, `NEKO_CORS_ORIGINS`, plus the path overrides `NEKO_APP_DIR`, `NEKO_CONFIG_DIR`, `NEKO_CONFIG_FILE`, `NEKO_DATA_DIR`, `NEKO_LOGS_DIR`, `NEKO_MODELS_DIR`, `NEKO_RUNTIMES_DIR`, `NEKO_CACHE_DIR`, and `NEKO_TAGGER_WORKER_TOKEN`.
 
@@ -151,7 +151,21 @@ data/ config/ logs/ models/   gitignored runtime dirs
 
 ## The auto-tagging system
 
-Everything lives in [backend/app/services/auto_tagger.py](backend/app/services/auto_tagger.py) (~4k lines) and is exposed by [backend/app/routers/auto_tags.py](backend/app/routers/auto_tags.py) under `/api/auto-tags`.
+Everything lives in the [backend/app/services/auto_tagger/](backend/app/services/auto_tagger/) package and is exposed by [backend/app/routers/auto_tags.py](backend/app/routers/auto_tags.py) under `/api/auto-tags`.
+
+The package's `__init__` re-exports every name, so `from app.services.auto_tagger import X` and `mock.patch("app.services.auto_tagger.X")` keep working; state that is rebound at runtime (`_download_job`, `_load_job`, CUDA flags) lives in `__init__` and the parts read it as `_at.<name>`. Parts, in import order (each imports only earlier ones):
+
+- `core` — constants, `MODEL_REGISTRY`, `AutoTagOptions` / `AutoTagResult`, `_gpu_work_lock`, `normalize_tag`, `safety_from_rating`
+- `runtime` — torch / ONNX / llama.cpp detection, `_prepare_onnx_cuda_runtime`, `_create_onnx_session`
+- `semantic` — prompts, semantic parsing, `merge_with_existing`, tag filters
+- `options` — `load_options` / `validate_options`, tokens
+- `cache` — `model_cache_status`, HF cache dirs, GGUF paths
+- `downloads` — `start_model_download`, `_run_model_download_job`, `_download_lock`
+- `media_io` — tensors, frames/audio, `_cached_file*`, tag vocabularies
+- `media_taggers` — OCR, Whisper, Qwen, Qwen GGUF taggers and singletons
+- `onnx_taggers` — WD, PixAI, Camie, CL taggers and singletons
+- `models` — `status`, `_tagger_for_model`, `runtime_available`, `_model_runtime_providers`, `_onnx_runtime_info`, the load queue, `_new_load_job`, unload/delete/download
+- `dispatch` — `tag_media`, `_optional_image_results`, `_run_optional`, `_combine_results`, video
 
 **Core pieces:**
 
@@ -182,24 +196,24 @@ Bulk auto-tag jobs (`auto_tag_jobs.create_job`) are still one-at-a-time and reje
 
 A model id touches more places than you'd expect. Use `cl` or `pixai` (the two most recently added ONNX taggers) as the reference implementation and grep for one of them — every hit is a place you likely need a matching entry.
 
-Backend ([backend/app/services/auto_tagger.py](backend/app/services/auto_tagger.py)):
-1. `MODEL_REGISTRY` entry (id, name, repoId, purpose, downloadSize, vramRequirement, `allowPatterns` / `requiredFiles` / `requiredFileKinds`, plus `expectedTotalBytes` and `downloadAll: False` for large or gated repos).
-2. A tagger class + module-level singleton.
-3. `AutoTagOptions.<model>Enabled` field (defaults to `False`).
-4. `_tagger_for_model()` branch.
-5. `runtime_available()` branch, `_model_runtime_providers()` branch, and the `<model>Providers` key in `_onnx_runtime_info()` for ONNX models.
-6. `_optional_image_results()` — run it when the flag is set; add to the `visual_enrichers` condition in `_tag_video_with_enrichers()` if it should also see sampled video frames.
-7. `_new_load_job()` load-time estimate.
+Backend ([backend/app/services/auto_tagger/](backend/app/services/auto_tagger/)):
+1. `core.py`: `MODEL_REGISTRY` entry (id, name, repoId, purpose, downloadSize, vramRequirement, `allowPatterns` / `requiredFiles` / `requiredFileKinds`, plus `expectedTotalBytes` and `downloadAll: False` for large or gated repos).
+2. A tagger class + module-level singleton in `onnx_taggers.py` (ONNX) or `media_taggers.py` (others).
+3. `core.py`: `AutoTagOptions.<model>Enabled` field (defaults to `False`).
+4. `models.py`: `_tagger_for_model()` branch.
+5. `models.py`: `runtime_available()` branch, `_model_runtime_providers()` branch, and the `<model>Providers` key in `_onnx_runtime_info()` for ONNX models.
+6. `dispatch.py`: `_optional_image_results()` — run it when the flag is set; add to the `visual_enrichers` condition in `_tag_video_with_enrichers()` if it should also see sampled video frames.
+7. `models.py`: `_new_load_job()` load-time estimate.
 
 Backend router ([backend/app/routers/settings.py](backend/app/routers/settings.py)):
 8. Add the new flag to the key tuple in `_normalize_ai_model_default_stack()`.
 
-Frontend (all four views keep their own copy of the model-key lists — keep them in sync):
-9. [SettingsView.vue](frontend/src/views/SettingsView.vue) — `aiDefaultModels`, the model-key array near the top of the AI section, `modelSettingKey()`, `modelPipelineLabel()`, `modelPipelineDescription()`, and the profile-default builders.
+Frontend (four surfaces keep their own copy of the model-key lists — keep them in sync):
+9. [useSettingsAiModels.js](frontend/src/composables/useSettingsAiModels.js) (Settings' model lists, split out of SettingsView) — `aiDefaultModels`, the model-key array near the top of the AI section, `modelSettingKey()`, `modelPipelineLabel()`, `modelPipelineDescription()`, and the profile-default builders.
 10. [useBatchAiTagging.js](frontend/src/composables/useBatchAiTagging.js) (the home view's batch AI tagging, split out of HomeView) — `aiModelDefaultKeys`, the model toggle list, and the `anime` / `realistic` profile defaults.
-11. [PostView.vue](frontend/src/views/PostView.vue) — the model list, `modelSettingKey` map, profile defaults, and the runtime-requirement helper.
-12. [UploadView.vue](frontend/src/views/UploadView.vue) — the model-key loop and profile defaults.
-13. [browser-extension/upload.js](browser-extension/upload.js) — profile defaults, the model-key array, the id→flag map, and the runtime-requirement helper.
+11. [usePostPageAiModels.js](frontend/src/composables/usePostPageAiModels.js) (split out of PostView) — the model list, `modelSettingKey` map, profile defaults, and the runtime-requirement helper.
+12. [useUploadAiProfiles.js](frontend/src/composables/useUploadAiProfiles.js) (split out of UploadView) — the model-key loop and profile defaults.
+13. [browser-extension/upload-ai-models.js](browser-extension/upload-ai-models.js) — profile defaults, the model-key array, the id→flag map, and the runtime-requirement helper.
 14. Rebuild `frontend/dist`.
 
 Tests ([tests/test_auto_tags.py](tests/test_auto_tags.py)):
