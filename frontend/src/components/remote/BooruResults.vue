@@ -99,17 +99,6 @@
       </footer>
     </template>
 
-    <RemoteViewer
-      v-if="booru.viewerPost"
-      :post="booru.viewerPost"
-      :in-library-post-id="booru.inLibraryPostId(booru.viewerPost)"
-      :has-prev="booru.viewerHasPrev"
-      :has-next="booru.viewerHasNext"
-      :importable="importable"
-      @close="booru.closeViewer()"
-      @navigate="booru.navigateViewer"
-      @import="$emit('import', $event)"
-    />
   </div>
 </template>
 
@@ -120,7 +109,6 @@ import PostCard from '../PostCard.vue'
 import PostGrid from '../PostGrid.vue'
 import RemotePostCard from './RemotePostCard.vue'
 import RemoteSection from './RemoteSection.vue'
-import RemoteViewer from './RemoteViewer.vue'
 import { countLabel, errorLabel, ignoredLabel, pageLabel, waitingLabel } from '../../remote/sectionStatus.js'
 
 // The home grid while booru sources are ticked (section 4.2 of
@@ -138,8 +126,6 @@ const props = defineProps({
   selectMode: { type: Boolean, default: false },
   selectedKeys: { type: Set, default: () => new Set() },
   selectedLibraryIds: { type: Array, default: () => [] },
-  // Shows the viewer's Import button (the import queue, P4b).
-  importable: { type: Boolean, default: false },
 })
 
 defineEmits([
@@ -150,7 +136,6 @@ defineEmits([
   'library-toggle',
   'library-hold',
   'library-hover',
-  'import',
 ])
 
 const sectionList = computed(() => props.booru.order.map((site) => props.booru.sections[site]).filter(Boolean))

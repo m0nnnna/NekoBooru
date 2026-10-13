@@ -6,20 +6,20 @@ import { isAutoJobRunning } from './useBatchOperations'
 import { libraryKey } from '../remote/types.js'
 
 // The home view's booru import (section 4.4 of docs/booru-search-plan.md):
-// one useImportQueue for the Import card and the remote viewer. Each imported
+// one useImportQueue for the Import card. Each imported
 // (or merged) post takes its booru post's place in the selection as a
 // library key, gets its "in library" badge, and is handed to the library
 // batch tools so "Tags & Rating" and friends apply to it straight away.
 
 /**
- * useHomeImport({ booru, selection, showMessage })
+ * useHomeImport({ booru, selection, operations })
  * `booru` is useHomeBooruSearch()'s return, `selection` useMixedSelection()'s,
- * `showMessage(text, kind)` the batch toast. Returns { queue, importQueue,
- * importFromViewer, onImported, enqueueSelected }; `importQueue` is the queue
+ * `operations` the batch status strip. Returns { queue, importQueue,
+ * onImported, enqueueSelected }; `importQueue` is the queue
  * object for ImportCard, whose enqueue swaps posts already in the library
  * instead of queueing them.
  */
-export function useHomeImport({ booru, selection, showMessage = () => {}, operations = null, api = defaultApi, adapters = ADAPTERS }) {
+export function useHomeImport({ booru, selection, operations = null, api = defaultApi, adapters = ADAPTERS }) {
   let disposed = false
 
   const queue = useImportQueue({
@@ -73,33 +73,12 @@ export function useHomeImport({ booru, selection, showMessage = () => {}, operat
 
   const importQueue = { ...queue, enqueue: enqueueSelected }
 
-  // The viewer's Import button: one post, queued and started; the toast
-  // reports how it went (the batch panel need not be open).
-  async function importFromViewer(post) {
-    if (!post?.key) return
-    const [added] = queue.enqueue([post])
-    if (!added) {
-      showMessage('That post is already in the import queue.')
-      return
-    }
-    if (added.status === 'failed') {
-      showMessage(added.message, 'error')
-      return
-    }
-    showMessage('Importing 1 post…')
-    await queue.start()
-    if (disposed) return
-    const item = queue.items.find((entry) => entry.key === post.key)
-    if (!item || item.status === 'cancelled') return
-    showMessage(item.message, item.status === 'failed' ? 'error' : 'success')
-  }
-
   onUnmounted(() => {
     disposed = true
     queue.cancel()
   })
 
-  return { queue, importQueue, importFromViewer, onImported, enqueueSelected }
+  return { queue, importQueue, onImported, enqueueSelected }
 }
 
 export const IMPORT_STATUS_TITLE = 'Importing from boorus'

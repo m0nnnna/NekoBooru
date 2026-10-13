@@ -62,7 +62,6 @@
       :select-mode="selectMode"
       :selected-keys="selectedKeySet"
       :selected-library-ids="selectedLibraryIds"
-      importable
       @page-change="onPageChange"
       @toggle="selection.toggle"
       @hold-select="selection.holdSelect"
@@ -70,7 +69,6 @@
       @library-toggle="onLibraryToggle"
       @library-hold="onLibraryHold"
       @library-hover="onLibraryHover"
-      @import="importer.importFromViewer"
     />
     <template v-else>
       <Pagination
@@ -248,8 +246,8 @@ const edits = useBatchPostEdits({
 const optimizer = useBatchMediaOptimize({ selection: librarySelection, operations, browser })
 const { inspectedSemanticAnalysis, inspectedSemanticLoading } = usePostSemanticAnalysis(inspectedLibraryPost)
 
-// Booru imports (Import card and the viewer's Import button), section 4.4.
-const importer = useHomeImport({ booru, selection, showMessage: operations.showMessage, operations })
+// Booru imports from the Import card, section 4.4.
+const importer = useHomeImport({ booru, selection, operations })
 
 onMounted(() => {
   browser.applyInitialRoute()

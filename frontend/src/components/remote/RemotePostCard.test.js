@@ -51,7 +51,7 @@ describe('RemotePostCard', () => {
     expect(missing.get('.thumb-placeholder').text()).toContain('#123')
   })
 
-  it('opens the viewer on click outside select mode, toggles by key inside it', async () => {
+  it('opens the post on click outside select mode, toggles by key inside it', async () => {
     const wrapper = mountCard()
     await wrapper.trigger('click')
     expect(wrapper.emitted('open')).toEqual([['danbooru:123']])

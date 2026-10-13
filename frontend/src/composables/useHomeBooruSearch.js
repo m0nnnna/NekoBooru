@@ -1,4 +1,4 @@
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onUnmounted, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/auth'
@@ -11,7 +11,7 @@ import { LIBRARY_SOURCE, SITES, idTagFor, libraryKey, makeKey } from '../remote/
 // The home view's booru search wiring (sections 4.2 and 4.5 of
 // docs/booru-search-plan.md): which sources are ticked, the remote search
 // that follows the library's query/rating/sort/page-size, the grid entries the
-// selection walks, and the remote viewer. With booru search off for this
+// selection walks, and opening a post on the booru post page. With booru search off for this
 // user (`canBrowseBoorus` false) or nothing remote ticked, `remoteActive` is
 // false and the home view renders exactly what it always has.
 
@@ -36,7 +36,6 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
   const remoteActive = computed(() => enabled.value && store.remoteSites.length > 0)
   const libraryShown = computed(() => !enabled.value || store.libraryTicked)
   const layout = computed(() => (remoteActive.value && store.layout === 'interleaved' ? 'interleaved' : 'grouped'))
-  const viewerKey = ref(null)
   let started = false
 
   // Booru id tags on the library page -> the library post carrying them.
@@ -113,7 +112,6 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
   function stopRemote() {
     results.cancelScheduledSearch()
     if (results.order.value.length) results.search({ sites: [] })
-    viewerKey.value = null
   }
 
   // Changing the query, a rating checkbox, the sort, the page size or a tick
@@ -162,28 +160,6 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
   function start() {
     started = true
     if (enabled.value) begin()
-  }
-
-  // --- Remote viewer (4.5) ---
-  const viewerPost = computed(() => (viewerKey.value ? results.postByKey(viewerKey.value) : null))
-  const viewerList = computed(() => {
-    const post = viewerPost.value
-    if (!post) return []
-    return layout.value === 'interleaved' ? feed.value : results.sections[post.site]?.posts || []
-  })
-  const viewerIndex = computed(() => viewerList.value.findIndex((post) => post.key === viewerKey.value))
-
-  function openViewer(key) {
-    if (results.postByKey(key)) viewerKey.value = key
-  }
-
-  function closeViewer() {
-    viewerKey.value = null
-  }
-
-  function navigateViewer(delta) {
-    const next = viewerList.value[viewerIndex.value + delta]
-    if (next) viewerKey.value = next.key
   }
 
   // --- The booru post page (route booru-post) ---
@@ -258,14 +234,7 @@ export function useHomeBooruSearch({ browser, results = useRemoteResults({ api }
     libraryPostById,
     rememberLibraryPost,
     updateLibraryPost,
-    viewerKey,
-    viewerPost,
-    viewerHasPrev: computed(() => viewerIndex.value > 0),
-    viewerHasNext: computed(() => viewerIndex.value >= 0 && viewerIndex.value < viewerList.value.length - 1),
     openPost,
-    openViewer,
-    closeViewer,
-    navigateViewer,
     start,
   })
 }

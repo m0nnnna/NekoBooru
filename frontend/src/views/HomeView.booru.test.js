@@ -268,7 +268,6 @@ describe('HomeView with booru search switched on', () => {
     const context = useBooruPostContextStore()
     expect(context.posts.map((post) => post.key)).toEqual(['sankaku:AbC', 'sankaku:XyZ'])
     expect(context.neighbours('sankaku:AbC')).toMatchObject({ prev: null, next: { key: 'sankaku:XyZ' } })
-    expect(document.body.querySelector('.remote-viewer')).toBeNull()
   })
 
   it('interleaves the boorus after the library page and hides posts it already has', async () => {

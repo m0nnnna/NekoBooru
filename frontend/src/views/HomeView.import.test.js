@@ -5,7 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// P4b: the Import card and the viewer's Import button wired into the home
+// P4b: the Import card wired into the home
 // view (section 4.4 of docs/booru-search-plan.md).
 const hoisted = vi.hoisted(() => {
   const remotePost = (site, id) => ({

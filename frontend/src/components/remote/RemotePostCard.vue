@@ -53,7 +53,7 @@ import { imageReferrerPolicy, siteById } from '../../remote/types.js'
 
 // One booru post in the home grid. Same hold/shift/pointer contract as
 // PostCard.vue, but every payload is the post's string key ('danbooru:123')
-// and a plain click opens the remote viewer instead of navigating.
+// and a plain click opens the booru post page (the `open` event).
 const HOLD_MS = 550
 const SHORT_LABELS = { danbooru: 'Dan', e621: 'e621', sankaku: 'San', gelbooru: 'Gel', safebooru: 'Safe' }
 const UNAVAILABLE_TEXT = {
