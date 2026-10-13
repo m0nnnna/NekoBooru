@@ -23,7 +23,9 @@ exports[`HomeView with booru search switched off > renders the same batch panel 
         </select></div>
     </div>
   </div>
-  <!--v-if-->
+  <div data-v-039dc986="" data-v-b4e148ca="" class="pagination"><button data-v-039dc986="" class="btn btn-secondary" disabled=""> ❮ Prev </button>
+    <div data-v-039dc986="" class="page-info"> 🐾 Page 1 of 1 🐾 </div><button data-v-039dc986="" class="btn btn-secondary" disabled=""> Next ❯ </button>
+  </div>
   <div data-v-5d924abb="" data-v-b4e148ca="" class="post-grid"><a data-v-a46cdd76="" data-v-5d924abb="" class="post-card selectable selected">
       <div data-v-a46cdd76="" class="thumb-container"><img data-v-a46cdd76="" src="/thumb/1.webp" loading="lazy">
         <!--v-if-->
@@ -50,7 +52,9 @@ exports[`HomeView with booru search switched off > renders the same batch panel 
     <!--v-if-->
     <!--v-if-->
   </div>
-  <!--v-if-->
+  <div data-v-039dc986="" data-v-b4e148ca="" class="pagination"><button data-v-039dc986="" class="btn btn-secondary" disabled=""> ❮ Prev </button>
+    <div data-v-039dc986="" class="page-info"> 🐾 Page 1 of 1 🐾 </div><button data-v-039dc986="" class="btn btn-secondary" disabled=""> Next ❯ </button>
+  </div>
   <section data-v-da05f0a3="" data-v-b4e148ca="" class="batch-panel dock-bottom" style="max-height: 420px;" aria-label="Batch edit">
     <div data-v-da05f0a3="" class="batch-resize-handle resize-bottom" title="Drag to resize panel height"></div>
     <header data-v-da05f0a3="" class="batch-header">
@@ -242,7 +246,9 @@ exports[`HomeView with booru search switched off > renders the same home view DO
         </select></div>
     </div>
   </div>
-  <!--v-if-->
+  <div data-v-039dc986="" data-v-b4e148ca="" class="pagination"><button data-v-039dc986="" class="btn btn-secondary" disabled=""> ❮ Prev </button>
+    <div data-v-039dc986="" class="page-info"> 🐾 Page 1 of 1 🐾 </div><button data-v-039dc986="" class="btn btn-secondary" disabled=""> Next ❯ </button>
+  </div>
   <div data-v-5d924abb="" data-v-b4e148ca="" class="post-grid"><a data-v-a46cdd76="" data-v-5d924abb="" href="/post/1" class="post-card">
       <div data-v-a46cdd76="" class="thumb-container"><img data-v-a46cdd76="" src="/thumb/1.webp" loading="lazy">
         <!--v-if-->
@@ -269,7 +275,9 @@ exports[`HomeView with booru search switched off > renders the same home view DO
     <!--v-if-->
     <!--v-if-->
   </div>
-  <!--v-if-->
+  <div data-v-039dc986="" data-v-b4e148ca="" class="pagination"><button data-v-039dc986="" class="btn btn-secondary" disabled=""> ❮ Prev </button>
+    <div data-v-039dc986="" class="page-info"> 🐾 Page 1 of 1 🐾 </div><button data-v-039dc986="" class="btn btn-secondary" disabled=""> Next ❯ </button>
+  </div>
   <!--v-if-->
   <!--v-if-->
   <!--v-if-->

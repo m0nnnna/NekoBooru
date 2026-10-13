@@ -74,8 +74,11 @@ const emit = defineEmits(['update:modelValue'])
 
 const pagesKnown = computed(() => Number.isFinite(props.pages) && props.pages > 0)
 const canNext = computed(() => (props.hasNext === null ? props.modelValue < props.pages : props.hasNext))
+// The library pager stays up on a single page ("Page 1 of 1", both buttons
+// disabled) so the layout doesn't shift between searches; it hides only when
+// nothing was found.
 const visible = computed(() => (props.hasNext === null
-  ? props.pages > 1
+  ? props.pages >= 1
   : props.modelValue > 1 || props.hasNext || props.pages > 1))
 const jumpable = computed(() => props.jump && pagesKnown.value && props.pages > 1)
 

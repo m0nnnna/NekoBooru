@@ -87,6 +87,6 @@ describe('Pagination for the library', () => {
     const wrapper = mount(Pagination, { props: { modelValue: 1, pages: 3 } })
     expect(wrapper.get('.page-info').text()).toBe('🐾 Page 1 of 3 🐾')
     expect(wrapper.findAll('button').map(disabled)).toEqual([true, false])
-    expect(mount(Pagination, { props: { modelValue: 1, pages: 1 } }).find('.pagination').exists()).toBe(false)
+    expect(mount(Pagination, { props: { modelValue: 1, pages: 1 } }).find('.pagination').exists()).toBe(true)
   })
 })
