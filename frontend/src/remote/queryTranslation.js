@@ -56,6 +56,14 @@ const SORT_TERMS = {
 
 const OR_SITES = new Set(['danbooru', 'e621'])
 export const DANBOORU_TERM_LIMIT = 2
+// Sankaku answers more than four terms from an anonymous caller with HTTP 429
+// code snackbar__anonymous_tags-limit (verified 2026-10-13).
+export const SANKAKU_TERM_LIMIT = 4
+// Anonymous term budgets: rating, order and other metatags count like tags.
+const TERM_LIMITS = {
+  danbooru: { limit: DANBOORU_TERM_LIMIT, label: 'Danbooru' },
+  sankaku: { limit: SANKAKU_TERM_LIMIT, label: 'Sankaku' },
+}
 
 const OPS = ['>=', '<=', '>', '<']
 const BARE_HASH = /^(?:[0-9a-f]{32}|[0-9a-f]{64})$/i
@@ -147,6 +155,16 @@ function sortTerm(site, sort, order) {
   return table.asc ? { term: table.asc, ignored: null } : { term: null, ignored: 'oldest-first' }
 }
 
+// The single plain tag a query consists of, lower-cased; null for anything
+// else (several terms, a negation, a metatag, a wildcard). Per-tag post
+// counts (e621's tags.json, Sankaku's tag rows) estimate only this case.
+export function singlePlainTag(q) {
+  const tokens = parseQuery(q)
+  if (tokens.length !== 1 || tokens[0].kind !== 'tag') return null
+  const tag = tokens[0].value.toLowerCase()
+  return tag.includes('*') ? null : tag
+}
+
 function metaTerm(token) {
   return `${token.negated ? '-' : ''}${token.key}:${token.op}${token.value}`
 }
@@ -197,14 +215,15 @@ export function translateQuery(site, q, options = {}) {
   const rating = ratingTerms(site, allowed)
   const sorting = sortTerm(site, options.sort || 'date', options.order || 'desc')
   if (sorting.ignored) ignored.push(sorting.ignored)
-  // Fixed priority, which is also the Danbooru budget's cut order.
+  // Fixed priority, which is also the term budgets' cut order.
   let terms = [...new Set([...plain, ...negations, ...ors, ...rating, ...(sorting.term ? [sorting.term] : []), ...others])]
   let note = null
-  if (site === 'danbooru' && terms.length > DANBOORU_TERM_LIMIT) {
-    const cut = terms.slice(DANBOORU_TERM_LIMIT)
-    terms = terms.slice(0, DANBOORU_TERM_LIMIT)
+  const budget = TERM_LIMITS[site]
+  if (budget && terms.length > budget.limit) {
+    const cut = terms.slice(budget.limit)
+    terms = terms.slice(0, budget.limit)
     ignored.push(...cut)
-    note = `Danbooru allows ${DANBOORU_TERM_LIMIT} search terms without an account; ignored: ${cut.join(', ')}`
+    note = `${budget.label} allows ${budget.limit} search terms without an account; ignored: ${cut.join(', ')}`
   }
   return { tags: terms.join(' '), terms, ignored, clientSafetyFilter: true, note }
 }

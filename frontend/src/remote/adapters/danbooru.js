@@ -11,6 +11,8 @@ const SITE = 'danbooru'
 const BASE = 'https://danbooru.donmai.us'
 // Anonymous callers may not page past 1000 (docs).
 export const DANBOORU_PAGE_CAP = 1000
+// counts/posts.json can be slow on broad queries; the page count is a courtesy.
+export const DANBOORU_COUNT_TIMEOUT_MS = 10000
 
 // Same order as danbooruImportJob in browser-extension/site-import-core.js,
 // so a search result and an extension import list the tags identically.
@@ -185,6 +187,45 @@ async function search({ query = '', options = {}, cursor = null, signal, limit, 
   return result
 }
 
+// An AbortSignal that fires when `signal` does or after `ms`.
+function timeoutSignal(signal, ms) {
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (signal?.aborted) abort()
+  else signal?.addEventListener?.('abort', abort, { once: true })
+  const timer = setTimeout(abort, ms)
+  return {
+    signal: controller.signal,
+    done() {
+      clearTimeout(timer)
+      signal?.removeEventListener?.('abort', abort)
+    },
+  }
+}
+
+/**
+ * count(query, options, { signal, fetch, timeoutMs }) -> number|null
+ * Exact number of posts the translated query matches, from
+ * counts/posts.json (`{"counts":{"posts":N}}`, CORS allowed). Called once per
+ * search, not per page; null on any failure, abort or timeout.
+ */
+async function count(query = '', options = {}, { signal, fetch, timeoutMs = DANBOORU_COUNT_TIMEOUT_MS } = {}) {
+  const doFetch = fetch || globalThis.fetch
+  const params = new URLSearchParams({ tags: translate(query, options).tags })
+  const linked = timeoutSignal(signal, timeoutMs)
+  try {
+    const response = await doFetch(`${BASE}/counts/posts.json?${params}`, { ...FETCH_OPTIONS, signal: linked.signal })
+    if (!response?.ok) return null
+    const value = (await readJson(response))?.counts?.posts
+    const total = typeof value === 'number' ? value : Number.NaN
+    return Number.isFinite(total) && total >= 0 ? Math.floor(total) : null
+  } catch {
+    return null
+  } finally {
+    linked.done()
+  }
+}
+
 /** A fresh copy of one post right before import; throws kind 'unavailable' without an original. */
 async function refresh(post, { signal, fetch } = {}) {
   const id = String(post?.id ?? '')
@@ -213,4 +254,6 @@ export const danbooruAdapter = Object.freeze({
   translate,
   search,
   refresh,
+  count,
+  countIsEstimate: false,
 })

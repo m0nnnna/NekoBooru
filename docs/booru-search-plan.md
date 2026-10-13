@@ -264,8 +264,9 @@ rows use `safe`/`questionable`), `width`, `height`, `file_url`, `sample_url`,
 `change` (unix seconds), `score`, `status`, `owner`, `image`, `directory`.
 
 - Response is a bare JSON array; empty result is `[]` or an empty body -
-  treat a non-array as `[]`. No total count: "more pages exist" means the page
-  came back full.
+  treat a non-array as `[]`. The JSON has no total count; the XML answer's
+  `<posts count="N">` does, which the relay reads (section 2.4). Without it,
+  "more pages exist" means the page came back full.
 - Categories: **not available**. The dapi tag endpoint
   (`s=tag&q=index&names=...&json=1`) answers XML and ignores `names`
   (verified), so Safebooru imports stay general-only as the draft says (see
@@ -469,8 +470,12 @@ frontend's post shape.
 
 Same params and envelope with `site: 'safebooru'`, upstream
 `https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1&tags=..&limit=..&pid=..`,
-no credentials. `total` is always `null` (Safebooru sends no count). A non-array
-body is treated as `[]`.
+no credentials. The JSON answer has no count, so after the page succeeds the
+relay asks the XML dapi once with `limit=0` and reads `<posts count="N">`;
+that count is cached per tag string for 10 minutes and `total` is `null` when
+the count request fails (it never fails the search). The Safebooru adapter
+treats a number as exact and falls back to the short-page rule on `null`. A
+non-array body is treated as `[]`.
 
 #### `POST /api/booru-search/in-library`
 
@@ -685,6 +690,10 @@ metatags. Everything cut is added to `ignored` and `note` becomes
 "Danbooru allows 2 search terms without an account; ignored: ...". The section
 header shows `ignored` for every site as "ignored here: a, b".
 
+**Sankaku term budget:** anonymous Sankaku accepts four terms (more answer
+HTTP 429 code `snackbar__anonymous_tags-limit`); the same priority cut and
+note apply with `SANKAKU_TERM_LIMIT = 4`.
+
 ### 3.4 Request budget - `frontend/src/remote/budget.js` (budget 60-120)
 
 `createBudget({ burst = 6, perSecond = 1 })` returns `{ take(): boolean, retryInMs(): number, coolDown(seconds), coolingDown(): boolean, reset() }`
@@ -772,7 +781,9 @@ URL (params and `_client`), and error mapping for 429 and 422.
 export function useRemoteResults({ adapters = ADAPTERS, api, lookupInLibrary = createInLibraryLookup(api) } = {})
 // returns
 {
-  sections,          // reactive { [site]: { posts: RemotePost[], cursor, loading, error: RemoteSearchError|null, total, ignoredTerms, note, exhausted, waitingMs } }
+  sections,          // reactive { [site]: { posts: RemotePost[], cursor, loading, error: RemoteSearchError|null, total, totalIsEstimate, page, totalPages, limit, ignoredTerms, note, exhausted, waitingMs, fetched, ratingFiltered } }
+                     // total: Gelbooru/Safebooru from the relay (exact), Danbooru from adapter.count() once per search (exact),
+                     // e621 (tags.json post_count) and Sankaku (tag row post_count) estimates for a single plain tag only
   order,             // computed: ticked remote sites in SOURCE_IDS order
   interleaved,       // computed: round-robin merge of every ticked section's posts (first of each, second of each, ...), minus posts whose key is in `inLibrary` when NekoBooru is ticked
   inLibrary,         // reactive Map<key, { postId }>
@@ -1243,7 +1254,7 @@ patching `booru_access.booru_search_allowed`):
   `@attributes.count`; single-object `post` becomes a one-element list; no
   credentials -> 400 `gelbooru_credentials_missing`; upstream 429 -> 429 with
   `Retry-After`; upstream 500 -> 502.
-- safebooru relay: bare array passthrough, `total: null`, non-array -> `[]`.
+- safebooru relay: bare array passthrough, `total` from the cached XML count (null on failure), non-array -> `[]`.
 - in-library: seed two users' posts with tags `danbooru_1` (user A),
   `sankaku_abc` (user A, soft-deleted), `e621_5` (user B); as A the lookup for
   `['danbooru:1','sankaku:abc','e621:5','bogus','danbooru:zzz']` returns only

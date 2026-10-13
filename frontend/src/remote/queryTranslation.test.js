@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DANBOORU_META, GELBOORU_META, SANKAKU_META, parseQuery, translateQuery } from './queryTranslation.js'
+import { DANBOORU_META, GELBOORU_META, SANKAKU_META, SANKAKU_TERM_LIMIT, parseQuery, singlePlainTag, translateQuery } from './queryTranslation.js'
 
 const SITES = ['danbooru', 'e621', 'sankaku', 'gelbooru', 'safebooru']
 const ALL = { safe: true, sketchy: true, unsafe: true }
@@ -258,5 +258,50 @@ describe('translateQuery: Danbooru two-term budget', () => {
       terms: ['cat', 'dog', 'fox', '-rating:e', 'order:id'],
       note: null,
     })
+  })
+})
+
+describe('translateQuery: Sankaku four-term budget', () => {
+  const safeOnly = { safe: true, sketchy: false, unsafe: false }
+  const run = (q, options = {}) => translateQuery('sankaku', q, { safety: ALL, sort: 'date', order: 'desc', ...options })
+
+  it('sends up to four terms untouched', () => {
+    expect(SANKAKU_TERM_LIMIT).toBe(4)
+    expect(run('a b c d')).toMatchObject({ tags: 'a b c d', terms: ['a', 'b', 'c', 'd'], ignored: [], note: null })
+    expect(run('a b', { safety: safeOnly })).toMatchObject({ terms: ['a', 'b', '-rating:q', '-rating:e'], note: null })
+  })
+
+  it('cuts the rest in priority order with a note', () => {
+    expect(run('a b c d e f')).toMatchObject({
+      tags: 'a b c d',
+      terms: ['a', 'b', 'c', 'd'],
+      ignored: ['e', 'f'],
+      note: 'Sankaku allows 4 search terms without an account; ignored: e, f',
+    })
+    expect(run('width:>100 -dog a b c', { safety: safeOnly })).toMatchObject({
+      terms: ['a', 'b', 'c', '-dog'],
+      ignored: ['-rating:q', '-rating:e', 'width:>100'],
+    })
+  })
+
+  it('lists unsupported terms before the cut ones', () => {
+    expect(run('~x a b c d e', { order: 'asc' })).toMatchObject({
+      terms: ['a', 'b', 'c', 'd'],
+      ignored: ['~x', 'oldest-first', 'e'],
+      note: 'Sankaku allows 4 search terms without an account; ignored: e',
+    })
+  })
+})
+
+describe('singlePlainTag', () => {
+  it('returns the lone plain tag, lower-cased', () => {
+    expect(singlePlainTag('Cat_Ears')).toBe('cat_ears')
+    expect(singlePlainTag('  miyu_(blue_archive) ')).toBe('miyu_(blue_archive)')
+  })
+
+  it('is null for anything else', () => {
+    for (const q of ['', 'cat dog', '-cat', '~cat', 'cat*', 'rating:safe', 'width:>100', 'cat OR dog']) {
+      expect(singlePlainTag(q)).toBeNull()
+    }
   })
 })

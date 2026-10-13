@@ -1,6 +1,6 @@
 import { normalizeTagName } from '../../utils/booruSearchTag.js'
 import { retryAfterSeconds } from '../budget.js'
-import { translateQuery } from '../queryTranslation.js'
+import { singlePlainTag, translateQuery } from '../queryTranslation.js'
 import { RemoteSearchError, booruDisplayNames, effectiveLimit, makeKey, mediaTypeFromExt, siteById } from '../types.js'
 
 // Sankaku through sankakuapi.com, straight from the browser (the API echoes
@@ -176,6 +176,20 @@ async function getJson(fetchImpl, url, signal, extra = {}) {
 
 const defaultFetch = (...args) => globalThis.fetch(...args)
 
+// The post_count Sankaku sends with each tag row, for the row named `tag`
+// (lower-cased booru spelling) in any of `rows`; null when none carries it.
+export function tagPostCount(rows, tag) {
+  for (const row of rows) {
+    for (const entry of Array.isArray(row?.tags) ? row.tags : []) {
+      const name = text(entry?.tagName).toLowerCase() || text(entry?.name_en ?? entry?.name).toLowerCase().replace(/\s+/g, '_')
+      if (name !== tag) continue
+      const total = Number(entry?.post_count ?? entry?.count)
+      if (Number.isFinite(total) && total >= 0) return Math.floor(total)
+    }
+  }
+  return null
+}
+
 function translate(query, options) {
   return translateQuery(SITE.id, query, options)
 }
@@ -194,10 +208,15 @@ async function search({ query = '', options = {}, cursor = null, limit = null, s
   const rows = Array.isArray(body.data) ? body.data : []
   const posts = rows.map(normalizeSankakuPost).filter(Boolean)
   const nextKey = text(body.meta?.next)
+  // Sankaku reports no search total; for a one-tag query the tag's own
+  // post_count is a fair estimate (it ignores the rating filter).
+  const tag = singlePlainTag(query)
+  const total = tag ? tagPostCount(rows, tag) : null
   return {
     posts,
     nextCursor: nextKey && rows.length ? { next: nextKey } : null,
-    total: null,
+    total,
+    totalIsEstimate: total !== null,
     ignoredTerms: translated.ignored,
     note: translated.note,
   }

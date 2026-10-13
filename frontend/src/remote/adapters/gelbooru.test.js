@@ -66,6 +66,7 @@ describe('total and paging', () => {
     const result = await search()
     expect(result.posts).toHaveLength(5)
     expect(result.total).toBe(1234)
+    expect(result.totalIsEstimate).toBe(false)
     expect(result.nextCursor).toBeNull()
   })
 

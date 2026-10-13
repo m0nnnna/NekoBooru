@@ -284,3 +284,31 @@ describe('e621Adapter shape', () => {
     expect(e621Adapter).toMatchObject({ id: 'e621', label: 'e621 / e926', transport: 'browser', pageSize: 75 })
   })
 })
+
+describe('e621Adapter.count', () => {
+  it('estimates a single plain tag from tags.json post_count with _client', async () => {
+    const fetch = stubFetch(jsonResponse([{ id: 1, name: 'landscape', post_count: 98765 }]))
+    expect(e621Adapter.countable('Landscape')).toBe(true)
+    expect(await e621Adapter.count('Landscape', ALL_RATINGS, { fetch })).toBe(98765)
+    expect(e621Adapter.countIsEstimate).toBe(true)
+    const url = requestedUrl(fetch)
+    expect(`${url.origin}${url.pathname}`).toBe('https://e621.net/tags.json')
+    expect(Object.fromEntries(url.searchParams)).toEqual({ 'search[name_matches]': 'landscape', _client: 'NekoBooru/1.0' })
+  })
+
+  it('makes no request for anything but one plain tag', async () => {
+    const fetch = stubFetch()
+    for (const q of ['', 'a b', '-a', 'land*', 'rating:s']) {
+      expect(e621Adapter.countable(q)).toBe(false)
+      expect(await e621Adapter.count(q, ALL_RATINGS, { fetch })).toBeNull()
+    }
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('is null for an unknown tag, an HTTP error or a network failure', async () => {
+    expect(await e621Adapter.count('nope', ALL_RATINGS, { fetch: stubFetch(jsonResponse({ tags: [] })) })).toBeNull()
+    expect(await e621Adapter.count('nope', ALL_RATINGS, { fetch: stubFetch(jsonResponse([{ name: 'nope_other', post_count: 3 }])) })).toBeNull()
+    expect(await e621Adapter.count('cat', ALL_RATINGS, { fetch: stubFetch(jsonResponse({}, { status: 503 })) })).toBeNull()
+    expect(await e621Adapter.count('cat', ALL_RATINGS, { fetch: stubFetch(new TypeError('offline')) })).toBeNull()
+  })
+})

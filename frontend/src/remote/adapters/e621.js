@@ -1,6 +1,6 @@
 import { normalizeTagName } from '../../utils/booruSearchTag.js'
 import { retryAfterSeconds } from '../budget.js'
-import { translateQuery } from '../queryTranslation.js'
+import { singlePlainTag, translateQuery } from '../queryTranslation.js'
 import {
   RemoteSearchError,
   booruDisplayNames,
@@ -22,6 +22,7 @@ const ORIGIN = 'https://e621.net'
 export const E621_CLIENT = 'NekoBooru/1.0'
 // Anonymous paging stops at page 750 (e621 API docs).
 export const E621_PAGE_CAP = 750
+export const E621_COUNT_TIMEOUT_MS = 10000
 
 // e621 tag group -> NekoBooru category, in the order tags are listed. A tag's
 // category is the first group it appears under; `invalid` is dropped.
@@ -166,6 +167,26 @@ export function e621PostUrl(id) {
   return `${ORIGIN}/posts/${encodeURIComponent(id)}.json?${new URLSearchParams({ _client: E621_CLIENT })}`
 }
 
+export function e621TagUrl(tag) {
+  return `${ORIGIN}/tags.json?${new URLSearchParams({ 'search[name_matches]': tag, _client: E621_CLIENT })}`
+}
+
+// An AbortSignal that fires when `signal` does or after `ms`.
+function timeoutSignal(signal, ms) {
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (signal?.aborted) abort()
+  else signal?.addEventListener?.('abort', abort, { once: true })
+  const timer = setTimeout(abort, ms)
+  return {
+    signal: controller.signal,
+    done() {
+      clearTimeout(timer)
+      signal?.removeEventListener?.('abort', abort)
+    },
+  }
+}
+
 function pageFrom(cursor) {
   const page = Math.floor(Number(cursor?.page))
   return Number.isFinite(page) && page >= 1 ? page : 1
@@ -198,6 +219,38 @@ export const e621Adapter = Object.freeze({
     const nextCursor = rows.length >= count && page < E621_PAGE_CAP ? { page: page + 1 } : null
     return { posts, nextCursor, total: null, ignoredTerms: translation.ignored, note: translation.note }
   },
+
+  // Only a single plain tag has a post count to estimate from.
+  countable(query) {
+    return singlePlainTag(query) !== null
+  },
+
+  /**
+   * count(query, options, { signal, fetch, timeoutMs }) -> number|null
+   * An estimate: the tag's post_count from tags.json, which ignores the
+   * rating filter and the anonymous blacklist. Only for a query that is one
+   * plain tag; null otherwise and on any failure, abort or timeout.
+   */
+  async count(query = '', options = {}, { signal, fetch, timeoutMs = E621_COUNT_TIMEOUT_MS } = {}) {
+    const tag = singlePlainTag(query)
+    if (!tag) return null
+    const doFetch = fetch || globalThis.fetch
+    const linked = timeoutSignal(signal, timeoutMs)
+    try {
+      const response = await doFetch(e621TagUrl(tag), { ...FETCH_INIT, signal: linked.signal })
+      if (!response?.ok) return null
+      const body = await response.json()
+      // An empty result is `{"tags": []}` rather than `[]`.
+      const row = (Array.isArray(body) ? body : []).find((entry) => String(entry?.name ?? '').toLowerCase() === tag)
+      const total = int(row?.post_count)
+      return total !== null && total >= 0 ? total : null
+    } catch {
+      return null
+    } finally {
+      linked.done()
+    }
+  },
+  countIsEstimate: true,
 
   /** A fresh copy of `post` right before import; throws kind 'unavailable' when it has no file. */
   async refresh(post, { signal, fetch } = {}) {

@@ -192,6 +192,7 @@ export const gelbooruAdapter = Object.freeze({
       posts: rows.map(normalizeGelbooruPost).filter(Boolean),
       nextCursor: nextCursorFor(page, limit, rows.length, total),
       total,
+      totalIsEstimate: false,
       ignoredTerms: translation.ignored,
       note: translation.note,
     }

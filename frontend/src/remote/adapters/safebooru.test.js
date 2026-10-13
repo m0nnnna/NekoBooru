@@ -253,3 +253,20 @@ describe('safebooruAdapter.refresh', () => {
     await expect(safebooruAdapter.refresh(post, {})).rejects.toMatchObject({ kind: 'unavailable', site: 'safebooru' })
   })
 })
+
+describe('safebooruAdapter total', () => {
+  it("passes the relay's exact total through and stops paging at it", async () => {
+    const api = relayApi({ ...fixture, total: 45, limit: 3 })
+    const first = await safebooruAdapter.search({ query: 'cat', options: ALL_SAFETY, api, limit: 3 })
+    expect(first).toMatchObject({ total: 45, totalIsEstimate: false, nextCursor: { page: 2 } })
+    const last = await safebooruAdapter.search({ query: 'cat', options: ALL_SAFETY, api, limit: 3, cursor: { page: 15 } })
+    expect(last.nextCursor).toBeNull()
+  })
+
+  it('treats a missing or null total as unknown', async () => {
+    const { total, ...withoutTotal } = fixture
+    expect(total).toBeNull()
+    const result = await safebooruAdapter.search({ query: 'cat', options: ALL_SAFETY, api: relayApi(withoutTotal) })
+    expect(result).toMatchObject({ total: null, totalIsEstimate: false })
+  })
+})

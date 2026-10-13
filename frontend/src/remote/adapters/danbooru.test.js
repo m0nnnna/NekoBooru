@@ -286,3 +286,41 @@ describe('danbooruAdapter.refresh', () => {
     await expect(danbooruAdapter.refresh({ id: '1' }, { fetch })).rejects.toMatchObject({ kind: 'upstream', status: 404, message: 'That record was not found.' })
   })
 })
+
+describe('danbooruAdapter.count', () => {
+  it('asks counts/posts.json once with the translated tags and returns the exact count', async () => {
+    const fetch = fetchReturning(jsonResponse({ counts: { posts: 1234 } }))
+    const total = await danbooruAdapter.count('cat_ears dog fox', { safety: ALL }, { fetch })
+    expect(total).toBe(1234)
+    expect(danbooruAdapter.countIsEstimate).toBe(false)
+    const url = requestedUrl(fetch)
+    expect(`${url.origin}${url.pathname}`).toBe('https://danbooru.donmai.us/counts/posts.json')
+    expect(url.searchParams.get('tags')).toBe('cat_ears dog')
+    expect(fetch.mock.calls[0][1]).toMatchObject({ credentials: 'omit', referrerPolicy: 'no-referrer' })
+  })
+
+  it('is null on an HTTP error, a bad body or a network failure', async () => {
+    expect(await danbooruAdapter.count('cat', {}, { fetch: fetchReturning(jsonResponse({ message: 'x' }, { status: 500 })) })).toBeNull()
+    expect(await danbooruAdapter.count('cat', {}, { fetch: fetchReturning(jsonResponse({ counts: { posts: null } })) })).toBeNull()
+    expect(await danbooruAdapter.count('cat', {}, { fetch: vi.fn().mockRejectedValue(new TypeError('offline')) })).toBeNull()
+  })
+
+  it('gives up with null after the timeout or when the caller aborts', async () => {
+    vi.useFakeTimers()
+    try {
+      const hanging = vi.fn((url, init) => new Promise((resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      }))
+      const timedOut = danbooruAdapter.count('cat', {}, { fetch: hanging, timeoutMs: 5000 })
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(await timedOut).toBeNull()
+
+      const controller = new AbortController()
+      const aborted = danbooruAdapter.count('cat', {}, { fetch: hanging, signal: controller.signal })
+      controller.abort()
+      expect(await aborted).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

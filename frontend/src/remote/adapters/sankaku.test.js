@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import fixture from '../fixtures/sankaku.json'
 import { RemoteSearchError } from '../types.js'
-import { HIDDEN_MESSAGE, normalizeSankakuPost, sankakuAdapter, sankakuSafety } from './sankaku.js'
+import { HIDDEN_MESSAGE, normalizeSankakuPost, sankakuAdapter, sankakuSafety, tagPostCount } from './sankaku.js'
 
 const clone = (value) => JSON.parse(JSON.stringify(value))
 const ALL = { safety: { safe: true, sketchy: true, unsafe: true }, sort: 'date', order: 'desc' }
@@ -261,5 +261,27 @@ describe('sankakuAdapter shape', () => {
   it('is a frozen browser-direct adapter', () => {
     expect(Object.isFrozen(sankakuAdapter)).toBe(true)
     expect(sankakuAdapter).toMatchObject({ id: 'sankaku', label: 'Sankaku', transport: 'browser', pageSize: 20 })
+  })
+})
+
+describe('sankakuAdapter total estimate', () => {
+  function withCounts() {
+    const body = clone(fixture.keyset)
+    body.data[0].tags[0].post_count = 151234
+    return body
+  }
+
+  it("estimates a one-tag query from the matching tag row's post_count", async () => {
+    const result = await sankakuAdapter.search({ query: 'Azur_Lane', options: ALL, fetch: stubFetch(jsonResponse(withCounts())) })
+    expect(result).toMatchObject({ total: 151234, totalIsEstimate: true })
+    expect(tagPostCount(withCounts().data, 'azur_lane')).toBe(151234)
+    expect(tagPostCount(withCounts().data, 'labcoat')).toBeNull()
+  })
+
+  it('leaves the total unknown for anything but a single plain tag', async () => {
+    for (const query of ['azur_lane labcoat', '-azur_lane', 'azur*']) {
+      const result = await sankakuAdapter.search({ query, options: ALL, fetch: stubFetch(jsonResponse(withCounts())) })
+      expect(result).toMatchObject({ total: null, totalIsEstimate: false })
+    }
   })
 })

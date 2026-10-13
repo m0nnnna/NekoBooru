@@ -1,7 +1,7 @@
 // Safebooru adapter (section 3.5 of docs/booru-search-plan.md). Safebooru's
 // dapi sends no CORS header, so searches go through the backend relay
 // GET /api/booru-search/safebooru, which answers
-// { site, page, limit, total: null, posts: [raw dapi rows] }. Normalising
+// { site, page, limit, total: number|null, posts: [raw dapi rows] }. Normalising
 // those rows into RemotePosts happens here and nowhere else.
 //
 // Safebooru gives no tag categories (section 1.6): every tag is 'general'
@@ -189,13 +189,16 @@ export const safebooruAdapter = Object.freeze({
     }
     const rows = Array.isArray(response?.posts) ? response.posts : []
     const posts = rows.map(normalizeSafebooruPost).filter(Boolean)
-    // No total from Safebooru: a page shorter than what was asked is the last.
+    // The relay's total (the dapi's count attribute) is exact when present;
+    // null means unknown, and then a page shorter than asked is the last.
+    const total = Number.isInteger(response?.total) && response.total >= 0 ? response.total : null
     const pageLimit = positiveInt(response?.limit) || requested
-    const exhausted = rows.length < pageLimit || page >= SAFEBOORU_MAX_PAGE
+    const exhausted = rows.length < pageLimit || page >= SAFEBOORU_MAX_PAGE || (total !== null && page * pageLimit >= total)
     return {
       posts,
       nextCursor: exhausted ? null : { page: page + 1 },
-      total: null,
+      total,
+      totalIsEstimate: false,
       ignoredTerms: translated.ignored,
       note: translated.note,
     }
