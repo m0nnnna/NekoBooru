@@ -147,7 +147,7 @@ async def upload_from_fediverse(request: FediverseRequest, current_user: User = 
 async def _upload_from_fediverse_impl(request: FediverseRequest) -> dict:
     """Actual implementation, callable without a request context.
 
-    services/upload_jobs.py's _run_fediverse runs as a background task with
+    services/upload_job_runners.py's _run_fediverse runs as a background task with
     no current_user available (the job's own creation was already
     authenticated) - it calls this directly rather than the router function,
     since calling a route that Depends(get_current_user) as a plain Python
