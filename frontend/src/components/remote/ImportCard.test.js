@@ -268,7 +268,7 @@ describe('ImportCard', () => {
     const queue = fakeQueue()
     const wrapper = await mountCard({ queue, selectedRemote: [remotePost('danbooru', 1)] })
 
-    expect(mocks.getPools).toHaveBeenCalledWith({ limit: 100 })
+    expect(mocks.getPools).toHaveBeenCalledWith({ limit: 100, page: 1 })
     const labels = button(wrapper, 'pool').findAll('option').map((option) => option.text())
     expect(labels).toEqual(['No pool', 'Favourites', 'Wallpapers', 'Create new pool…'])
 
@@ -302,6 +302,22 @@ describe('ImportCard', () => {
     queue.poolResult.value = { poolId: null, added: 0, error: 'Pool name taken' }
     await flushPromises()
     expect(button(wrapper, 'pool-result').text()).toContain('Pool name taken')
+  })
+
+  it('pages through every pool, not just the first 100', async () => {
+    const many = Array.from({ length: 150 }, (_, index) => ({ id: index + 1, name: `Pool ${index + 1}` }))
+    mocks.getPools = vi.fn(async ({ limit, page }) => ({
+      results: many.slice((page - 1) * limit, page * limit),
+      total: many.length,
+      page,
+      limit,
+    }))
+    const wrapper = await mountCard({ queue: fakeQueue(), selectedRemote: [] })
+
+    expect(mocks.getPools.mock.calls.map(([params]) => params)).toEqual([{ limit: 100, page: 1 }, { limit: 100, page: 2 }])
+    const labels = button(wrapper, 'pool').findAll('option').map((option) => option.text())
+    expect(labels).toHaveLength(152)
+    expect(labels.at(-2)).toBe('Pool 150')
   })
 
   it('still works when the pools cannot be loaded', async () => {

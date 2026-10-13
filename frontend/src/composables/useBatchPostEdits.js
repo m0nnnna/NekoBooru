@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { api } from '../api/client'
+import { loadAllPools } from '../utils/pools.js'
 
 // Direct edits to the selected library posts: bulk tag/rating changes,
 // adding to a pool, and soft-delete.
@@ -148,8 +149,7 @@ export function useBatchPostEdits({ selection, operations, browser }) {
     chosenPoolId.value = ''
     newPoolName.value = ''
     try {
-      const res = await api.getPools({ limit: 100 })
-      pools.value = res.results || []
+      pools.value = await loadAllPools(api)
     } catch {
       pools.value = []
     }

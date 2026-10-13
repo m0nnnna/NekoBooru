@@ -154,6 +154,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, unref, watch } from 'vue'
 import { api } from '../../api/client'
+import { loadAllPools } from '../../utils/pools.js'
 import BatchCard from '../batch/BatchCard.vue'
 import TagInput from '../TagInput.vue'
 import { NEW_POOL, RETRY_DELAYS_MS } from '../../remote/useImportQueue.js'
@@ -301,8 +302,7 @@ function statusLabel(item) {
 
 async function loadPools() {
   try {
-    const data = await api.getPools({ limit: 100 })
-    pools.splice(0, pools.length, ...(Array.isArray(data?.results) ? data.results : []))
+    pools.splice(0, pools.length, ...(await loadAllPools(api)))
     poolsState.error = ''
   } catch (error) {
     poolsState.error = error?.message || String(error)
