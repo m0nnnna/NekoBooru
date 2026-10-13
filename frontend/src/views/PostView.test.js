@@ -88,6 +88,24 @@ describe('PostView', () => {
     expect(wrapper.get('.ai-profile-actions').text()).toContain('Anime / Booru')
   })
 
+  // The native post page's DOM, recorded before the booru post page reused its
+  // pieces. Scoped-style ids are left out: they follow the file a node is
+  // rendered from, not what renders. Clock and time zone are pinned.
+  it('renders the native post page DOM unchanged', async () => {
+    const zone = process.env.TZ
+    process.env.TZ = 'UTC'
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-02-01T00:00:00Z'))
+    try {
+      const wrapper = await mountPost()
+      expect(wrapper.html().replace(/ data-v-[0-9a-f]+=""/g, '')).toMatchSnapshot()
+    } finally {
+      vi.useRealTimers()
+      if (zone === undefined) delete process.env.TZ
+      else process.env.TZ = zone
+    }
+  })
+
   it('edits tags in the raw editor with autocomplete and saves them', async () => {
     const { api } = await import('../api/client')
     const wrapper = await mountPost()

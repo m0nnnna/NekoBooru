@@ -1,0 +1,230 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`PostView > renders the native post page DOM unchanged 1`] = `
+"<div class="post-view">
+  <div class="post-content">
+    <div class="media-container">
+      <div class="media-viewer">
+        <div class="media-wrapper" style="transform: translate(calc(-50% + 0px), calc(-50% + 0px)) scale(1); opacity: 0;"><img src="/content/7.png" alt="cat.png" draggable="false"></div>
+        <!--v-if-->
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <p>Loading...</p>
+        </div><button class="close-button" title="Close (Esc)"><span>×</span></button>
+        <!--v-if-->
+      </div>
+      <!--v-if--><button type="button" class="nav-arrow nav-next" title="Next post (Right arrow)" aria-label="Next post">›</button>
+    </div>
+  </div><!-- With the sidebar hidden, this strip on the right edge brings it back on hover. -->
+  <!--v-if-->
+  <aside class="post-sidebar">
+    <div class="sidebar-section post-info">
+      <div class="post-info-head">
+        <div class="post-info-id"><strong>#7</strong><span class="post-info-type">png</span></div><time class="post-info-date" datetime="2026-01-02T03:04:05Z" title="Jan 2, 2026, 3:04 AM">Jan 2, 2026</time>
+      </div>
+      <div class="post-info-meta"><span title="Dimensions">640 × 480</span><span class="post-info-dot" aria-hidden="true">·</span><span title="File size">2.0 KB</span></div>
+      <!--v-if-->
+      <div class="post-info-rating"><span>Rating</span>
+        <div class="safety-buttons"><button class="safety-btn safe active" title="Safe"></button><button class="safety-btn sketchy" title="Sketchy"></button><button class="safety-btn unsafe" title="Unsafe"></button></div>
+      </div>
+    </div>
+    <div class="sidebar-section semantic-description-section">
+      <h3>Semantic Description</h3>
+      <div class="semantic-description-card">
+        <div class="semantic-description-meta">
+          <div><strong>Qwen</strong><small>anime</small></div><button type="button" class="semantic-description-edit"> Edit </button>
+        </div>
+        <p>A cat on a sofa.</p>
+        <div class="semantic-description-tags"><span>cozy</span></div>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <h3>Tags</h3>
+      <div class="">
+        <div class="tag-sidebar">
+          <div class="tag-group">
+            <h4 class="tag-group-heading" style="color: rgb(0, 117, 248);">Tag</h4>
+            <ul class="tag-rows">
+              <li class="tag-row"><a href="/tags?q=cat" class="tag-wiki" title="Show cat in the tag list">?</a><span class="tag-search-menu tag-name-menu"><button type="button" class="tag-search-trigger tag-name" style="color: rgb(0, 117, 248);" title="cat" aria-haspopup="menu" aria-expanded="false">cat</button><!--teleport start--><!--teleport end--></span><span class="tag-count">4</span></li>
+            </ul>
+          </div>
+          <!--v-if-->
+        </div>
+      </div><button class="btn btn-secondary edit-tags-btn"> Edit Tags </button>
+    </div>
+    <div class="sidebar-section actions"><button class="btn">🐾 Favorite</button><button class="btn btn-secondary"> Add to Pool </button><button class="btn btn-danger"> Delete </button></div><!-- Per-post tools, one tab each, below the post actions. -->
+    <section class="sidebar-section post-tools">
+      <div class="post-tools-tabs" role="tablist" aria-label="Post tools"><button type="button" role="tab" class="post-tools-tab" aria-selected="false">AI Tags
+          <!--v-if-->
+        </button><button type="button" role="tab" class="post-tools-tab active" aria-selected="true">Similar
+          <!--v-if-->
+        </button><button type="button" role="tab" class="post-tools-tab" aria-selected="false">Search
+          <!--v-if-->
+        </button><button type="button" role="tab" class="post-tools-tab" aria-selected="false">Optimize
+          <!--v-if-->
+        </button></div>
+      <div class="post-tools-panel" role="tabpanel" style="display: none;">
+        <div class="ai-profile-actions" aria-label="AI tag preview profiles"><button type="button" class="btn btn-secondary ai-profile-btn" data-tooltip="Best for anime, manga, illustrations, and booru-style art. Uses the Anime / Booru model stack from Settings, typically PixAI/Camie plus TrOCR; videos can add Whisper. If Qwen is enabled for Anime, it adds semantic context.">Anime / Booru</button><button type="button" class="btn btn-secondary ai-profile-btn" data-tooltip="Best for realistic photos, screenshots, videos, edits, and memes. Uses the Realistic model stack from Settings. If Qwen is enabled for Realistic, it replaces WD as the primary visual/semantic model.">Realistic</button><button type="button" class="btn btn-secondary ai-profile-btn" data-tooltip="Runs exactly the model checkboxes currently selected below. This does not change your saved defaults.">Custom</button></div>
+        <!-- Outside the model picker: it enriches whatever the models found, and
+         a control that changes the result should not sit behind a details. --><label class="booru-lookup-row"><input type="checkbox"><span><strong>Look up character series on Danbooru</strong><small>Adds the series for recognised characters. Only adds tags; never replaces model output.</small></span></label>
+        <!--v-if-->
+        <!--v-if-->
+        <details class="ai-model-picker">
+          <summary>AI models</summary>
+          <div class="ai-model-list"><label class="ai-model-row"><input type="checkbox"><span><strong class="ai-model-name">WD Tagger <button type="button" class="ai-info-icon" data-tooltip="WD Tagger
+Booru-style image and sampled video-frame tags
+Runs on images and sampled video frames. Best baseline for visual library tags.
+Download size: ~1.2 GB
+VRAM: ~0.5-1.5 GB
+Runtime: ready
+Memory: not loaded" aria-label="WD Tagger
+Booru-style image and sampled video-frame tags
+Runs on images and sampled video frames. Best baseline for visual library tags.
+Download size: ~1.2 GB
+VRAM: ~0.5-1.5 GB
+Runtime: ready
+Memory: not loaded">i</button></strong><small>checking · not loaded</small></span><button type="button" class="btn btn-secondary ai-load-btn" disabled="">Load</button></label><label class="ai-model-row"><input type="checkbox"><span><strong class="ai-model-name">PixAI Tagger v0.9 <button type="button" class="ai-info-icon" data-tooltip="PixAI Tagger v0.9
+Fast Danbooru-style anime/illustration tags from PixAI Tagger v0.9
+Runs fast PixAI/Danbooru anime tags on images and sampled video frames.
+Download size: ~1.3 GB
+VRAM: ~0.5-1.5 GB
+Runtime: ready
+Memory: not loaded" aria-label="PixAI Tagger v0.9
+Fast Danbooru-style anime/illustration tags from PixAI Tagger v0.9
+Runs fast PixAI/Danbooru anime tags on images and sampled video frames.
+Download size: ~1.3 GB
+VRAM: ~0.5-1.5 GB
+Runtime: ready
+Memory: not loaded">i</button></strong><small>checking · not loaded</small></span><button type="button" class="btn btn-secondary ai-load-btn" disabled="">Load</button></label><label class="ai-model-row"><input type="checkbox"><span><strong class="ai-model-name">Camie Tagger v2 <button type="button" class="ai-info-icon" data-tooltip="Camie Tagger v2
+Anime character, copyright, artist, rating, and broad tag coverage
+Adds anime characters, copyright/source tags, artist tags, and rating evidence.
+Download size: ~1-3 GB
+VRAM: ~0.5-2 GB
+Runtime: ready
+Memory: not loaded" aria-label="Camie Tagger v2
+Anime character, copyright, artist, rating, and broad tag coverage
+Adds anime characters, copyright/source tags, artist tags, and rating evidence.
+Download size: ~1-3 GB
+VRAM: ~0.5-2 GB
+Runtime: ready
+Memory: not loaded">i</button></strong><small>checking · not loaded</small></span><button type="button" class="btn btn-secondary ai-load-btn" disabled="">Load</button></label><label class="ai-model-row"><input type="checkbox"><span><strong class="ai-model-name">CL Tagger v2 <button type="button" class="ai-info-icon" data-tooltip="CL Tagger v2
+SigLIP2 Danbooru tagger with a 108k-tag character/copyright/general vocabulary
+SigLIP2 tagger with a 108k-tag Danbooru vocabulary. Gated model: accept its licence on Hugging Face and save a token before downloading.
+Download size: ~2.3 GB
+VRAM: ~2-3 GB
+Runtime: ready
+Memory: not loaded" aria-label="CL Tagger v2
+SigLIP2 Danbooru tagger with a 108k-tag character/copyright/general vocabulary
+SigLIP2 tagger with a 108k-tag Danbooru vocabulary. Gated model: accept its licence on Hugging Face and save a token before downloading.
+Download size: ~2.3 GB
+VRAM: ~2-3 GB
+Runtime: ready
+Memory: not loaded">i</button></strong><small>checking · not loaded</small></span><button type="button" class="btn btn-secondary ai-load-btn" disabled="">Load</button></label><label class="ai-model-row"><input type="checkbox"><span><strong class="ai-model-name">Qwen2.5-VL 7B Instruct <button type="button" class="ai-info-icon" data-tooltip="Qwen2.5-VL 7B Instruct
+Semantic video/edit understanding, political context, and natural-language evidence
+Uses image plus OCR/transcript context for higher-level edit and scene meaning.
+Download size: ~15-17 GB
+VRAM: ~14-18 GB fp16, 24 GB comfortable
+Runtime: ready
+Memory: not loaded" aria-label="Qwen2.5-VL 7B Instruct
+Semantic video/edit understanding, political context, and natural-language evidence
+Uses image plus OCR/transcript context for higher-level edit and scene meaning.
+Download size: ~15-17 GB
+VRAM: ~14-18 GB fp16, 24 GB comfortable
+Runtime: ready
+Memory: not loaded">i</button></strong><small>checking · not loaded</small></span><button type="button" class="btn btn-secondary ai-load-btn" disabled="">Load</button></label><label class="ai-model-row"><input type="checkbox"><span><strong class="ai-model-name">TrOCR Printed <button type="button" class="ai-info-icon" data-tooltip="TrOCR Printed
+Text extraction from meme/edit frames and subtitles
+Reads visible captions, subtitles, and meme text from representative frames.
+Download size: ~1.3 GB
+VRAM: ~1-2 GB
+Runtime: ready
+Memory: not loaded" aria-label="TrOCR Printed
+Text extraction from meme/edit frames and subtitles
+Reads visible captions, subtitles, and meme text from representative frames.
+Download size: ~1.3 GB
+VRAM: ~1-2 GB
+Runtime: ready
+Memory: not loaded">i</button></strong><small>checking · not loaded</small></span><button type="button" class="btn btn-secondary ai-load-btn" disabled="">Load</button></label><label class="ai-model-row"><input type="checkbox"><span><strong class="ai-model-name">Whisper Small <button type="button" class="ai-info-icon" data-tooltip="Whisper Small
+Speech/audio transcript signals for AMVs and edits
+Extracts speech from video audio for AMVs, edits, narration, and spoken context.
+Download size: ~1 GB
+VRAM: ~1-2 GB
+Runtime: ready
+Memory: not loaded" aria-label="Whisper Small
+Speech/audio transcript signals for AMVs and edits
+Extracts speech from video audio for AMVs, edits, narration, and spoken context.
+Download size: ~1 GB
+VRAM: ~1-2 GB
+Runtime: ready
+Memory: not loaded">i</button></strong><small>checking · not loaded</small></span><button type="button" class="btn btn-secondary ai-load-btn" disabled="">Load</button></label></div>
+        </details>
+        <!--teleport start-->
+        <!--teleport end-->
+      </div>
+      <div class="post-tools-panel" role="tabpanel"><button class="btn btn-secondary similar-btn">Find Similar</button>
+        <!--v-if-->
+        <!--v-if-->
+      </div>
+      <div class="post-tools-panel online-search-section" role="tabpanel" style="display: none;">
+        <p class="online-search-intro"> Find where this image came from. Each provider opens in its own tab. </p><button class="btn btn-secondary online-exact-btn">Exact lookup (MD5)</button>
+        <div class="online-provider-list"><button type="button" class="online-match-row online-provider-row" title="Upload this image to SauceNAO"><span><strong>SauceNAO</strong><small>Artwork, booru and pixiv sources</small></span><span aria-hidden="true">↗</span></button><button type="button" class="online-match-row online-provider-row" title="Upload this image to IQDB"><span><strong>IQDB</strong><small>Anime booru mirrors</small></span><span aria-hidden="true">↗</span></button><button type="button" class="online-match-row online-provider-row unavailable" title="Google Lens needs the NekoBooru extension"><span><strong>Google Lens</strong><small>Needs the NekoBooru extension</small></span><span aria-hidden="true">↗</span></button><button type="button" class="online-match-row online-provider-row unavailable" title="TinEye needs the NekoBooru extension"><span><strong>TinEye</strong><small>Needs the NekoBooru extension</small></span><span aria-hidden="true">↗</span></button><button type="button" class="online-match-row online-provider-row unavailable" title="trace.moe needs the NekoBooru extension"><span><strong>trace.moe</strong><small>Needs the NekoBooru extension</small></span><span aria-hidden="true">↗</span></button></div><small class="online-search-hint"> Exact lookup sends only an MD5 to Danbooru/Gelbooru/Sankaku. A provider gets this image uploaded, resized if very large. </small>
+        <!--v-if-->
+        <!--v-if-->
+      </div>
+      <div class="post-tools-panel" role="tabpanel" style="display: none;">
+        <div class="post-optimize-menu">
+          <div class="post-optimize-summary"><span><strong>Media Optimizer</strong><small>Quality-controlled, review-first replacement</small></span><span class="optimize-state-badge idle">Quality-first</span></div>
+          <div class="post-optimize-body">
+            <section class="optimize-section">
+              <div class="optimize-section-head">
+                <div><strong>Optimization profile</strong><small>Balanced settings</small></div>
+                <!--v-if-->
+              </div>
+              <div class="media-optimize-profiles compact" role="radiogroup" aria-label="Optimization profile"><button type="button" class="media-optimize-profile" aria-checked="false" role="radio"><span class="media-optimize-profile-head"><strong>Fidelity</strong><small>Best quality</small></span><span>Retains source dimensions and gives motion-heavy video a generous bitrate budget.</span></button><button type="button" class="media-optimize-profile active" aria-checked="true" role="radio"><span class="media-optimize-profile-head"><strong>Balanced</strong><small>Recommended</small></span><span>High visual quality with practical storage savings for everyday library use.</span></button><button type="button" class="media-optimize-profile" aria-checked="false" role="radio"><span class="media-optimize-profile-head"><strong>Compact</strong><small>Maximum savings</small></span><span>Smaller delivery files for previews, mobile access, and constrained storage.</span></button><button type="button" class="media-optimize-profile" aria-checked="false" role="radio"><span class="media-optimize-profile-head"><strong>Social / X</strong><small>Compatible MP4</small></span><span>Keeps source dimensions when accepted and creates an H.264/AAC MP4 for social uploads.</span></button></div>
+            </section>
+            <div class="optimize-context-grid">
+              <div class="optimize-context-card"><span>Source</span><strong>640 × 480</strong><small>2.0 KB</small></div>
+              <div class="optimize-context-card target"><span>Target policy</span><strong>640px maximum side</strong><small>Image quality 88 · metadata preserved where supported</small></div>
+            </div>
+            <details class="optimize-advanced">
+              <summary><span>Advanced controls</span><small>Fine-tune dimensions and quality budgets</small></summary>
+              <div class="post-optimize-grid"><label> Image target <select>
+                    <option value="640">Current image max (640px)</option>
+                    <option value="480">480px max side</option>
+                    <option value="custom">Custom</option>
+                  </select></label><label> Image quality <input type="number" min="1" max="100" step="1"></label>
+                <!--v-if-->
+                <!--v-if--><label> Custom image max side <input type="number" min="64" max="8192" step="16"></label>
+                <!--v-if-->
+                <!--v-if-->
+              </div>
+            </details>
+            <div class="optimize-guardrail"><span class="optimize-guardrail-icon" aria-hidden="true">✓</span>
+              <div><strong>Quality and replacement guardrails</strong><small> Motion can burst above the selected video budget. The original is replaced only after a valid, smaller output passes media inspection and duplicate checks. </small></div>
+            </div>
+            <!--v-if-->
+            <!--v-if-->
+            <div class="optimize-action-bar"><button type="button" class="btn">Preview</button><button type="button" class="btn btn-danger" disabled="" title="Preview a valid result before setting it"> Set </button></div>
+            <!--v-if-->
+          </div>
+        </div>
+      </div>
+    </section>
+    <div class="comment-section">
+      <h3>Comments (0)</h3>
+      <form class="comment-form"><textarea placeholder="Write a comment..." rows="3"></textarea><button type="submit" class="btn" disabled=""> Post Comment </button></form>
+      <div class="comments-list">
+        <div class="no-comments"> No comments yet </div>
+      </div>
+    </div>
+  </aside>
+  <!--teleport start-->
+  <!--teleport end-->
+  <!--v-if-->
+  <!-- Tag Editor Modal -->
+  <!--v-if-->
+  <!-- Pool Modal -->
+  <!--v-if-->
+  <!--v-if-->
+  <!--v-if-->
+</div>"
+`;
