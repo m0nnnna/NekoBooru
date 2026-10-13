@@ -344,11 +344,9 @@
     return ['q', 'questionable', 's', 'sensitive'].includes(rating) ? 'sketchy' : 'safe'
   }
 
-  // The Gelbooru engine's dapi JSON HTML-escapes text ('girls&#039;_frontline', '&gt;_&lt;').
-  const decodeEntities = (raw) => String(raw || '').replace(/&(?:#(x[0-9a-f]+|\d+)|(amp|lt|gt|quot|apos));/gi, (match, num, name) => {
-    const code = num ? Number(/^x/i.test(num) ? `0${num}` : num) : 0
-    return name ? { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name.toLowerCase()] : (code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match)
-  })
+  // The Gelbooru engine's dapi JSON HTML-escapes text ('girls&#039;_frontline',
+  // '&gt;_&lt;'); html-entities.js owns the decoder.
+  const { decodeHtmlEntities: decodeEntities } = root.NekoBooruEntities || require('./html-entities.js')
 
   function safebooruImportJob(payload, scraped, pageUrl, fallbackOriginalUrl = '') {
     const postId = safebooruPostId(pageUrl)
