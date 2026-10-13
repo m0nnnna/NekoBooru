@@ -144,8 +144,8 @@
 
     <PostAutoTagModals :auto-tag="autoTag" />
   </div>
-  <div v-else-if="loading" class="loading">Loading...</div>
-  <div v-else class="error">Post not found</div>
+  <div v-else-if="loading" class="post-state post-loading">Loading...</div>
+  <div v-else class="post-state">Post not found</div>
 </template>
 
 <script setup>
@@ -597,13 +597,13 @@ function handleClose() {
   width: 100%;
 }
 
-.loading, .error {
+.post-state {
   text-align: center;
   padding: 3rem;
   color: var(--text-secondary);
 }
 
-.loading {
+.post-loading {
   display: flex;
   flex-direction: column;
   align-items: center;

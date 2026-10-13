@@ -211,11 +211,4 @@ const {
   color: var(--text-secondary);
   font-size: 0.68rem;
 }
-
-/* Carried over from the post page, where this rule also matched .error here. */
-.loading, .error {
-  text-align: center;
-  padding: 3rem;
-  color: var(--text-secondary);
-}
 </style>

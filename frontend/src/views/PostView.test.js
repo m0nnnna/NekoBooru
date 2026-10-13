@@ -111,3 +111,14 @@ describe('PostView', () => {
     expect(wrapper.find('.raw-tag-editor').exists()).toBe(false)
   })
 })
+
+const POST_PAGE_SOURCES = import.meta.glob(['./PostView.vue', '../components/post/*.vue'], { query: '?raw', import: 'default', eager: true })
+
+describe('post page state styles', () => {
+  it('keeps the centred loading / not-found padding off status messages', () => {
+    const bareStateRules = Object.entries(POST_PAGE_SOURCES)
+      .filter(([, source]) => /\n\.(loading|error)\s*,?\s*(\.(loading|error)\s*)?\{/.test(source.split('<style')[1] || ''))
+      .map(([path]) => path)
+    expect(bareStateRules).toEqual([])
+  })
+})

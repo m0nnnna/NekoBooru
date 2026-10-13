@@ -624,13 +624,6 @@ const {
   color: var(--coral, #f87171);
 }
 
-/* Carried over from the post page, where this rule also matched .error here. */
-.loading, .error {
-  text-align: center;
-  padding: 3rem;
-  color: var(--text-secondary);
-}
-
 @media (max-width: 768px) {
   .post-optimize-menu {
     flex: 1 1 100%;
