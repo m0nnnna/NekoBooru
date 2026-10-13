@@ -2,6 +2,7 @@ import { normalizeTagName } from '../../utils/booruSearchTag.js'
 import { retryAfterSeconds } from '../budget.js'
 import { translateQuery } from '../queryTranslation.js'
 import { RemoteSearchError, booruDisplayNames, effectiveLimit, makeKey, mediaTypeFromExt, siteById } from '../types.js'
+import { timeoutSignal } from '../timeoutSignal.js'
 
 // Danbooru search adapter (sections 1.2 and 3.5 of docs/booru-search-plan.md).
 // Browser-direct: posts.json sends `Access-Control-Allow-Origin: *`, so the
@@ -187,22 +188,6 @@ async function search({ query = '', options = {}, cursor = null, signal, limit, 
   return result
 }
 
-// An AbortSignal that fires when `signal` does or after `ms`.
-function timeoutSignal(signal, ms) {
-  const controller = new AbortController()
-  const abort = () => controller.abort()
-  if (signal?.aborted) abort()
-  else signal?.addEventListener?.('abort', abort, { once: true })
-  const timer = setTimeout(abort, ms)
-  return {
-    signal: controller.signal,
-    done() {
-      clearTimeout(timer)
-      signal?.removeEventListener?.('abort', abort)
-    },
-  }
-}
-
 /**
  * count(query, options, { signal, fetch, timeoutMs }) -> number|null
  * Exact number of posts the translated query matches, from
@@ -244,7 +229,7 @@ async function refresh(post, { signal, fetch } = {}) {
 }
 
 // Shared with remote/danbooruCategories.js, the import-time tag category lookup.
-export { BASE as DANBOORU_ORIGIN, FETCH_OPTIONS as DANBOORU_FETCH_OPTIONS, readJson, timeoutSignal }
+export { BASE as DANBOORU_ORIGIN, FETCH_OPTIONS as DANBOORU_FETCH_OPTIONS, readJson }
 
 const site = siteById(SITE)
 

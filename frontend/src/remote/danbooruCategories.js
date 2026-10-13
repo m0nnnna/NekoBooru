@@ -1,4 +1,5 @@
-import { DANBOORU_FETCH_OPTIONS, DANBOORU_ORIGIN, readJson, timeoutSignal } from './adapters/danbooru.js'
+import { DANBOORU_FETCH_OPTIONS, DANBOORU_ORIGIN, readJson } from './adapters/danbooru.js'
+import { timeoutSignal } from './timeoutSignal.js'
 import { CATEGORIES } from './types.js'
 
 // Safebooru's API has no tag categories, but Safebooru mirrors Danbooru's tag

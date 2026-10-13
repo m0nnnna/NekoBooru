@@ -1,6 +1,7 @@
 import { normalizeTagName } from '../../utils/booruSearchTag.js'
 import { retryAfterSeconds } from '../budget.js'
 import { singlePlainTag, translateQuery } from '../queryTranslation.js'
+import { timeoutSignal } from '../timeoutSignal.js'
 import {
   RemoteSearchError,
   booruDisplayNames,
@@ -169,22 +170,6 @@ export function e621PostUrl(id) {
 
 export function e621TagUrl(tag) {
   return `${ORIGIN}/tags.json?${new URLSearchParams({ 'search[name_matches]': tag, _client: E621_CLIENT })}`
-}
-
-// An AbortSignal that fires when `signal` does or after `ms`.
-function timeoutSignal(signal, ms) {
-  const controller = new AbortController()
-  const abort = () => controller.abort()
-  if (signal?.aborted) abort()
-  else signal?.addEventListener?.('abort', abort, { once: true })
-  const timer = setTimeout(abort, ms)
-  return {
-    signal: controller.signal,
-    done() {
-      clearTimeout(timer)
-      signal?.removeEventListener?.('abort', abort)
-    },
-  }
 }
 
 function pageFrom(cursor) {
