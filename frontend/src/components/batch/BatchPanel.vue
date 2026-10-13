@@ -3,6 +3,7 @@
     class="batch-panel"
     :class="`dock-${dock}`"
     :style="panelStyle"
+    aria-label="Batch edit"
   >
     <div
       class="batch-resize-handle"
@@ -10,52 +11,90 @@
       :title="dock === 'right' ? 'Drag to resize panel width' : 'Drag to resize panel height'"
       @pointerdown.prevent="$emit('resize-start', $event)"
     ></div>
+
     <header class="batch-header">
-      <div>
-        <strong>{{ selectedCount }}</strong> selected
-        <span>Hold a post to enter edit mode. Shift-click selects a visible range.</span>
+      <div class="batch-heading">
+        <h2 class="batch-title">
+          <span class="batch-count">{{ selectedCount }}</span>
+          <span>selected</span>
+        </h2>
+        <span class="batch-hint" :title="hint">{{ hint }}</span>
       </div>
-      <div class="batch-header-actions">
-        <div class="dock-toggle" aria-label="Batch panel dock position">
+
+      <div class="batch-toolbar">
+        <div class="batch-toolbar-group" role="group" aria-label="Selection">
+          <button type="button" class="tb-btn tb-ghost" title="Add every post on this page to the selection" @click="$emit('select-page')">
+            Select page
+          </button>
+          <button
+            type="button"
+            class="tb-btn tb-ghost"
+            title="Deselect everything"
+            :disabled="!selectedCount"
+            @click="$emit('clear')"
+          >
+            Clear
+          </button>
+        </div>
+
+        <span class="tb-divider" aria-hidden="true"></span>
+
+        <div class="dock-toggle" role="group" aria-label="Batch panel dock position">
           <button
             type="button"
             :class="{ active: dock === 'bottom' }"
+            :aria-pressed="dock === 'bottom'"
+            aria-label="Dock at the bottom"
             title="Dock batch tools at the bottom"
             @click="$emit('set-dock', 'bottom')"
           >
-            Bottom
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M3 14h18" />
+            </svg>
           </button>
           <button
             type="button"
             :class="{ active: dock === 'right' }"
+            :aria-pressed="dock === 'right'"
+            aria-label="Dock on the right"
             title="Dock batch tools on the right"
             @click="$emit('set-dock', 'right')"
           >
-            Right
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M14 4v16" />
+            </svg>
           </button>
         </div>
-        <button type="button" class="link-btn" @click="$emit('select-page')">Select page</button>
-        <button type="button" class="link-btn" @click="$emit('clear')" :disabled="!selectedCount">
-          Clear selection
-        </button>
-        <button
-          type="button"
-          class="btn btn-danger"
-          :disabled="!selectedCount || busy"
-          :title="selectedCount ? `Delete the ${selectedCount} selected post(s)` : 'Select posts to delete'"
-          @click="$emit('delete')"
-        >
-          Delete
-        </button>
-        <button type="button" class="btn btn-secondary" @click="$emit('done')">Done</button>
+
+        <div class="batch-toolbar-group batch-toolbar-end">
+          <button
+            type="button"
+            class="tb-btn tb-danger"
+            :disabled="!selectedCount || busy"
+            :title="selectedCount ? `Delete the ${selectedCount} selected post(s)` : 'Select posts to delete'"
+            @click="$emit('delete')"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
+            </svg>
+            Delete
+          </button>
+          <button type="button" class="tb-btn tb-primary" title="Leave edit mode" @click="$emit('done')">
+            Done
+          </button>
+        </div>
       </div>
     </header>
 
-    <BatchStatus :auto-job="autoJob" :operation="operation" @cancel="$emit('cancel-job')" />
+    <div class="batch-body">
+      <BatchStatus :auto-job="autoJob" :operation="operation" @cancel="$emit('cancel-job')" />
 
-    <!-- Batch cards (AI tagging, inspector, tag edits, ...) slot in here. -->
-    <div class="batch-grid">
-      <slot />
+      <!-- Batch cards (AI tagging, inspector, tag edits, ...) slot in here. -->
+      <div class="batch-grid">
+        <slot />
+      </div>
     </div>
   </section>
 </template>
@@ -63,7 +102,7 @@
 <script setup>
 import BatchStatus from './BatchStatus.vue'
 
-// The hold-to-select edit panel: dockable/resizable shell, selection header,
+// The hold-to-select edit panel: dockable/resizable shell, selection toolbar,
 // and the status of the running batch action. Cards are passed as the slot.
 defineProps({
   dock: {
@@ -93,6 +132,8 @@ defineProps({
 })
 
 defineEmits(['resize-start', 'set-dock', 'select-page', 'clear', 'delete', 'done', 'cancel-job'])
+
+const hint = 'Hold a post to enter edit mode. Shift-click selects a visible range.'
 </script>
 
 <style scoped>
@@ -100,14 +141,16 @@ defineEmits(['resize-start', 'set-dock', 'select-page', 'clear', 'delete', 'done
   position: sticky;
   bottom: 0;
   z-index: 20;
-  gap: 0.75rem;
-  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  /* Set explicitly: inherited body text colour comes from the light palette. */
+  color: var(--text-primary);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
-  box-shadow: 0 -4px 16px var(--shadow);
-  overflow: auto;
-  scrollbar-gutter: stable;
+  box-shadow: 0 -6px 24px var(--shadow-lg);
 }
 
 .batch-panel.dock-bottom {
@@ -122,19 +165,25 @@ defineEmits(['resize-start', 'set-dock', 'select-page', 'clear', 'delete', 'done
   width: 440px;
   max-width: calc(100vw - 2rem);
   max-height: none;
-  border-radius: 0.75rem;
-  box-shadow: -8px 0 24px var(--shadow);
+  box-shadow: -8px 0 28px var(--shadow-lg);
 }
 
 .batch-resize-handle {
   position: absolute;
-  z-index: 2;
-  opacity: 0.8;
-  transition: opacity 0.15s, background 0.15s;
+  z-index: 3;
+  border-radius: 999px;
+  transition: background 0.15s;
 }
 
-.batch-resize-handle:hover {
-  opacity: 1;
+.batch-resize-handle::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.batch-resize-handle:hover::after {
   background: var(--accent);
 }
 
@@ -142,89 +191,273 @@ defineEmits(['resize-start', 'set-dock', 'select-page', 'clear', 'delete', 'done
   top: 0;
   left: 1rem;
   right: 1rem;
-  height: 7px;
+  height: 9px;
   cursor: ns-resize;
+}
+
+.resize-bottom::after {
+  top: 3px;
+  left: 50%;
+  width: 44px;
+  height: 4px;
+  transform: translateX(-50%);
 }
 
 .resize-right {
   top: 1rem;
   bottom: 1rem;
   left: 0;
-  width: 7px;
+  width: 9px;
   cursor: ew-resize;
 }
 
-.batch-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border);
+.resize-right::after {
+  left: 3px;
+  top: 50%;
+  width: 4px;
+  height: 44px;
+  transform: translateY(-50%);
 }
 
-.batch-header > div:first-child {
+/* --- Header / toolbar --- */
+.batch-header {
   display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  padding: 0.85rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.batch-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.batch-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.batch-count {
+  color: var(--accent);
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.batch-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.batch-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.batch-toolbar-end {
+  gap: 0.5rem;
+  margin-left: 0.25rem;
+}
+
+.tb-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+
+.tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  height: 32px;
+  padding: 0 0.8rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.tb-btn svg,
+.dock-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tb-btn:focus-visible,
+.dock-toggle button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tb-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tb-ghost {
   color: var(--text-secondary);
 }
 
-.batch-header strong {
+.tb-ghost:hover:not(:disabled) {
+  background: var(--bg-tertiary);
   color: var(--text-primary);
 }
 
-.batch-header-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+.tb-danger {
+  border-color: color-mix(in srgb, var(--coral) 55%, transparent);
+  color: color-mix(in srgb, var(--coral) 80%, var(--text-primary));
+}
+
+.tb-danger:hover:not(:disabled) {
+  border-color: var(--coral);
+  background: var(--coral);
+  color: #fff;
+}
+
+.tb-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.tb-primary:hover:not(:disabled) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
 }
 
 .dock-toggle {
   display: inline-flex;
-  overflow: hidden;
+  gap: 2px;
+  padding: 2px;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  background: var(--bg-tertiary);
+  background: var(--bg-primary);
 }
 
 .dock-toggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 26px;
   border: none;
+  border-radius: 0.35rem;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 0.45rem 0.65rem;
-  font-weight: 700;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dock-toggle button:hover {
+  color: var(--text-primary);
 }
 
 .dock-toggle button.active {
-  background: var(--accent);
-  color: white;
+  background: var(--bg-card);
+  color: var(--accent);
+  box-shadow: 0 1px 3px var(--shadow-lg);
 }
 
+/* --- Body --- */
+.batch-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.85rem 1rem 1rem;
+  scrollbar-gutter: stable;
+}
+
+/* Wide (bottom) dock: as many ~360px columns as fit, cards top-aligned. */
 .batch-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 1.2fr) minmax(280px, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr));
+  align-items: start;
   gap: 0.75rem;
-  margin-top: 0.75rem;
 }
 
-.batch-panel.dock-right .batch-header {
-  align-items: stretch;
-  flex-direction: column;
+.batch-body > :deep(.batch-status) {
+  margin-bottom: 0.85rem;
+}
+
+/* Right dock: one narrow column. */
+.batch-panel.dock-right .batch-hint {
+  display: none;
+}
+
+/* Two rows: title + dock toggle, then selection controls + Delete/Done. */
+.batch-panel.dock-right .batch-toolbar {
+  display: contents;
+}
+
+.batch-panel.dock-right .tb-divider {
+  display: none;
+}
+
+.batch-panel.dock-right .batch-heading {
+  flex: 1 1 0;
+  order: 0;
+}
+
+.batch-panel.dock-right .dock-toggle {
+  order: 1;
+}
+
+.batch-panel.dock-right .batch-header::after {
+  content: '';
+  flex-basis: 100%;
+  order: 2;
+}
+
+.batch-panel.dock-right .batch-toolbar-group {
+  order: 3;
+  margin-left: -0.5rem;
+}
+
+.batch-panel.dock-right .batch-toolbar-end {
+  order: 4;
+  margin-left: auto;
 }
 
 .batch-panel.dock-right .batch-grid {
   grid-template-columns: 1fr;
-}
-
-/* Right dock: the cards share one narrow column. */
-.batch-panel.dock-right :deep(.ai-batch-card) {
-  grid-row: auto;
-}
-
-.batch-panel.dock-right :deep(.profile-button) {
-  flex-basis: 46%;
 }
 
 .batch-panel.dock-right :deep(.inspector-body) {
@@ -241,9 +474,43 @@ defineEmits(['resize-start', 'set-dock', 'select-page', 'clear', 'delete', 'done
 }
 
 @media (max-width: 768px) {
-  .batch-header {
-    align-items: stretch;
-    flex-direction: column;
+  /* Same two-row header as the right dock. */
+  .batch-hint,
+  .tb-divider {
+    display: none;
+  }
+
+  .batch-toolbar {
+    display: contents;
+  }
+
+  .batch-heading {
+    flex: 1 1 0;
+    order: 0;
+  }
+
+  .dock-toggle {
+    order: 1;
+  }
+
+  .batch-header::after {
+    content: '';
+    flex-basis: 100%;
+    order: 2;
+  }
+
+  .batch-toolbar-group {
+    order: 3;
+    margin-left: -0.5rem;
+  }
+
+  .batch-toolbar-end {
+    order: 4;
+    margin-left: auto;
+  }
+
+  .tb-btn {
+    padding: 0 0.6rem;
   }
 
   .batch-grid {
@@ -251,5 +518,3 @@ defineEmits(['resize-start', 'set-dock', 'select-page', 'clear', 'delete', 'done
   }
 }
 </style>
-
-<style scoped src="./batchForms.css"></style>

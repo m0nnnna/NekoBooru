@@ -257,14 +257,9 @@ const {
 </script>
 
 <style scoped>
-.batch-card.media-optimize-card {
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.06), var(--bg-tertiary));
-}
-
 .batch-optimize-body {
   display: grid;
   gap: 0.75rem;
-  margin-top: 0.8rem;
 }
 
 .batch-optimize-topline,
@@ -383,7 +378,7 @@ const {
 .batch-optimize-advanced {
   border: 1px solid var(--border);
   border-radius: 0.6rem;
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--bg-secondary);
 }
 
 .batch-optimize-advanced > summary {
@@ -442,7 +437,7 @@ const {
   padding: 0.75rem;
   border: 1px solid rgba(129, 178, 154, 0.55);
   border-radius: 0.65rem;
-  background: linear-gradient(135deg, var(--success-soft), rgba(0, 0, 0, 0.04));
+  background: var(--success-soft);
 }
 
 .batch-optimize-review-head strong {
@@ -462,7 +457,7 @@ const {
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 0.55rem;
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--bg-secondary);
 }
 
 .batch-optimize-result-row {

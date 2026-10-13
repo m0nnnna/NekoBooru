@@ -6,8 +6,14 @@
   border: none;
   color: var(--accent);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 600;
   padding: 0;
+}
+
+.link-btn:hover:not(:disabled) {
+  color: var(--accent-hover);
+  text-decoration: underline;
 }
 
 .link-btn:disabled {
@@ -21,6 +27,32 @@
   flex-wrap: wrap;
 }
 
+.batch-actions-row .btn {
+  min-height: 34px;
+  padding: 0.4rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* Destructive actions are outlined and only fill on hover. */
+.batch-actions-row .btn-danger {
+  border: 1px solid color-mix(in srgb, var(--coral) 55%, transparent);
+  background: transparent;
+  color: color-mix(in srgb, var(--coral) 80%, var(--text-primary));
+}
+
+.batch-actions-row .btn-danger:hover:not(:disabled) {
+  border-color: var(--coral);
+  background: var(--coral);
+  color: #fff;
+}
+
+.batch-actions-row .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .batch-note,
 .batch-check small {
   color: var(--text-secondary);
@@ -29,7 +61,7 @@
 .batch-field-grid,
 .batch-actions-row,
 .batch-textarea-label {
-  margin-top: 0.75rem;
+  margin-top: 0.85rem;
 }
 
 .batch-check span {
@@ -40,14 +72,27 @@
   display: flex;
   gap: 0.65rem;
   align-items: flex-start;
-  padding: 0.65rem;
+  padding: 0.6rem 0.7rem;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+
+.batch-check strong {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.batch-check small {
+  font-size: 0.76rem;
+  line-height: 1.35;
 }
 
 .batch-check input {
   margin-top: 0.2rem;
+  accent-color: var(--accent);
 }
 
 .batch-field-grid {
@@ -64,9 +109,10 @@
 .batch-textarea-label {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
   color: var(--text-secondary);
-  font-size: 0.86rem;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 .batch-field-grid input,
@@ -74,6 +120,7 @@
 .batch-textarea-label textarea {
   width: 100%;
   color: var(--text-primary);
+  font-weight: 400;
 }
 
 .batch-textarea-label textarea {
@@ -83,5 +130,6 @@
 
 .batch-note {
   margin: 0.65rem 0 0;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
 }

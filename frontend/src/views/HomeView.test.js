@@ -66,17 +66,17 @@ describe('HomeView batch panel', () => {
 
     const headerButton = (label) => panel.findAll('.batch-header button').find((b) => b.text() === label)
     await headerButton('Select page').trigger('click')
-    expect(panel.get('.batch-header strong').text()).toBe('3')
+    expect(panel.get('.batch-count').text()).toBe('3')
     expect(wrapper.findAll('.post-card.selected')).toHaveLength(3)
 
-    await headerButton('Right').trigger('click')
+    await panel.get('button[aria-label="Dock on the right"]').trigger('click')
     expect(wrapper.get('.batch-panel').classes()).toContain('dock-right')
     expect(localStorage.getItem('nekobooru.batchPanelDock')).toBe('right')
 
     await headerButton('Done').trigger('click')
     expect(wrapper.find('.batch-panel').exists()).toBe(false)
     await wrapper.get('.select-toggle').trigger('click')
-    expect(wrapper.get('.batch-header strong').text()).toBe('0')
+    expect(wrapper.get('.batch-count').text()).toBe('0')
   })
 
   it('deletes the selection from the header after confirming', async () => {

@@ -11,11 +11,6 @@ export function formatFileSize(bytes) {
   return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
 }
 
-export function truncateText(value, maxLength = 60) {
-  const text = String(value || '')
-  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text
-}
-
 export function formatDurationMs(ms) {
   const value = Number(ms || 0)
   if (!Number.isFinite(value) || value <= 0) return ''

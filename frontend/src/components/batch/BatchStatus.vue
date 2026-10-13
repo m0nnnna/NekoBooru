@@ -8,7 +8,7 @@
       <button
         v-if="canCancel"
         type="button"
-        class="btn btn-danger"
+        class="batch-cancel"
         :disabled="autoJob?.status === 'cancelling'"
         @click="$emit('cancel')"
       >
@@ -97,23 +97,20 @@ const detail = computed(() => {
 
 <style scoped>
 .batch-status {
-  margin-top: 0.85rem;
-  padding: 0.85rem;
-  border: 1px solid var(--border);
+  --status-color: var(--accent);
+  padding: 0.75rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--status-color) 45%, var(--border));
+  border-left: 3px solid var(--status-color);
   border-radius: 0.6rem;
-  background: var(--bg-tertiary);
-}
-
-.batch-status.running {
-  border-color: rgba(96, 165, 250, 0.55);
+  background: var(--bg-card);
 }
 
 .batch-status.success {
-  border-color: rgba(74, 222, 128, 0.55);
+  --status-color: var(--success);
 }
 
 .batch-status.error {
-  border-color: rgba(248, 113, 113, 0.65);
+  --status-color: var(--coral);
 }
 
 .batch-status-head {
@@ -126,63 +123,85 @@ const detail = computed(() => {
 .batch-status-head > div {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.15rem;
+  min-width: 0;
 }
 
 .batch-status-head strong {
   color: var(--text-primary);
+  font-size: 0.88rem;
+  font-weight: 600;
 }
 
-.batch-status-head span,
-.batch-stats {
+.batch-status-head span {
   color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.batch-cancel {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--coral) 55%, transparent);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: color-mix(in srgb, var(--coral) 80%, var(--text-primary));
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.batch-cancel:hover:not(:disabled) {
+  border-color: var(--coral);
+  background: var(--coral);
+  color: #fff;
+}
+
+.batch-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .batch-progress {
-  height: 9px;
-  margin-top: 0.75rem;
+  height: 6px;
+  margin-top: 0.65rem;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-tertiary);
 }
 
 .batch-progress-fill {
   height: 100%;
   min-width: 4px;
   border-radius: inherit;
-  background: var(--accent);
+  background: var(--status-color);
   transition: width 0.25s ease;
-}
-
-.batch-status.success .batch-progress-fill {
-  background: var(--success, #22c55e);
-}
-
-.batch-status.error .batch-progress-fill {
-  background: var(--coral, #f87171);
 }
 
 .batch-stats {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.65rem;
-  font-size: 0.85rem;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .batch-stats span {
-  padding: 0.2rem 0.45rem;
-  border: 1px solid var(--border);
+  padding: 0.1rem 0.45rem;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.12);
+  background: var(--bg-tertiary);
 }
 
 .batch-stats .danger,
 .batch-error {
-  color: var(--coral, #f87171);
+  color: color-mix(in srgb, var(--coral) 80%, var(--text-primary));
 }
 
 .batch-error {
-  margin: 0.65rem 0 0;
+  margin: 0.55rem 0 0;
+  font-size: 0.8rem;
 }
 </style>

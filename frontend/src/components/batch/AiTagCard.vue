@@ -111,34 +111,41 @@ const {
 </script>
 
 <style scoped>
-.ai-batch-card {
-  grid-row: span 2;
-}
-
 .profile-buttons {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
 .profile-buttons,
 .batch-ai-custom {
-  margin-top: 0.75rem;
+  margin-top: 0.85rem;
 }
 
 .profile-button {
-  flex: 1 1 140px;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
   color: var(--text-primary);
-  padding: 0.75rem;
+  padding: 0.6rem 0.7rem;
   cursor: pointer;
   text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.profile-button:hover {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+.profile-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .profile-button.active {
   border-color: var(--accent);
+  background: var(--accent-soft);
   box-shadow: 0 0 0 1px var(--accent);
 }
 
@@ -147,21 +154,23 @@ const {
   display: block;
 }
 
+.profile-button strong {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
 .profile-button span {
+  overflow: hidden;
   color: var(--text-secondary);
-  font-size: 0.82rem;
-  margin-top: 0.2rem;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  margin-top: 0.15rem;
+  text-overflow: ellipsis;
 }
 
 .batch-ai-custom {
   display: grid;
-  gap: 0.6rem;
-}
-
-@media (max-width: 768px) {
-  .ai-batch-card {
-    grid-row: auto;
-  }
+  gap: 0.5rem;
 }
 </style>
 
