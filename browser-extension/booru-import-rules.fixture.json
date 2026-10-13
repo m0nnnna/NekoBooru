@@ -1,0 +1,188 @@
+{
+  "comment": "Shared booru import rules. Run by browser-extension/site-import.test.js (the extension's import page, end to end) and frontend/src/remote/useImportQueue.fixture.test.js (the web app's import queue, end to end). Every import is a Danbooru post that already carries its danbooru_<id> meta tag, so neither client adds anything to it.",
+  "pacing": {
+    "downloadGapMs": 1500,
+    "retryDelaysMs": [10000, 30000, 60000],
+    "maxThrottleWaitMs": 900000
+  },
+  "progressText": [
+    { "progress": { "received": 12897485, "total": 37748736 }, "elapsedMs": 70000, "expected": "Downloading original… 12.3 / 36.0 MB (34%) · 180 KB/s · 70s" },
+    { "progress": { "received": 0, "total": null }, "elapsedMs": 400, "expected": "Downloading original… 0.0 MB · 0s" },
+    { "progress": { "received": 2097152, "total": null }, "elapsedMs": 4000, "expected": "Downloading original… 2.0 MB · 512 KB/s · 4s" },
+    { "progress": { "received": 5242880, "total": 1048576 }, "elapsedMs": 1000, "expected": "Downloading original… 5.0 / 1.0 MB (100%) · 5120 KB/s · 1s" },
+    { "progress": null, "elapsedMs": -5, "expected": "Downloading original… 0.0 MB · 0s" }
+  ],
+  "displayNames": [
+    { "tag": "miyu_(blue_archive)", "display": "miyu (blue archive)" },
+    { "tag": "seitokai_ni_mo_ana_wa_aru!", "display": "seitokai ni mo ana wa aru!" },
+    { "tag": "k-on!", "display": "k-on!" },
+    { "tag": "pokémon_(game)", "display": "pokémon (game)" },
+    { "tag": "1girl", "display": null },
+    { "tag": "re:zero_kara_hajimeru_isekai_seikatsu", "display": null },
+    { "tag": "@_@", "display": null }
+  ],
+  "postBody": [
+    {
+      "name": "a post with a character display name",
+      "postId": "1",
+      "contentToken": "tok-1",
+      "import": {
+        "safety": "sketchy",
+        "tags": ["miyu_(blue_archive)", "1girl", "danbooru_1"],
+        "tagCategories": { "miyu_(blue_archive)": "character", "1girl": "general", "danbooru_1": "meta" },
+        "tagDisplayNames": { "miyu_(blue_archive)": "miyu (blue archive)" },
+        "source": "https://danbooru.donmai.us/posts/1"
+      },
+      "expected": {
+        "contentToken": "tok-1",
+        "safety": "sketchy",
+        "tags": ["miyu_(blue_archive)", "1girl", "danbooru_1"],
+        "tagCategories": { "miyu_(blue_archive)": "character", "1girl": "general", "danbooru_1": "meta" },
+        "tagDisplayNames": { "miyu_(blue_archive)": "miyu (blue archive)" },
+        "source": "https://danbooru.donmai.us/posts/1"
+      }
+    },
+    {
+      "name": "an explicit post without display names",
+      "postId": "2",
+      "contentToken": "tok-2",
+      "import": {
+        "safety": "unsafe",
+        "tags": ["solo", "danbooru_2"],
+        "tagCategories": { "solo": "general", "danbooru_2": "meta" },
+        "tagDisplayNames": {},
+        "source": "https://danbooru.donmai.us/posts/2"
+      },
+      "expected": {
+        "contentToken": "tok-2",
+        "safety": "unsafe",
+        "tags": ["solo", "danbooru_2"],
+        "tagCategories": { "solo": "general", "danbooru_2": "meta" },
+        "tagDisplayNames": {},
+        "source": "https://danbooru.donmai.us/posts/2"
+      }
+    }
+  ],
+  "merge": [
+    {
+      "name": "a live duplicate keeps its tags first, its source, and the stricter rating",
+      "postId": "3",
+      "duplicate": { "postId": 7, "deleted": false, "post": { "id": 7, "tags": ["old", "1girl"], "safety": "sketchy", "source": "https://pixiv.example/1" } },
+      "restored": null,
+      "import": {
+        "safety": "safe",
+        "tags": ["1girl", "new", "danbooru_3"],
+        "tagCategories": { "new": "general", "danbooru_3": "meta" },
+        "tagDisplayNames": {},
+        "source": "https://danbooru.donmai.us/posts/3"
+      },
+      "expected": {
+        "tags": ["old", "1girl", "new", "danbooru_3"],
+        "safety": "sketchy",
+        "source": "https://pixiv.example/1",
+        "tagCategories": { "new": "general", "danbooru_3": "meta" },
+        "tagDisplayNames": {}
+      }
+    },
+    {
+      "name": "a soft-deleted duplicate is restored first and merged into the restored copy",
+      "postId": "4",
+      "duplicate": { "postId": 8, "deleted": true, "post": { "id": 8, "tags": ["stale"], "safety": "safe", "source": "", "deletedAt": "2026-01-01T00:00:00" } },
+      "restored": { "id": 8, "tags": ["restored"], "safety": "unsafe", "source": "" },
+      "import": {
+        "safety": "sketchy",
+        "tags": ["miyu_(blue_archive)", "danbooru_4"],
+        "tagCategories": { "miyu_(blue_archive)": "character", "danbooru_4": "meta" },
+        "tagDisplayNames": { "miyu_(blue_archive)": "miyu (blue archive)" },
+        "source": "https://danbooru.donmai.us/posts/4"
+      },
+      "expected": {
+        "tags": ["restored", "miyu_(blue_archive)", "danbooru_4"],
+        "safety": "unsafe",
+        "source": "https://danbooru.donmai.us/posts/4",
+        "tagCategories": { "miyu_(blue_archive)": "character", "danbooru_4": "meta" },
+        "tagDisplayNames": { "miyu_(blue_archive)": "miyu (blue archive)" }
+      }
+    },
+    {
+      "name": "a deletedAt stamp alone also restores; no source anywhere stays null",
+      "postId": "5",
+      "duplicate": { "postId": 9, "post": { "id": 9, "tags": [], "safety": "bogus", "source": null, "deletedAt": "2026-01-01T00:00:00" } },
+      "restored": { "id": 9, "tags": [], "safety": "bogus", "source": null },
+      "import": {
+        "safety": "safe",
+        "tags": ["danbooru_5"],
+        "tagCategories": { "danbooru_5": "meta" },
+        "tagDisplayNames": {},
+        "source": ""
+      },
+      "expected": {
+        "tags": ["danbooru_5"],
+        "safety": "safe",
+        "source": null,
+        "tagCategories": { "danbooru_5": "meta" },
+        "tagDisplayNames": {}
+      }
+    }
+  ],
+  "pacingRuns": [
+    {
+      "name": "the gap follows a download only, never a merge of a post already imported",
+      "posts": [
+        { "postId": "11", "inLibrary": false },
+        { "postId": "12", "inLibrary": false },
+        { "postId": "13", "inLibrary": true },
+        { "postId": "14", "inLibrary": false }
+      ],
+      "expectedSleepsMs": [1500]
+    }
+  ],
+  "throttle": [
+    {
+      "name": "a 429 waits 10 s and the retry succeeds",
+      "failures": ["Upstream returned HTTP 429 Too Many Requests"],
+      "expectedSleepsMs": [10000],
+      "expectedRetryTexts": ["Danbooru asked to slow down · retrying in 10 s…"],
+      "outcome": "imported"
+    },
+    {
+      "name": "three 503s back off 10, 30 and 60 s",
+      "failures": ["Upstream returned HTTP 503", "Upstream returned HTTP 503", "Upstream returned HTTP 503"],
+      "expectedSleepsMs": [10000, 30000, 60000],
+      "expectedRetryTexts": [
+        "Danbooru asked to slow down · retrying in 10 s…",
+        "Danbooru asked to slow down · retrying in 30 s…",
+        "Danbooru asked to slow down · retrying in 60 s…"
+      ],
+      "outcome": "imported"
+    },
+    {
+      "name": "a fourth 429 fails the post with the site's message",
+      "failures": ["Upstream returned HTTP 429", "Upstream returned HTTP 429", "Upstream returned HTTP 429", "Upstream returned HTTP 429"],
+      "expectedSleepsMs": [10000, 30000, 60000],
+      "expectedRetryTexts": [
+        "Danbooru asked to slow down · retrying in 10 s…",
+        "Danbooru asked to slow down · retrying in 30 s…",
+        "Danbooru asked to slow down · retrying in 60 s…"
+      ],
+      "outcome": "failed",
+      "finalMessage": "Upstream returned HTTP 429"
+    },
+    {
+      "name": "an unrelated error fails at once",
+      "failures": ["Upstream returned HTTP 404"],
+      "expectedSleepsMs": [],
+      "expectedRetryTexts": [],
+      "outcome": "failed",
+      "finalMessage": "Upstream returned HTTP 404"
+    }
+  ],
+  "throttleHints": [
+    { "name": "a 429 status with Retry-After waits the longer hint", "error": { "message": "Too many requests", "status": 429, "retryAfterMs": 45000 }, "attempt": 0, "expectedMs": 45000 },
+    { "name": "a throttled kind with a short hint keeps the schedule", "error": { "message": "slow", "kind": "throttled", "retryAfterMs": 2000 }, "attempt": 0, "expectedMs": 10000 },
+    { "name": "a huge hint is capped at 15 minutes", "error": { "message": "busy", "status": 503, "retryAfterMs": 5000000 }, "attempt": 0, "expectedMs": 900000 },
+    { "name": "a message-only 503 on the second attempt waits 30 s", "error": { "message": "HTTP 503", "retryAfterMs": null }, "attempt": 1, "expectedMs": 30000 },
+    { "name": "a non-throttle error has no retry", "error": { "message": "HTTP 500", "status": 500 }, "attempt": 0, "expectedMs": null },
+    { "name": "no retry after the third back-off", "error": { "message": "HTTP 429" }, "attempt": 3, "expectedMs": null }
+  ]
+}
