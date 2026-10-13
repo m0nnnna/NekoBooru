@@ -178,6 +178,9 @@ class AutoTagApiTests(unittest.TestCase):
 
     def test_disabled_preview_preserves_tags_without_provenance(self):
         self._disable_auto_tags()
+        # Flat test images all share one perceptual hash, so this neighbour is
+        # a "similar post" whose tags must not leak in while tagging is off.
+        self._upload_image_post(tags=["neighbour_tag"])
         post = self._upload_image_post(tags=["manual_tag"])
 
         preview = self.client.post(f"/api/posts/{post['id']}/auto-tags/preview")
@@ -359,14 +362,18 @@ class AutoTagApiTests(unittest.TestCase):
     def test_extension_upload_defaults_can_be_saved(self):
         default_response = self.client.get("/api/settings/extension")
         self.assertEqual(default_response.status_code, 200, default_response.text)
+        defaults = default_response.json()
+        # modelDefaults is the shared AI model stack, which other tests in this
+        # class write; only the extension's own toggles have fixed defaults.
+        self.assertIsInstance(defaults.pop("modelDefaults"), dict)
         self.assertEqual(
-            default_response.json(),
+            defaults,
             {
                 "saveTweetTag": True,
+                "saveTweetUsername": False,
                 "saveSourcePageUrl": True,
                 "saveMediaUrl": False,
                 "saveSemanticAnalysis": False,
-                "modelDefaults": {},
             },
         )
 
@@ -374,6 +381,7 @@ class AutoTagApiTests(unittest.TestCase):
             "/api/settings/extension",
             json={
                 "saveTweetTag": False,
+                "saveTweetUsername": True,
                 "saveSourcePageUrl": False,
                 "saveMediaUrl": True,
                 "saveSemanticAnalysis": True,
@@ -392,6 +400,7 @@ class AutoTagApiTests(unittest.TestCase):
             updated.json(),
             {
                 "saveTweetTag": False,
+                "saveTweetUsername": True,
                 "saveSourcePageUrl": False,
                 "saveMediaUrl": True,
                 "saveSemanticAnalysis": True,

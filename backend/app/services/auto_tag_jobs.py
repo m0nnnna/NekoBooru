@@ -109,6 +109,29 @@ async def _inherit_tags_from_similar(
     return inherited, evidence
 
 
+async def merge_similar_post_tags(
+    db, result, phash: str | None, exclude_id: int | None, opts: AutoTagOptions, owner_id: int | None = None
+) -> None:
+    """Fold near-duplicate posts' tags into ``result`` in place.
+
+    Inheritance is part of auto-tagging, so it is off whenever auto-tagging is:
+    with ``enabled`` false a preview must leave the post's tags untouched.
+    """
+    if not (opts.enabled and opts.inheritSimilarTags and phash):
+        return
+    inherited_tags, inherited_evidence = await _inherit_tags_from_similar(
+        db, phash, exclude_id, opts, owner_id=owner_id
+    )
+    if not inherited_tags:
+        return
+    existing_set = set(result.tags)
+    result.tags.extend(t for t in inherited_tags if t not in existing_set)
+    for tag in inherited_tags:
+        if tag not in result.categories:
+            result.categories[tag] = "general"
+    result.evidence = {**(result.evidence or {}), "similarPosts": inherited_evidence}
+
+
 async def create_job(
     *,
     mode: str,
@@ -265,17 +288,7 @@ async def analyze_and_maybe_apply(db, post: Post, *, opts: AutoTagOptions, job: 
     full_path = settings.posts_dir / post.content_path
     result = await _tag_media_async(full_path, opts)
 
-    if opts.inheritSimilarTags and post.phash:
-        inherited_tags, inherited_evidence = await _inherit_tags_from_similar(
-            db, post.phash, post.id, opts, owner_id=post.owner_id
-        )
-        if inherited_tags:
-            existing_set = set(result.tags)
-            result.tags.extend(t for t in inherited_tags if t not in existing_set)
-            for tag in inherited_tags:
-                if tag not in result.categories:
-                    result.categories[tag] = "general"
-            result.evidence = {**(result.evidence or {}), "similarPosts": inherited_evidence}
+    await merge_similar_post_tags(db, result, post.phash, post.id, opts, owner_id=post.owner_id)
 
     existing_tags = [tag.name for tag in (post.tags or [])]
     merged_tags, categories = merge_with_existing(existing_tags, result, opts)
@@ -319,17 +332,7 @@ async def preview_post(post_id: int, overrides: dict | None = None) -> dict:
         from ..config import settings
         result = await _tag_media_async(settings.posts_dir / post.content_path, opts)
 
-        if opts.inheritSimilarTags and post.phash:
-            inherited_tags, inherited_evidence = await _inherit_tags_from_similar(
-                db, post.phash, post.id, opts, owner_id=post.owner_id
-            )
-            if inherited_tags:
-                existing_set = set(result.tags)
-                result.tags.extend(t for t in inherited_tags if t not in existing_set)
-                for tag in inherited_tags:
-                    if tag not in result.categories:
-                        result.categories[tag] = "general"
-                result.evidence = {**(result.evidence or {}), "similarPosts": inherited_evidence}
+        await merge_similar_post_tags(db, result, post.phash, post.id, opts, owner_id=post.owner_id)
 
         existing_tags = [tag.name for tag in (post.tags or [])]
         merged_tags, categories = merge_with_existing(existing_tags, result, opts)

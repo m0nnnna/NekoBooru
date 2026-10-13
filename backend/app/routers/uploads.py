@@ -241,28 +241,19 @@ async def auto_tags_for_upload(token: str, current_user: User = Depends(get_curr
 
 
 async def _compute_auto_tag_preview(temp_path: Path, request: UploadAutoTagPreviewRequest, owner_id: int) -> dict:
-    from ..services.auto_tag_jobs import _tag_media_async, _inherit_tags_from_similar
+    from ..services.auto_tag_jobs import _tag_media_async, merge_similar_post_tags
     from ..services.auto_tagger import load_options, merge_with_existing, promote_safety, validate_options
     from ..services.similarity import compute_dhash
 
     opts = validate_options({**load_options().__dict__, **(request.settings or {})})
     result = await _tag_media_async(temp_path, opts)
 
-    if opts.inheritSimilarTags:
+    if opts.enabled and opts.inheritSimilarTags:
         phash = await asyncio.to_thread(compute_dhash, temp_path)
         if phash:
             from ..database import async_session
             async with async_session() as db:
-                inherited_tags, inherited_evidence = await _inherit_tags_from_similar(
-                    db, phash, None, opts, owner_id=owner_id
-                )
-                if inherited_tags:
-                    existing_set = set(result.tags)
-                    result.tags.extend(t for t in inherited_tags if t not in existing_set)
-                    for tag in inherited_tags:
-                        if tag not in result.categories:
-                            result.categories[tag] = "general"
-                    result.evidence = {**(result.evidence or {}), "similarPosts": inherited_evidence}
+                await merge_similar_post_tags(db, result, phash, None, opts, owner_id=owner_id)
 
     merged_tags, categories = merge_with_existing(request.tags or [], result, opts)
 
