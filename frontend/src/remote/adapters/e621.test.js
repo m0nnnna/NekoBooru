@@ -296,6 +296,15 @@ describe('e621Adapter.count', () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({ 'search[name_matches]': 'landscape', _client: 'NekoBooru/1.0' })
   })
 
+  it('counts a flattened library tag under its booru spelling and e621 name, like search', async () => {
+    const fetch = stubFetch(jsonResponse([{ id: 2, name: 'honoka_(dead_or_alive)', post_count: 321 }]))
+    const resolveName = vi.fn(async (name) => (name === 'honoka_(doa)' ? 'honoka_(dead_or_alive)' : name))
+    const api = { getTag: vi.fn(async (name) => ({ name, displayName: 'honoka (doa)' })) }
+    expect(await e621Adapter.count('honoka_doa', ALL_RATINGS, { resolveName, fetch, api })).toBe(321)
+    expect(resolveName.mock.calls[0][0]).toBe('honoka_(doa)')
+    expect(requestedUrl(fetch).searchParams.get('search[name_matches]')).toBe('honoka_(dead_or_alive)')
+  })
+
   it('makes no request for anything but one plain tag', async () => {
     const fetch = stubFetch()
     for (const q of ['', 'a b', '-a', 'land*', 'rating:s']) {

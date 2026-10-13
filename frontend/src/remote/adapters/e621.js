@@ -229,13 +229,16 @@ export const e621Adapter = Object.freeze({
    * rating filter and the anonymous blacklist. Only for a query that is one
    * plain tag; null otherwise and on any failure, abort or timeout.
    */
-  async count(query = '', options = {}, { signal, fetch, timeoutMs = E621_COUNT_TIMEOUT_MS, resolveName = resolveE621Name } = {}) {
+  async count(query = '', options = {}, { signal, fetch, api = null, timeoutMs = E621_COUNT_TIMEOUT_MS, resolveName = resolveE621Name } = {}) {
     let tag = singlePlainTag(query)
     if (!tag) return null
     const doFetch = fetch || globalThis.fetch
     const linked = timeoutSignal(signal, timeoutMs)
     try {
-      // The tag the search really asked for (see search()).
+      // The tag the search really asked for (see search()): the library's
+      // flattened spelling un-flattened, then e621's name for it.
+      const librarySpelling = librarySpellingResolver(api)
+      if (librarySpelling) tag = (await librarySpelling(tag)) || tag
       if (resolveName) tag = (await resolveName(tag, { fetch, signal: linked.signal })) || tag
       const response = await doFetch(e621TagUrl(tag), { ...FETCH_INIT, signal: linked.signal })
       if (!response?.ok) return null
