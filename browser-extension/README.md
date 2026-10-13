@@ -234,7 +234,8 @@ the extension needs to be signed/packaged.
 | File | Purpose |
 | --- | --- |
 | `manifest.json` | Extension manifest (MV3). |
-| `background.js` | Registers the context menus and opens the popups. |
+| `background.js` | Registers the context menus and opens the popups; the service worker entry. |
+| `background-x-media.js` / `background-site-import.js` / `background-reverse-search.js` | The worker's X media cache, booru tag lookups and site-import windows, and reverse image search (pulled in by `background.js` via `importScripts`). |
 | `upload.html` / `upload.js` / `upload.css` | The upload popup UI + logic (CSS shared with the picker). `upload.js` is the entry and loads last. |
 | `upload-ai-models.js` | Upload popup AI model lists: profile defaults, model-key array, id→flag map, runtime requirements. |
 | `upload-ai-controls.js` / `upload-ai-preview.js` | Upload popup AI tagging: model picker, profiles, loads, and the suggestion preview. |
