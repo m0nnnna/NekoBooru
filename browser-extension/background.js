@@ -353,7 +353,7 @@ function injectPasteContentScript(tabId, frameId) {
     chrome.scripting.executeScript(
       {
         target: { tabId, frameIds: [frameId] },
-        files: ['track-cursor.js'],
+        files: ['track-cursor-paste.js', 'track-cursor-x.js', 'track-cursor.js'],
       },
       () => {
         const error = chrome.runtime.lastError

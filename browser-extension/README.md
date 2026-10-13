@@ -242,6 +242,7 @@ the extension needs to be signed/packaged.
 | `upload-preview.js` / `upload-tags.js` / `upload-media-fetch.js` | Upload popup media preview, tag box, and getting media (cookies, X capture, content token) to the server. |
 | `picker.html` / `picker.js` | The "insert from NekoBooru" browse/search popup. |
 | `options.html` / `options.js` | Settings page (instance URL). |
+| `track-cursor.js` | Content script on every page: right-click cursor/media tracking and frame capture; `track-cursor-paste.js` (pasting media into the page) and `track-cursor-x.js` (X capture bridge and post buttons) load before it. |
 | `trace-moe-buttons.js` | trace.moe content script: the result player's NekoBooru button. |
 | `trace-moe-core.js` | trace.moe helpers: filename parsing, scene description, Danbooru series lookup. |
 | `site-import-core.js` | One-click site-import jobs (Pixiv, Danbooru, Gelbooru, Safebooru); assembles `globalThis.NekoBooruSiteImport` from `site-import-shared.js` (host/tag helpers), `site-import-sankaku.js` (Sankaku jobs) and `site-import-controls.js` (button placement, progress text), which load before it. |

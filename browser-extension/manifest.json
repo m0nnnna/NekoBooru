@@ -17,7 +17,7 @@
     },
     {
       "matches": ["*://*/*"],
-      "js": ["track-cursor.js"],
+      "js": ["track-cursor-paste.js", "track-cursor-x.js", "track-cursor.js"],
       "run_at": "document_start",
       "all_frames": true
     },
