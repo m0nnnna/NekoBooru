@@ -112,9 +112,12 @@ describe('normalized posts', () => {
       site: 'gelbooru',
       id: '10234567',
       postUrl: 'https://gelbooru.com/index.php?page=post&s=view&id=10234567',
-      thumbUrl: 'https://img3.gelbooru.com/thumbnails/3f/2a/thumbnail_3f2a9c0d8e7b6a5f4e3d2c1b0a998877.jpg',
-      sampleUrl: 'https://img3.gelbooru.com/samples/3f/2a/sample_3f2a9c0d8e7b6a5f4e3d2c1b0a998877.jpg',
+      // Shown through the relay (Gelbooru's CDN refuses other referers);
+      // fileUrl stays raw for the import, which sends gelbooru.com itself.
+      thumbUrl: '/api/booru-search/gelbooru-media?url=' + encodeURIComponent('https://img3.gelbooru.com/thumbnails/3f/2a/thumbnail_3f2a9c0d8e7b6a5f4e3d2c1b0a998877.jpg'),
+      sampleUrl: '/api/booru-search/gelbooru-media?url=' + encodeURIComponent('https://img3.gelbooru.com/samples/3f/2a/sample_3f2a9c0d8e7b6a5f4e3d2c1b0a998877.jpg'),
       fileUrl: 'https://img3.gelbooru.com/images/3f/2a/3f2a9c0d8e7b6a5f4e3d2c1b0a998877.png',
+      displayFileUrl: '/api/booru-search/gelbooru-media?url=' + encodeURIComponent('https://img3.gelbooru.com/images/3f/2a/3f2a9c0d8e7b6a5f4e3d2c1b0a998877.png'),
       width: 2480,
       height: 3508,
       fileExt: 'png',
@@ -141,8 +144,9 @@ describe('normalized posts', () => {
     const mp4 = normalizeGelbooruPost(mp4Row)
     expect(mp4).toMatchObject({
       fileExt: 'mp4', mediaType: 'video', sampleUrl: null, source: null,
-      thumbUrl: 'https://img3.gelbooru.com/thumbnails/a1/b2/thumbnail_a1b2c3d4e5f60718293a4b5c6d7e8f90.jpg',
+      thumbUrl: '/api/booru-search/gelbooru-media?url=' + encodeURIComponent('https://img3.gelbooru.com/thumbnails/a1/b2/thumbnail_a1b2c3d4e5f60718293a4b5c6d7e8f90.jpg'),
       fileUrl: 'https://video-cdn3.gelbooru.com/images/a1/b2/a1b2c3d4e5f60718293a4b5c6d7e8f90.mp4',
+      displayFileUrl: '/api/booru-search/gelbooru-media?url=' + encodeURIComponent('https://video-cdn3.gelbooru.com/images/a1/b2/a1b2c3d4e5f60718293a4b5c6d7e8f90.mp4'),
     })
     expect(normalizeGelbooruPost(webmRow)).toMatchObject({ fileExt: 'webm', mediaType: 'video', sampleUrl: null })
     expect(normalizeGelbooruPost({ ...webmRow, image: '' })).toMatchObject({ fileExt: 'webm', mediaType: 'video' })
@@ -181,7 +185,8 @@ describe('normalized posts', () => {
   it('a row without an original is unavailable but keeps its thumbnail', () => {
     expect(normalizeGelbooruPost(noFileRow)).toMatchObject({
       fileUrl: null, unavailable: 'no-file', fileExt: 'jpg', mediaType: 'image',
-      thumbUrl: 'https://img3.gelbooru.com/thumbnails/00/11/thumbnail_00112233445566778899aabbccddeeff.jpg',
+      thumbUrl: '/api/booru-search/gelbooru-media?url=' + encodeURIComponent('https://img3.gelbooru.com/thumbnails/00/11/thumbnail_00112233445566778899aabbccddeeff.jpg'),
+      displayFileUrl: null,
     })
     expect(normalizeGelbooruPost({ ...noFileRow, file_url: undefined, status: 'deleted' }).unavailable).toBe('deleted')
     expect(normalizeGelbooruPost({ ...imageRow, file_url: 'javascript:alert(1)' })).toMatchObject({ fileUrl: null, unavailable: 'no-file' })

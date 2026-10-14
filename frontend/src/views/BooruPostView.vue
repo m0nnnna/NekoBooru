@@ -110,8 +110,11 @@ const unavailableText = computed(() => UNAVAILABLE_TEXT[post.value?.unavailable]
 // the original image, else the sample, else the grid preview.
 const media = computed(() => {
   const current = post.value
-  if (current.mediaType === 'video' && current.fileUrl && current.fileExt !== 'zip') return { src: current.fileUrl, type: 'video' }
-  const original = current.mediaType === 'video' ? null : current.fileUrl
+  // displayFileUrl: the original as the browser may load it (Gelbooru's goes
+  // through the backend relay); fileUrl is what an import downloads.
+  const shown = current.displayFileUrl || current.fileUrl
+  if (current.mediaType === 'video' && shown && current.fileExt !== 'zip') return { src: shown, type: 'video' }
+  const original = current.mediaType === 'video' ? null : shown
   return { src: original || current.sampleUrl || current.thumbUrl || '', type: current.mediaType === 'gif' && original ? 'gif' : 'image' }
 })
 

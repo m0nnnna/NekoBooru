@@ -68,6 +68,14 @@ function createdAtIso(value) {
   return Number.isNaN(parsed) ? null : new Date(parsed).toISOString()
 }
 
+// Gelbooru's CDN redirects every referer but gelbooru.com to hotlink.php and
+// a page cannot set its own, so what the browser shows goes through the
+// backend relay (GET /api/booru-search/gelbooru-media). fileUrl stays raw: the
+// import downloads it server-side with gelbooru.com as the referer.
+export function gelbooruMediaUrl(url) {
+  return url ? `/api/booru-search/gelbooru-media?url=${encodeURIComponent(url)}` : null
+}
+
 /** One raw Gelbooru dapi post row -> RemotePost (section 3.2), or null without a usable id. */
 export function normalizeGelbooruPost(row) {
   if (!row || typeof row !== 'object') return null
@@ -91,10 +99,11 @@ export function normalizeGelbooruPost(row) {
     site: SITE,
     id,
     postUrl: `${POST_PAGE}${id}`,
-    thumbUrl: httpUrl(row.preview_url),
+    thumbUrl: gelbooruMediaUrl(httpUrl(row.preview_url)),
     // A video's "sample" is never a playable stand-in for the original.
-    sampleUrl: sampleUrl && sampleUrl !== fileUrl && mediaType !== 'video' ? sampleUrl : null,
+    sampleUrl: sampleUrl && sampleUrl !== fileUrl && mediaType !== 'video' ? gelbooruMediaUrl(sampleUrl) : null,
     fileUrl,
+    displayFileUrl: gelbooruMediaUrl(fileUrl),
     width: intOrNull(row.width),
     height: intOrNull(row.height),
     fileExt,
