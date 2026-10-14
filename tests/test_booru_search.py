@@ -584,6 +584,22 @@ class BooruSearchTests(unittest.TestCase):
         self.assertEqual(str(seen[0].url), url)
         self.assertEqual(seen[0].headers["referer"], "https://gelbooru.com/")
 
+    def test_gelbooru_media_reuses_one_pooled_client(self):
+        # A new AsyncClient costs ~400 ms (CA bundle) and a fresh TLS handshake,
+        # and builds on the event loop, so a page of thumbnails queued behind it.
+        import httpx
+        from app.services import booru_search
+
+        seen = []
+        url = "https://img4.gelbooru.com/thumbnails/1b/c2/thumbnail_1bc2.jpg"
+        with patch.object(booru_search, "_media_transport", self._media_transport(seen)),                 patch.object(booru_search.httpx, "AsyncClient", wraps=httpx.AsyncClient) as made:
+            # self.admin is the entered TestClient: one event loop, as under uvicorn.
+            for _ in range(3):
+                resp = self.admin.get("/api/booru-search/gelbooru-media", params={"url": url})
+                self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(len(seen), 3)
+        self.assertEqual(made.call_count, 1)
+
     def test_gelbooru_media_passes_video_ranges_through(self):
         from app.services import booru_search
 

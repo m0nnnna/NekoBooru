@@ -8,6 +8,7 @@ and the Gelbooru tag categories used by the import queue live here too.
 """
 from __future__ import annotations
 
+import asyncio
 import math
 import re
 import time
@@ -41,6 +42,12 @@ GELBOORU_REFERER = "https://gelbooru.com/"
 MEDIA_TIMEOUT = 30.0
 MEDIA_HEADERS = ("content-type", "content-length", "content-range", "accept-ranges", "etag", "last-modified")
 _media_transport: httpx.AsyncBaseTransport | None = None  # tests swap in an httpx.MockTransport
+# One pooled client for every relayed file: building one costs ~400 ms (the CA
+# bundle) on the event loop plus a fresh TLS handshake, which queued a page of
+# thumbnails behind each other. Rebuilt only for another loop or transport.
+MEDIA_LIMITS = httpx.Limits(max_connections=16, max_keepalive_connections=8, keepalive_expiry=60)
+_media_client: httpx.AsyncClient | None = None
+_media_client_key: tuple[int, int] | None = None
 
 MAX_QUERY_CHARS = 500
 MAX_PAGE = 500
@@ -306,17 +313,30 @@ def gelbooru_media_url(url: str) -> str:
     return urlunsplit(("https", host, parsed.path, parsed.query, ""))
 
 
-async def open_gelbooru_media(url: str, byte_range: str | None) -> tuple[httpx.AsyncClient, httpx.Response]:
-    """A streamed GET of Gelbooru media with its referer; the caller closes both."""
-    client = httpx.AsyncClient(
-        headers={"User-Agent": USER_AGENT, "Referer": GELBOORU_REFERER},
-        timeout=MEDIA_TIMEOUT,
-        follow_redirects=False,
-        transport=_media_transport,
-    )
+def _shared_media_client() -> httpx.AsyncClient:
+    global _media_client, _media_client_key
+    key = (id(asyncio.get_running_loop()), id(_media_transport))
+    if _media_client is None or _media_client.is_closed or _media_client_key != key:
+        _media_client = httpx.AsyncClient(
+            headers={"User-Agent": USER_AGENT, "Referer": GELBOORU_REFERER},
+            timeout=MEDIA_TIMEOUT,
+            follow_redirects=False,
+            limits=MEDIA_LIMITS,
+            transport=_media_transport,
+        )
+        _media_client_key = key
+    return _media_client
+
+
+async def open_gelbooru_media(url: str, byte_range: str | None) -> httpx.Response:
+    """A streamed GET of Gelbooru media with its referer; the caller closes the response."""
+    client = _shared_media_client()
     request = client.build_request("GET", url, headers={"Range": byte_range} if byte_range else None)
-    try:
-        return client, await client.send(request, stream=True)
-    except BaseException:
-        await client.aclose()
-        raise
+    return await client.send(request, stream=True)
+
+
+async def close_media_client() -> None:
+    global _media_client, _media_client_key
+    if _media_client is not None:
+        await _media_client.aclose()
+    _media_client, _media_client_key = None, None

@@ -125,13 +125,12 @@ async def relay_gelbooru_media(
     except ValueError as exc:
         raise _coded(400, "bad_media_url", str(exc)) from exc
     try:
-        client, upstream = await booru_search.open_gelbooru_media(target, byte_range)
+        upstream = await booru_search.open_gelbooru_media(target, byte_range)
     except httpx.HTTPError as exc:
         raise _coded(502, "upstream_error", "Gelbooru media could not be fetched") from exc
     if upstream.status_code not in (200, 206):
         status = upstream.status_code
         await upstream.aclose()
-        await client.aclose()
         if status == 429:
             raise _coded(429, "upstream_throttled", "Gelbooru is rate limiting", retryAfter=DEFAULT_RETRY_AFTER)
         raise _coded(404 if status == 404 else 502, "upstream_error", f"Gelbooru media answered HTTP {status}")
@@ -145,6 +144,5 @@ async def relay_gelbooru_media(
                 yield chunk
         finally:
             await upstream.aclose()
-            await client.aclose()
 
     return StreamingResponse(body(), status_code=upstream.status_code, headers=headers)

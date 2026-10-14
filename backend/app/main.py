@@ -41,6 +41,9 @@ async def lifespan(app: FastAPI):
             await cleanup_task
         except asyncio.CancelledError:
             pass
+        from .services import booru_search
+
+        await booru_search.close_media_client()
 
 
 app = FastAPI(
