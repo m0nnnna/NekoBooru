@@ -12,6 +12,7 @@ import math
 import re
 import time
 from email.utils import parsedate_to_datetime
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from sqlalchemy import func, select
@@ -30,6 +31,16 @@ UPSTREAMS = {
     "gelbooru": ("Gelbooru", "https://gelbooru.com/index.php"),
     "safebooru": ("Safebooru", "https://safebooru.org/index.php"),
 }
+
+# Gelbooru's CDN redirects every referer but gelbooru.com to hotlink.php, and
+# a page cannot choose its own Referer, so the browser shows Gelbooru media
+# through this relay. Only Gelbooru's own media hosts and paths, https only.
+GELBOORU_MEDIA_HOST = re.compile(r"^(?:img\d*|video-cdn\d*)\.gelbooru\.com$")
+GELBOORU_MEDIA_PATHS = ("/thumbnails/", "/samples/", "/images/")
+GELBOORU_REFERER = "https://gelbooru.com/"
+MEDIA_TIMEOUT = 30.0
+MEDIA_HEADERS = ("content-type", "content-length", "content-range", "accept-ranges", "etag", "last-modified")
+_media_transport: httpx.AsyncBaseTransport | None = None  # tests swap in an httpx.MockTransport
 
 MAX_QUERY_CHARS = 500
 MAX_PAGE = 500
@@ -276,3 +287,36 @@ async def gelbooru_categories(tags: list[str], *, timeout: float = DEFAULT_TIMEO
         raise ValueError(f"At most {MAX_CATEGORY_TAGS} tags can be categorised at once")
     categories = await site_imports._tag_categories(names, _auth_params(), timeout)
     return {"categories": categories}
+
+
+def gelbooru_media_url(url: str) -> str:
+    """The URL itself when it is Gelbooru media, else ValueError."""
+    parsed = urlsplit(str(url or "").strip())
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not GELBOORU_MEDIA_HOST.match(host) or parsed.port or parsed.username:
+        raise ValueError("Only Gelbooru media URLs can be relayed")
+    segments = parsed.path.split("/")
+    if (
+        not parsed.path.startswith(GELBOORU_MEDIA_PATHS)
+        or any(segment in {".", ".."} for segment in segments)
+        or "%2e" in parsed.path.lower()
+        or "\\" in parsed.path
+    ):
+        raise ValueError("Only Gelbooru media URLs can be relayed")
+    return urlunsplit(("https", host, parsed.path, parsed.query, ""))
+
+
+async def open_gelbooru_media(url: str, byte_range: str | None) -> tuple[httpx.AsyncClient, httpx.Response]:
+    """A streamed GET of Gelbooru media with its referer; the caller closes both."""
+    client = httpx.AsyncClient(
+        headers={"User-Agent": USER_AGENT, "Referer": GELBOORU_REFERER},
+        timeout=MEDIA_TIMEOUT,
+        follow_redirects=False,
+        transport=_media_transport,
+    )
+    request = client.build_request("GET", url, headers={"Range": byte_range} if byte_range else None)
+    try:
+        return client, await client.send(request, stream=True)
+    except BaseException:
+        await client.aclose()
+        raise

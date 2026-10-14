@@ -557,5 +557,70 @@ class BooruSearchTests(unittest.TestCase):
         self.assertEqual(uploads.HONEST_MEDIA_USER_AGENT, "NekoBooru/1.0 (original importer)")
 
 
+    # ------------------------------------------------------------------
+    # Gelbooru media relay (its CDN redirects any non-gelbooru.com referer)
+    # ------------------------------------------------------------------
+
+    def _media_transport(self, seen, *, status=200, body=b"jpegbytes", headers=None):
+        import httpx
+
+        def handler(request):
+            seen.append(request)
+            return httpx.Response(status, content=body, headers=headers or {"content-type": "image/jpeg"})
+
+        return httpx.MockTransport(handler)
+
+    def test_gelbooru_media_is_relayed_with_a_gelbooru_referer(self):
+        from app.services import booru_search
+
+        seen = []
+        url = "https://img4.gelbooru.com/thumbnails/1b/c2/thumbnail_1bc2.jpg"
+        with patch.object(booru_search, "_media_transport", self._media_transport(seen)):
+            resp = self.member.get("/api/booru-search/gelbooru-media", params={"url": url})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.content, b"jpegbytes")
+        self.assertEqual(resp.headers["content-type"], "image/jpeg")
+        self.assertIn("max-age", resp.headers["cache-control"])
+        self.assertEqual(str(seen[0].url), url)
+        self.assertEqual(seen[0].headers["referer"], "https://gelbooru.com/")
+
+    def test_gelbooru_media_passes_video_ranges_through(self):
+        from app.services import booru_search
+
+        seen = []
+        transport = self._media_transport(
+            seen,
+            status=206,
+            body=b"part",
+            headers={"content-type": "video/mp4", "content-range": "bytes 0-3/100", "accept-ranges": "bytes"},
+        )
+        url = "https://video-cdn3.gelbooru.com/images/aa/bb/clip.mp4"
+        with patch.object(booru_search, "_media_transport", transport):
+            resp = self.member.get("/api/booru-search/gelbooru-media", params={"url": url}, headers={"Range": "bytes=0-3"})
+        self.assertEqual(resp.status_code, 206, resp.text)
+        self.assertEqual(resp.headers["content-range"], "bytes 0-3/100")
+        self.assertEqual(seen[0].headers["range"], "bytes=0-3")
+
+    def test_gelbooru_media_refuses_anything_but_gelbooru_media(self):
+        from app.services import booru_search
+
+        seen = []
+        with patch.object(booru_search, "_media_transport", self._media_transport(seen)):
+            for url in (
+                "https://evil.example/thumbnails/a.jpg",
+                "http://img4.gelbooru.com/images/a.jpg",
+                "https://img4.gelbooru.com/index.php?page=dapi",
+                "https://gelbooru.com/images/a.jpg",
+                "https://img4.gelbooru.com.evil.example/images/a.jpg",
+                "https://img4.gelbooru.com/images/../index.php",
+            ):
+                self._assert_coded(self.member.get("/api/booru-search/gelbooru-media", params={"url": url}), 400, "bad_media_url")
+        self.assertEqual(seen, [])
+
+    def test_gelbooru_media_is_gated(self):
+        self._switch(False)
+        url = "https://img4.gelbooru.com/thumbnails/a.jpg"
+        self._assert_coded(self.member.get("/api/booru-search/gelbooru-media", params={"url": url}), 403, "booru_search_disabled")
+
 if __name__ == "__main__":
     unittest.main()

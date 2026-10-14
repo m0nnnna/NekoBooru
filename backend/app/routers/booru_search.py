@@ -3,7 +3,9 @@ from __future__ import annotations
 import math
 from typing import Awaitable
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -108,3 +110,41 @@ async def get_gelbooru_categories(
 ):
     """Tag categories for queued Gelbooru imports, batched and cached server-side."""
     return await _upstream(booru_search.gelbooru_categories(request.tags))
+
+
+@router.get("/gelbooru-media")
+async def relay_gelbooru_media(
+    url: str,
+    byte_range: str | None = Header(default=None, alias="Range"),
+    current_user: User = Depends(require_booru_search),
+):
+    """One Gelbooru thumbnail, sample or original, streamed with gelbooru.com as
+    the referer (its CDN redirects any other); Range passes through for video."""
+    try:
+        target = booru_search.gelbooru_media_url(url)
+    except ValueError as exc:
+        raise _coded(400, "bad_media_url", str(exc)) from exc
+    try:
+        client, upstream = await booru_search.open_gelbooru_media(target, byte_range)
+    except httpx.HTTPError as exc:
+        raise _coded(502, "upstream_error", "Gelbooru media could not be fetched") from exc
+    if upstream.status_code not in (200, 206):
+        status = upstream.status_code
+        await upstream.aclose()
+        await client.aclose()
+        if status == 429:
+            raise _coded(429, "upstream_throttled", "Gelbooru is rate limiting", retryAfter=DEFAULT_RETRY_AFTER)
+        raise _coded(404 if status == 404 else 502, "upstream_error", f"Gelbooru media answered HTTP {status}")
+
+    headers = {name: upstream.headers[name] for name in booru_search.MEDIA_HEADERS if name in upstream.headers}
+    headers["Cache-Control"] = "private, max-age=86400"
+
+    async def body():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(body(), status_code=upstream.status_code, headers=headers)
