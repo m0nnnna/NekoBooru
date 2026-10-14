@@ -75,6 +75,24 @@ describe('useRemoteResults', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
+  it('searches every booru for a library tag under its booru spelling, keeping operators and meta terms', async () => {
+    // The library stores yui_(angel_beats!) flattened as yui_angel_beats; the
+    // booru spelling survives only in the tag's display name.
+    const getTag = vi.fn(async (name) => {
+      if (name === 'yui_angel_beats') return { name, displayName: 'yui (angel beats!)' }
+      if (name === 'miyu_blue_archive') return { name, displayName: 'miyu (blue archive)' }
+      throw Object.assign(new Error('not found'), { status: 404 })
+    })
+    const { adapters, results } = setup(['danbooru', 'gelbooru'], { api: { getTag } })
+    results.search({ query: 'yui_angel_beats -miyu_blue_archive ~solo rating:s', options: ALL, sites: ['danbooru', 'gelbooru'] })
+    await settle()
+    for (const site of ['danbooru', 'gelbooru']) {
+      expect(adapters[site].calls[0].args.query).toBe('yui_(angel_beats!) -miyu_(blue_archive) ~solo rating:s')
+    }
+    // One lookup per term, shared by every booru; meta terms are never looked up.
+    expect(getTag.mock.calls.map(([name]) => name).sort()).toEqual(['miyu_blue_archive', 'solo', 'yui_angel_beats'])
+  })
+
   it(`scheduleSearch debounces ${SEARCH_DEBOUNCE_MS} ms and keeps the latest arguments`, async () => {
     const { adapters, results } = setup(['danbooru'])
     results.scheduleSearch({ query: 'c', options: ALL, sites: ['danbooru'] })

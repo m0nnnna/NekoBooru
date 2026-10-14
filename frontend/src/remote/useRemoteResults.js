@@ -1,3 +1,4 @@
+import { createBooruSpeller } from './booruSpelling.js'
 import { computed, markRaw, reactive, ref, shallowRef } from 'vue'
 import { ADAPTERS } from './adapters/index.js'
 import { createBudget } from './budget.js'
@@ -100,6 +101,7 @@ export function useRemoteResults(config = {}) {
   const { adapters = ADAPTERS, api = null, budgets: givenBudgets = {} } = config
   const ownsLookup = !config.lookupInLibrary
   const lookup = config.lookupInLibrary || createInLibraryLookup(api)
+  const spell = createBooruSpeller(api)
 
   const sections = reactive({})
   const activeSites = ref([])
@@ -199,6 +201,12 @@ export function useRemoteResults(config = {}) {
     section.error = null
     let result
     try {
+      // Library tags go out in their booru spelling (yui_angel_beats ->
+      // yui_(angel_beats!)); synchronous when there is nothing to look up.
+      const spelled = spell(context.query)
+      if (typeof spelled !== 'string') context.query = await spelled
+      else context.query = spelled
+      if (isStale(site, rt)) return
       result = await adapters[site].search({
         query: context.query,
         options: context.options,
