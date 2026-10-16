@@ -13,6 +13,7 @@
           <option value="videos">Videos</option>
           <option value="images">Images</option>
           <option value="all">All</option>
+          <option value="everything">Everything (all posts, every model)</option>
         </select>
       </label>
       <div class="bulk-actions">
@@ -67,6 +68,9 @@
       <span>{{ autoTagEstimate.images }} images</span>
       <span>{{ autoTagEstimate.gifs }} GIFs</span>
       <span>{{ autoTagEstimate.videos }} videos</span>
+      <span v-if="autoTagEstimate.models">
+        Models: {{ autoTagEstimate.models.length ? autoTagEstimate.models.join(', ') : 'none can run here' }}
+      </span>
     </div>
 
     <div v-if="autoTagJob" class="job-panel">

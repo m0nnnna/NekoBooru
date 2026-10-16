@@ -42,6 +42,12 @@ export function useSettingsBulkJob({ autoTag, models }) {
   })
 
   const bulkPipelineSummary = computed(() => {
+    if (autoTagMode.value === 'everything') {
+      return 'Runs every post through every model that is installed and downloaded here, whether or not it is checked above, '
+        + 'applies safety ratings, adds tags from near-duplicate posts, and saves the analysis. Existing tags are kept and '
+        + 'never duplicated. Click Estimate to see which models will run. On a CPU-only install, Qwen, OCR and Whisper make '
+        + 'this much slower.'
+    }
     const names = enabledModels.value.map((model) => model.name)
     const modelText = names.length
       ? names.join(', ')

@@ -76,6 +76,53 @@ class AutoTagBulkJobApiTests(support.AutoTagApiTestCase):
         self.assertEqual(job["processed"], 2)
         self.assertIn("Stopped after the first 2 posts all failed", job["error"])
 
+    def test_everything_turns_on_each_ready_model_and_every_write(self):
+        from app.services.auto_tag_jobs import everything_overrides
+        from app.services.auto_tagger import AutoTagOptions
+
+        ready = {"wd", "cl", "ocr", "qwen_gguf_q4"}
+        with patch("app.services.auto_tag_jobs._model_unready",
+                   side_effect=lambda m: None if m in ready else "model_not_downloaded"):
+            overrides = everything_overrides(AutoTagOptions(semanticModelId="qwen"))
+
+        for key in ("wdEnabled", "clEnabled", "ocrEnabled", "qwenEnabled",
+                    "applySafety", "inheritSimilarTags", "saveSemanticAnalysis", "enabled"):
+            self.assertTrue(overrides.get(key), key)
+        for key in ("pixaiEnabled", "characterModelEnabled", "whisperEnabled"):
+            self.assertNotIn(key, overrides)
+        # The selected Qwen backend is not downloaded, so a ready one runs instead.
+        self.assertEqual(overrides["semanticModelId"], "qwen_gguf_q4")
+
+    def test_everything_job_adds_tags_and_rating_to_every_post_without_removing_any(self):
+        self._enable_auto_tags()
+        light = self._upload_image_post(tags=[], safety="unsafe")
+        heavy = self._upload_image_post(tags=[f"kept_{i}" for i in range(6)] + ["red_eyes"], safety="safe")
+        seen_opts = []
+
+        def fake_tag_media(path, opts):
+            seen_opts.append(opts)
+            return self._fake_result()  # red_eyes, close-up, hatsune_miku; rated unsafe
+
+        with patch("app.services.auto_tag_jobs.tag_media", side_effect=fake_tag_media), \
+                patch("app.services.auto_tag_jobs._model_unready", return_value=None):
+            response = self.client.post(
+                "/api/auto-tags/jobs",
+                json={"mode": "everything", "dryRun": False, "settings": {}},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            job = self._wait_for_job(response.json()["id"])
+
+        self.assertEqual(job["status"], "completed", job)
+        self.assertGreaterEqual(job["processed"], 2)  # heavily tagged posts are not filtered out
+        self.assertTrue(all(o.wdEnabled and o.pixaiEnabled and o.qwenEnabled and o.applySafety for o in seen_opts))
+
+        after = self.client.get(f"/api/posts/{heavy['id']}").json()
+        for tag in [f"kept_{i}" for i in range(6)] + ["red_eyes", "hatsune_miku"]:
+            self.assertIn(tag, after["tags"])
+        self.assertEqual(after["tags"].count("red_eyes"), 1)
+        self.assertEqual(after["safety"], "unsafe")
+        self.assertEqual(self.client.get(f"/api/posts/{light['id']}").json()["safety"], "unsafe")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,6 +34,8 @@ _active_task: asyncio.Task | None = None
 EARLY_FAILURE_LIMIT = 10
 # Results that mean "not this post's kind of media", not a model failure.
 _SKIP_ERRORS = {"images_disabled", "videos_disabled", "unsupported_media_type"}
+# Target mode: the whole library through every model that can run.
+EVERYTHING_MODE = "everything"
 
 
 class NoModelOutput(RuntimeError):
@@ -65,6 +67,36 @@ def _enabled_models(opts: AutoTagOptions) -> list[str]:
             continue
         out.append(model_id)
     return out
+
+
+def everything_overrides(opts: AutoTagOptions) -> dict:
+    """Option overrides for the "everything" target: every post, every model
+    that can run here, ratings applied, similar posts' tags inherited, and the
+    semantic analysis saved. Tags are still only ever added (merge_with_existing
+    keeps every existing tag and dedupes), so nothing is removed or doubled."""
+    overrides = {
+        "enabled": True,
+        "tagImages": True,
+        "tagVideos": True,
+        "applySafety": True,
+        "inheritSimilarTags": True,
+        "saveSemanticAnalysis": True,
+    }
+    remote = bool(opts.remoteEnabled and opts.remoteUrl)
+    for model_id, meta in MODEL_REGISTRY.items():
+        key = meta.get("settingKey")
+        if key and model_id not in QWEN_SEMANTIC_MODEL_IDS and (remote or _model_unready(model_id) is None):
+            overrides[key] = True
+    # One Qwen backend runs: the selected one if it is ready, else any that is.
+    preferred = _semantic_model_id(opts)
+    qwen_ready = [preferred] if remote else [
+        model_id
+        for model_id in (preferred, *sorted(QWEN_SEMANTIC_MODEL_IDS - {preferred}))
+        if _model_unready(model_id) is None
+    ]
+    if qwen_ready:
+        overrides.update(qwenEnabled=True, semanticPoliticalEnabled=True, semanticModelId=qwen_ready[0])
+    return overrides
 
 
 def preflight_error(opts: AutoTagOptions) -> str | None:
@@ -206,6 +238,8 @@ async def create_job(
     base = load_options()
     raw = {**base.__dict__, **(overrides or {})}
     opts = validate_options(raw)
+    if mode == EVERYTHING_MODE:
+        opts = validate_options({**opts.__dict__, **everything_overrides(opts)})
     problem = preflight_error(opts)
     if problem:
         raise RuntimeError(problem)
@@ -258,7 +292,7 @@ async def candidate_post_ids(
             .group_by(Post.id)
             .having(func.count(PostTag.c.tag_id) <= opts.lightlyTaggedMaxTags)
         )
-    elif mode != "all":
+    elif mode not in {"all", EVERYTHING_MODE}:
         stmt = (
             stmt.outerjoin(PostTag, PostTag.c.post_id == Post.id)
             .group_by(Post.id)
@@ -270,12 +304,17 @@ async def candidate_post_ids(
 
 async def estimate(mode: str, owner_id: int, overrides: dict | None = None) -> dict:
     opts = validate_options({**load_options().__dict__, **(overrides or {})})
+    counts: dict = {"total": 0, "images": 0, "videos": 0, "gifs": 0}
+    if mode == EVERYTHING_MODE:
+        # Name what "every model" means on this install before the job starts.
+        everything = validate_options({**opts.__dict__, **everything_overrides(opts)})
+        counts["models"] = [str(MODEL_REGISTRY[m]["name"]) for m in _enabled_models(everything)]
     async with async_session() as db:
         ids = await candidate_post_ids(db, mode=mode, opts=opts, owner_id=owner_id)
         if not ids:
-            return {"total": 0, "images": 0, "videos": 0, "gifs": 0}
+            return counts
         rows = await db.execute(select(Post.extension).where(Post.id.in_(ids)))
-        counts = {"total": len(ids), "images": 0, "videos": 0, "gifs": 0}
+        counts["total"] = len(ids)
         for (ext,) in rows.all():
             if ext == ".gif":
                 counts["gifs"] += 1
