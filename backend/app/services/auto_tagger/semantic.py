@@ -311,13 +311,13 @@ def merge_with_existing(existing: list[str], result: AutoTagResult, opts: AutoTa
 
 
 def promote_safety(current: str, suggested: str | None, opts: AutoTagOptions) -> str:
+    # The model's verdict wins in both directions, so a safe post that was
+    # rated unsafe by mistake is corrected too. No verdict (the models were
+    # unsure or produced no rating) keeps the current rating.
     suggested = normalize_safety_label(suggested)
     if not opts.applySafety or not suggested:
         return current
-    rank = {"safe": 0, "sketchy": 1, "unsafe": 2}
-    if opts.neverDowngradeSafety and rank.get(suggested, 0) < rank.get(current, 0):
-        return current
-    return suggested if rank.get(suggested, 0) > rank.get(current, 0) else current
+    return suggested
 
 
 def normalize_safety_label(value: Any) -> str | None:

@@ -267,7 +267,6 @@ class AutoTagOptions:
     applySafety: bool = True
     unsafeThreshold: float = 0.70
     sketchyThreshold: float = 0.65
-    neverDowngradeSafety: bool = True
     defaultBackfillMode: str = "lightly_tagged"
     lightlyTaggedMaxTags: int = 2
     mergeMode: str = "append_new"

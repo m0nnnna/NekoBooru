@@ -57,8 +57,8 @@ async function runAiTag(event) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         tags: parseTags(),
-        // Preview should show the model's safety signal, not inherit a sticky
-        // remembered popup rating that promotion logic can never downgrade.
+        // Preview should show the model's safety signal, not a sticky
+        // remembered popup rating it would have to argue against.
         safety: 'safe',
         settings: autoTagRunSettings(),
       }),

@@ -199,7 +199,6 @@ Shape:
   "applySafety": true,
   "unsafeThreshold": 0.70,
   "sketchyThreshold": 0.45,
-  "neverDowngradeSafety": true,
   "defaultBackfillMode": "lightly_tagged",
   "lightlyTaggedMaxTags": 2,
   "mergeMode": "append_new",
@@ -300,9 +299,10 @@ For each candidate:
    - provenance tag is added when enabled;
    - aliases/implications are applied by the shared tag service.
 6. Safety:
-   - `unsafe` wins over all other values;
-   - `sketchy` can promote `safe`;
-   - never downgrade when `neverDowngradeSafety` is true.
+   - across models and video frames, the strictest verdict wins;
+   - that verdict replaces the post's rating in either direction, so a
+     mis-rated safe post is loosened as well as a mis-rated NSFW one tightened;
+   - no verdict (no rating output, or the models were unsure) keeps the rating.
 7. If dry-run, write suggestion only.
 8. If apply mode, update post tags/safety, touch `updated_at`, and commit.
 9. Update job counters after each post.
@@ -400,7 +400,7 @@ Backend unit tests:
 - tag normalization dedupes model/user tags;
 - excluded tags are removed;
 - aliases and implications apply to auto tags;
-- safety only promotes, never downgrades;
+- safety follows the model verdict up and down, and keeps the rating when there is none;
 - unsafe frame in a video promotes post to `unsafe`;
 - missing optional dependencies return disabled/missing status;
 - missing media file records failure and continues job;
@@ -634,7 +634,7 @@ Safety behavior:
 - if any sampled frame is explicit/questionable above the configured unsafe
   threshold, set NekoBooru `safety` to `unsafe`;
 - if sampled frames are borderline sensitive, set `safety` to `sketchy`;
-- never downgrade an existing `unsafe` post to `sketchy` or `safe`;
+- a confidently safe verdict loosens an existing `unsafe` or `sketchy` post;
 - make safety auto-classification tunable, but default it on for backfill.
 
 Acceptance:

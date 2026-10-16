@@ -161,6 +161,20 @@ class AutoTagResultTests(unittest.TestCase):
         self.assertEqual(promote_safety("safe", "explicit", opts), "unsafe")
         self.assertEqual(promote_safety("safe", "partial_nudity", opts), "sketchy")
 
+    def test_safety_verdict_corrects_rating_in_both_directions(self):
+        from app.services.auto_tagger import AutoTagOptions, promote_safety
+
+        opts = AutoTagOptions(applySafety=True)
+
+        # A mis-rated safe post is loosened, not only a mis-rated NSFW one tightened.
+        self.assertEqual(promote_safety("unsafe", "safe", opts), "safe")
+        self.assertEqual(promote_safety("sketchy", "safe", opts), "safe")
+        self.assertEqual(promote_safety("unsafe", "sketchy", opts), "sketchy")
+        self.assertEqual(promote_safety("safe", "unsafe", opts), "unsafe")
+        # No verdict keeps the rating; so does turning safety off.
+        self.assertEqual(promote_safety("unsafe", None, opts), "unsafe")
+        self.assertEqual(promote_safety("unsafe", "safe", AutoTagOptions(applySafety=False)), "unsafe")
+
     def test_meaningful_ocr_text_filters_blank_or_junk_text(self):
         from app.services.auto_tagger import _meaningful_ocr_text
 
