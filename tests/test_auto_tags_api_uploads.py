@@ -283,7 +283,8 @@ class AutoTagUploadApiTests(support.AutoTagApiTestCase):
         self._enable_auto_tags()
         post = self._upload_image_post(tags=[], safety="safe")
 
-        with patch("app.services.auto_tag_jobs.tag_media", return_value=self._fake_result()):
+        with patch("app.services.auto_tag_jobs.tag_media", return_value=self._fake_result()), \
+                patch("app.services.auto_tag_jobs._model_unready", return_value=None):
             job_response = self.client.post(
                 "/api/auto-tags/jobs",
                 json={"mode": "selected", "dryRun": True, "postIds": [post["id"]], "settings": {}},

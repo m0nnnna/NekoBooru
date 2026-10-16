@@ -12,10 +12,15 @@ from ..database import async_session
 from ..models import AutoTagJob, AutoTagSuggestion, Post, Tag
 from ..models.post import PostTag
 from .auto_tagger import (
+    MODEL_REGISTRY,
+    QWEN_SEMANTIC_MODEL_IDS,
     AutoTagOptions,
+    _semantic_model_id,
     load_options,
     merge_with_existing,
+    model_cache_status,
     promote_safety,
+    runtime_available,
     tag_media,
     validate_options,
 )
@@ -24,9 +29,65 @@ from .ai_analysis import save_analysis_from_result
 
 _active_task: asyncio.Task | None = None
 
+# A job whose first posts all fail is misconfigured, not unlucky; stop it
+# rather than grind through the whole library writing nothing.
+EARLY_FAILURE_LIMIT = 10
+# Results that mean "not this post's kind of media", not a model failure.
+_SKIP_ERRORS = {"images_disabled", "videos_disabled", "unsupported_media_type"}
+
+
+class NoModelOutput(RuntimeError):
+    """Every model the job asked for failed or could not run on this post."""
+
 
 def active_task_running() -> bool:
     return _active_task is not None and not _active_task.done()
+
+
+def _model_unready(model_id: str) -> str | None:
+    """Why a model cannot run in this process, or None when it can."""
+    if not runtime_available(model_id):
+        return "missing_runtime_dependency"
+    if not model_cache_status(model_id).get("downloaded"):
+        return "model_not_downloaded"
+    return None
+
+
+def _enabled_models(opts: AutoTagOptions) -> list[str]:
+    # The three Qwen ids share qwenEnabled; semanticModelId picks the one that runs.
+    semantic = _semantic_model_id(opts)
+    out = []
+    for model_id, meta in MODEL_REGISTRY.items():
+        key = meta.get("settingKey")
+        if not key or not getattr(opts, key, False):
+            continue
+        if model_id in QWEN_SEMANTIC_MODEL_IDS and model_id != semantic:
+            continue
+        out.append(model_id)
+    return out
+
+
+def preflight_error(opts: AutoTagOptions) -> str | None:
+    """Refuse a job none of whose models can run, instead of letting it skate
+    through the library adding only media-type and provenance tags."""
+    if opts.remoteEnabled and opts.remoteUrl:
+        return None  # the worker's models are not visible from here
+    if not opts.enabled:
+        return "Auto-tagging is turned off. Enable it in the AI settings first."
+    models = _enabled_models(opts)
+    if not models:
+        return "No models are enabled. Enable at least one model in the Model Registry."
+    problems = {model_id: _model_unready(model_id) for model_id in models}
+    if all(problems.values()):
+        detail = ", ".join(f"{MODEL_REGISTRY[m]['name']} ({why})" for m, why in problems.items())
+        return f"None of the enabled models can run here: {detail}. Install the AI runtime and download a model first."
+    return None
+
+
+def _no_model_output(result) -> bool:
+    # _combine_results only sets error when no model produced a tag, so an
+    # error with no rating or safety verdict means nothing actually ran.
+    return bool(result.error) and result.error not in _SKIP_ERRORS and not result.rating and not result.safety
 
 
 async def _tag_media_async(path: Path, opts: AutoTagOptions):
@@ -145,6 +206,9 @@ async def create_job(
     base = load_options()
     raw = {**base.__dict__, **(overrides or {})}
     opts = validate_options(raw)
+    problem = preflight_error(opts)
+    if problem:
+        raise RuntimeError(problem)
     async with async_session() as db:
         candidates = await candidate_post_ids(db, mode=mode, opts=opts, post_ids=post_ids, owner_id=owner_id)
         # A non-dry-run job rewrites tags/safety on every candidate, which is
@@ -271,6 +335,15 @@ async def run_job(job_id: int, candidates: list[int]) -> None:
                     job.processed += 1
                     job.error = str(exc)
                     await db.commit()
+            if job and job.processed >= EARLY_FAILURE_LIMIT and job.failed == job.processed:
+                job.status = "failed"
+                job.error = (
+                    f"Stopped after the first {job.processed} posts all failed ({job.error}). "
+                    "Check that the enabled models are installed and downloaded."
+                )
+                job.finished_at = datetime.utcnow()
+                await db.commit()
+                return
 
     async with async_session() as db:
         job = await db.get(AutoTagJob, job_id)
@@ -287,10 +360,25 @@ async def analyze_and_maybe_apply(db, post: Post, *, opts: AutoTagOptions, job: 
     from ..config import settings
     full_path = settings.posts_dir / post.content_path
     result = await _tag_media_async(full_path, opts)
+    existing_tags = [tag.name for tag in (post.tags or [])]
+
+    if _no_model_output(result):
+        # Writing now would stamp only the media-type and provenance tags and
+        # mark the post done. Record the failure and leave the post alone.
+        db.add(AutoTagSuggestion(
+            job_id=job.id if job else None,
+            post_id=post.id,
+            status="failed",
+            suggested_tags=json.dumps(existing_tags),
+            suggested_safety=post.safety,
+            evidence=json.dumps(result.evidence or {"error": result.error}),
+            model=result.model,
+            error=result.error,
+        ))
+        raise NoModelOutput(result.error)
 
     await merge_similar_post_tags(db, result, post.phash, post.id, opts, owner_id=post.owner_id)
 
-    existing_tags = [tag.name for tag in (post.tags or [])]
     merged_tags, categories = merge_with_existing(existing_tags, result, opts)
     suggested_safety = promote_safety(post.safety or "safe", result.safety, opts)
     changed = set(merged_tags) != set(existing_tags) or suggested_safety != post.safety
