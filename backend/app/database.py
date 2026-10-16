@@ -54,9 +54,9 @@ def reset_engine_for_tests():
     Uses ``async_session.configure(bind=...)`` rather than replacing the
     ``async_session`` object, so code elsewhere that already did
     ``from .database import async_session`` keeps working - it's the same
-    sessionmaker, now pointed at the new engine. Code that imported ``engine``
-    directly (only services/backup.py) does not pick up the swap; that module
-    isn't exercised by the test suite.
+    sessionmaker, now pointed at the new engine. Code that needs ``engine``
+    itself reads ``database.engine`` at call time (as services/backup.py
+    does) rather than importing the name.
     """
     global engine
     # config.py only creates settings.data_dir (and its posts/thumbs/uploads/

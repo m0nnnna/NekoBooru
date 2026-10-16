@@ -7,7 +7,7 @@ from pathlib import Path
 from sqlalchemy import text
 
 from ..config import settings
-from ..database import engine
+from .. import database
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,8 @@ async def create_backup(label: str = "auto") -> Path:
     label = "".join(c if c.isalnum() or c in "-_" else "-" for c in (label or "auto")) or "auto"
     dest = backups_dir() / f"nekobooru-{label}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.db"
     safe = str(dest).replace("'", "''")
-    async with engine.connect() as conn:
+    # Looked up at call time: reset_engine_for_tests rebinds database.engine.
+    async with database.engine.connect() as conn:
         conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
         await conn.execute(text(f"VACUUM INTO '{safe}'"))
     logger.info("Created database backup: %s", dest)
