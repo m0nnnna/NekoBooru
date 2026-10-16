@@ -214,7 +214,7 @@ DEFAULT_SEMANTIC_PROMPT = (
     "Example expected rationale style:\n"
     "\"A single woman with long black hair and brown eyes is shown in a video. She wears a white lace bra and matching panties, revealing her breasts and cleavage. She smiles at the camera while sitting indoors, sometimes touching her head or hair, occasionally resting her hand on her chest or stomach. The setting appears to be an indoor room with soft lighting. Visible details include a mole under her mouth, bare shoulders, and her navel. The content is explicitly erotic due to the revealing lingerie, prominent cleavage, and suggestive poses.\"\n\n"
     "Safety values:\n"
-    "- Use safety safe for ordinary SFW content, sketchy for suggestive/revealing content, and unsafe for explicit NSFW/adult erotic content. safety_reason should briefly explain the classification based only on visible evidence. confidence must be low, medium, or high.\n\n"
+    "- Use safety unsafe for any nudity (exposed breasts, nipples, genitals, or bare buttocks), sexual acts, or other explicit NSFW/adult erotic content; sketchy for suggestive or revealing content without nudity (lingerie, swimwear, cleavage, suggestive poses); and safe for ordinary SFW content. Rate what is visible, not what the existing tags or rating say. safety_reason should briefly explain the classification based only on visible evidence. confidence must be low, medium, or high.\n\n"
     "Tags in priority order:\n"
     "- Return 6-28 useful searchable tags supported by the image, frame, OCR, transcript, or source page.\n"
     "- For video frame collections or contact sheets, compare the sampled frames in order and infer temporal context, but describe it as the video/content, and do not output metadata tags or mention metadata such as frame_1, frame_2, three_frames, timestamps, contact_sheet, or sampled_frame.\n"
@@ -238,6 +238,12 @@ LEGACY_SEMANTIC_PROMPTS = {
         "If transcript or audio evidence suggests a song or music-driven edit, include music and edit."
     ),
     "Return JSON semantic tags.",
+    # The default before nudity was spelled out as unsafe; saved settings
+    # still holding it pick up the current default.
+    DEFAULT_SEMANTIC_PROMPT.replace(
+        "- Use safety unsafe for any nudity (exposed breasts, nipples, genitals, or bare buttocks), sexual acts, or other explicit NSFW/adult erotic content; sketchy for suggestive or revealing content without nudity (lingerie, swimwear, cleavage, suggestive poses); and safe for ordinary SFW content. Rate what is visible, not what the existing tags or rating say. safety_reason should briefly explain the classification based only on visible evidence. confidence must be low, medium, or high.\n\n",
+        "- Use safety safe for ordinary SFW content, sketchy for suggestive/revealing content, and unsafe for explicit NSFW/adult erotic content. safety_reason should briefly explain the classification based only on visible evidence. confidence must be low, medium, or high.\n\n",
+    ),
 }
 
 
@@ -363,19 +369,20 @@ def qualified_display_name(raw: str) -> str | None:
 
 
 def safety_from_rating(rating: dict[str, float], opts: AutoTagOptions) -> str | None:
+    # Booru ratings: explicit is sex, questionable is nudity, sensitive is
+    # suggestive, general is safe. Nudity or sex makes a post unsafe. The
+    # verdict also loosens a post (promote_safety), so "safe" needs the model to
+    # actually call the image general; anything in between is no verdict.
     explicit = max(rating.get("explicit", 0.0), rating.get("rating_explicit", 0.0))
     questionable = max(rating.get("questionable", 0.0), rating.get("rating_questionable", 0.0))
     sensitive = max(rating.get("sensitive", 0.0), rating.get("sensitive_content", 0.0))
-    if explicit >= opts.unsafeThreshold:
+    general = max(rating.get("general", 0.0), rating.get("rating_general", 0.0))
+    nsfw = explicit + questionable
+    if nsfw >= opts.unsafeThreshold:
         return "unsafe"
-    sketchy_threshold = max(opts.sketchyThreshold, 0.65)
-    if (
-        explicit >= sketchy_threshold
-        or questionable >= max(opts.unsafeThreshold, 0.75)
-        or sensitive >= max(sketchy_threshold, 0.75)
-    ):
+    if nsfw + sensitive >= max(opts.sketchyThreshold, 0.65):
         return "sketchy"
-    if rating:
+    if general >= 0.5:
         return "safe"
     return None
 

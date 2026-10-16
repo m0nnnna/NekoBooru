@@ -138,15 +138,24 @@ class AutoTagResultTests(unittest.TestCase):
         self.assertNotIn("card_medium", result.tags)
         self.assertNotIn("outline", result.tags)
 
-    def test_safety_rating_requires_strong_evidence_for_promotion(self):
+    def test_safety_rating_flags_nudity_and_sex_and_needs_confidence_for_safe(self):
         from app.services.auto_tagger import AutoTagOptions, safety_from_rating
 
         opts = AutoTagOptions(unsafeThreshold=0.70, sketchyThreshold=0.45)
 
-        self.assertEqual(safety_from_rating({"questionable": 0.50}, opts), "safe")
-        self.assertEqual(safety_from_rating({"sensitive": 0.60}, opts), "safe")
+        # Sex (explicit) and nudity (questionable) are both unsafe, together too.
         self.assertEqual(safety_from_rating({"explicit": 0.71}, opts), "unsafe")
-        self.assertEqual(safety_from_rating({"questionable": 0.78}, opts), "sketchy")
+        self.assertEqual(safety_from_rating({"questionable": 0.78}, opts), "unsafe")
+        self.assertEqual(safety_from_rating({"explicit": 0.40, "questionable": 0.35, "general": 0.20}, opts), "unsafe")
+        # Suggestive without nudity is sketchy.
+        self.assertEqual(safety_from_rating({"sensitive": 0.70, "general": 0.30}, opts), "sketchy")
+        # Safe needs the model to call it general, since safe also loosens a post.
+        self.assertEqual(safety_from_rating({"general": 0.90, "sensitive": 0.08}, opts), "safe")
+        # Weak or split scores are no verdict, which leaves the post alone.
+        self.assertIsNone(safety_from_rating({"questionable": 0.50}, opts))
+        self.assertIsNone(safety_from_rating({"sensitive": 0.60}, opts))
+        self.assertIsNone(safety_from_rating({"general": 0.45, "sensitive": 0.30, "questionable": 0.20}, opts))
+        self.assertIsNone(safety_from_rating({}, opts))
 
     def test_semantic_safety_aliases_promote_safety(self):
         from app.services.auto_tagger import AutoTagOptions, normalize_safety_label, promote_safety
