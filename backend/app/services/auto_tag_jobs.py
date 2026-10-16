@@ -308,7 +308,12 @@ async def estimate(mode: str, owner_id: int, overrides: dict | None = None) -> d
     if mode == EVERYTHING_MODE:
         # Name what "every model" means on this install before the job starts.
         everything = validate_options({**opts.__dict__, **everything_overrides(opts)})
-        counts["models"] = [str(MODEL_REGISTRY[m]["name"]) for m in _enabled_models(everything)]
+        remote = bool(everything.remoteEnabled and everything.remoteUrl)
+        counts["models"] = [
+            str(MODEL_REGISTRY[m]["name"])
+            for m in _enabled_models(everything)
+            if remote or _model_unready(m) is None
+        ]
     async with async_session() as db:
         ids = await candidate_post_ids(db, mode=mode, opts=opts, owner_id=owner_id)
         if not ids:

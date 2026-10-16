@@ -93,6 +93,18 @@ class AutoTagBulkJobApiTests(support.AutoTagApiTestCase):
         # The selected Qwen backend is not downloaded, so a ready one runs instead.
         self.assertEqual(overrides["semanticModelId"], "qwen_gguf_q4")
 
+    def test_everything_estimate_names_only_models_that_can_run(self):
+        self._enable_auto_tags()
+        with patch("app.services.auto_tag_jobs._model_unready", return_value="missing_runtime_dependency"):
+            none_ready = self.client.get("/api/auto-tags/estimate?mode=everything").json()
+        with patch("app.services.auto_tag_jobs._model_unready",
+                   side_effect=lambda m: None if m in {"wd", "ocr"} else "model_not_downloaded"):
+            some_ready = self.client.get("/api/auto-tags/estimate?mode=everything").json()
+
+        # WD is on by default, but it must not be listed when it cannot run.
+        self.assertEqual(none_ready["models"], [])
+        self.assertEqual(some_ready["models"], ["WD Tagger", "TrOCR Printed"])
+
     def test_everything_job_adds_tags_and_rating_to_every_post_without_removing_any(self):
         self._enable_auto_tags()
         light = self._upload_image_post(tags=[], safety="unsafe")
