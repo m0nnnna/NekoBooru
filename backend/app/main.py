@@ -8,7 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
+from .ai_runtime_link import link_ai_runtime
 from .config import settings, get_bundle_dir
+
+# Every launcher imports this module, including run.py's reload worker and a
+# bare `uvicorn app.main:app`, which never pass through run_prod.py or
+# nekobooru.py. Without it a source install whose AI stack lives in the managed
+# runtimes/python-ai venv reports torch and onnxruntime missing. Idempotent.
+link_ai_runtime()
+
 from .database import init_db
 from .dependencies import get_current_user
 from .routers import uploads, upload_jobs, posts, tags, pools, notes, comments, sync, auto_tags, runtime, updates, site_imports, booru_search, settings as settings_router, auth as auth_router
