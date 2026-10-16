@@ -30,7 +30,9 @@ async def create_backup(label: str = "auto") -> Path:
     inside an open transaction.
     """
     label = "".join(c if c.isalnum() or c in "-_" else "-" for c in (label or "auto")) or "auto"
-    dest = backups_dir() / f"nekobooru-{label}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.db"
+    # Microseconds too: VACUUM INTO refuses an existing file, so two backups in
+    # the same second (a job started right after another) must not collide.
+    dest = backups_dir() / f"nekobooru-{label}-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}.db"
     safe = str(dest).replace("'", "''")
     # Looked up at call time: reset_engine_for_tests rebinds database.engine.
     async with database.engine.connect() as conn:
